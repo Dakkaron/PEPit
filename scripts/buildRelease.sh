@@ -3,7 +3,7 @@
 VERSION=$1
 
 if [[ -z "$VERSION" ]]; then
-  echo "ERROR: No version supplied!" > &2
+  echo "ERROR: No version supplied!" >&2
   exit 1
 fi
 
@@ -12,7 +12,8 @@ echo "Checking that no staged changes exist"
 CONSTANTS_H_PATH='T-HMI-PEPmonitor/src/constants.h'
 
 if [[ $(git status -s -uno) ]]; then
-  echo "ERROR: Git is not clean! Commit or revert all changes including staged changes!" > &2
+  echo "ERROR: Git is not clean! Commit or revert all changes including staged changes!" >&2
+  git status -s -uno >&2
   exit 1
 fi
 
@@ -23,10 +24,10 @@ fi
 
 echo "Setting version $VERSION in constants.h"
 
-if grep '#define VERSION "'"$VERSION"'"'; then
+if grep '#define VERSION "'"$VERSION"'"' 'T-HMI-PEPmonitor/src/constants.h'; then
   echo "Version already set correctly."
 else
-  sed -ie '0,/#define VERSION "[^"]*"/ s/#define VERSION "[^"]*"/#define VERSION'"$VERSION"'/' 'T-HMI-PEPmonitor/src/constants.h'
+  sed -ie '0,/#define VERSION "[^"]*"/ s/#define VERSION "[^"]*"/#define VERSION "'"$VERSION"'"/' 'T-HMI-PEPmonitor/src/constants.h'
 
   git add 'T-HMI-PEPmonitor/src/constants.h'
   git commit -m "Version bump for version $VERSION"
@@ -39,6 +40,10 @@ pio run
 cd ..
 
 echo 'Creating output directory'
+if [ -d "release" ]; then
+  rm -r release
+fi
+
 mkdir release
 
 echo 'Copying firmware.bin to output directory'
@@ -49,6 +54,12 @@ cd SDCardContent
 tar -cf ../release/SDCardContent.tar *
 tar -czf ../release/SDCardContent.tar.gz *
 zip -q ../release/SDCardContent.zip *
+
+cp ../release/firmware.bin .
+tar -cf ../release/SDCardUpdate.tar *
+tar -czf ../release/SDCardUpdate.tar.gz *
+zip -q ../release/SDCardUpdate.zip *
+rm firmware.bin
 cd ..
 
 echo 'Updating path_to_latest_release'
