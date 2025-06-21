@@ -111,6 +111,9 @@ void setup() {
   Serial.print(VERSION);
   Serial.println("' initialized");
 
+  checkForAndRunUpdateFromSD(&errorMessage);
+  checkFailWithMessage(errorMessage);
+
   tft.setTextSize(1);
   tft.drawString("Warte auf WLAN-Verbindung...", 0, 230);
 

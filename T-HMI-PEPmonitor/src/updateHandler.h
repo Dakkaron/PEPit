@@ -8,6 +8,7 @@
 #define FIRMWARE_UPDATE_NOT_AVAILABLE 2
 
 void downloadAndRunSystemUpdate(String* errorMessage);
+void checkForAndRunUpdateFromSD(String* errorMessage);
 uint8_t getSystemUpdateAvailableStatus();
 
 #endif /* __UPDATE_HANDLER_H__ */

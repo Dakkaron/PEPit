@@ -186,8 +186,9 @@ void downloadAndRunSystemUpdate(String* errorMessage) {
     displayFullscreenMessage("App-Update installieren\n\n    "+String(progress / (total / 100))+"%");
     Serial.printf("Progress: %d%%\r", (progress / (total / 100)));
   });
+
   displayFullscreenMessage("App-Update wird\ninstalliert...");
-  Serial.println("Starting update");
+  Serial.println("Starting App update");
   if (String(SDCARD_CONTENT_FILE_NAME).endsWith(".gz")) {
     unpackTARGZAppUpdate(errorMessage);
   } else {
@@ -208,6 +209,42 @@ void downloadAndRunSystemUpdate(String* errorMessage) {
     errorMessage->concat("Update failed: ");
     errorMessage->concat(Update.errorString());
     errorMessage->concat("\n");
+    return;
+  }
+}
+
+void checkForAndRunUpdateFromSD(String* errorMessage) {
+  if (!SD_MMC.exists("/firmware.bin")) {
+    Serial.println("No update found on SD card.");
+    return;
+  }
+  Serial.println("Starting update from SD card.");
+  tft.fillScreen(TFT_BLACK);
+  displayFullscreenMessage("Firmware-Update auf\nSD-Karte gefunden.\nUpdate wird ausgeführt.");
+  File fileStream = SD_MMC.open("/firmware.bin");
+  Update.begin(fileStream.size(), U_FLASH);
+  Update.writeStream(fileStream);
+
+  Update.onProgress([](int progress, int total) {
+    displayFullscreenMessage("Update installieren\n\n    "+String(progress / (total / 100))+"%");
+    Serial.printf("Progress: %d%%\r", (progress / (total / 100)));
+  });
+  if (SD_MMC.exists("/FIRMWARE.CUR")) {
+    SD_MMC.remove("/FIRMWARE.CUR");
+  }
+  if (Update.end()) {
+    SD_MMC.rename("/firmware.bin", "/FIRMWARE.CUR");
+    displayFullscreenMessage("Update erfolgreich!\n\nWird neugestartet...");
+    Serial.println("Update done");
+    writeStringToFile(LAST_RELEASE_URL_FILE_PATH, systemUpdateReleaseUrl);
+    delay(2000);
+    Serial.println("Resetting device");
+    ESP.restart();
+  } else {
+    errorMessage->concat("Update failed: ");
+    errorMessage->concat(Update.errorString());
+    errorMessage->concat("\n");
+    SD_MMC.rename("/firmware.bin", "/FIRMWARE.ERR");
     return;
   }
 }
