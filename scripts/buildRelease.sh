@@ -63,7 +63,9 @@ rm firmware.bin
 cd ..
 
 echo 'Updating path_to_latest_release'
-echo 'https://github.com/Dakkaron/T-HMI-PEPmonitor/releases/download/v'"$VERSION"'/' > path_to_latest_release
+echo -n 'https://github.com/Dakkaron/PEPit/releases/download/v'"$VERSION"'/' > path_to_latest_release
+git add path_to_latest_release
+git commit -m "Updated path_to_latest_release"
 git push
 
 echo "Adding git tag"
