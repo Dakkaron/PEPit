@@ -74,10 +74,10 @@ DisplayEarnings(PlayerX*40 + 20, 40)
 
 if (StepsLeft > 0) then
   if (PlayerX > 0) then
-    drawSprite(SArrowLeft, 3 + math.sin(Ms/200)*2, 100)
+    DrawSprite(SArrowLeft, 3 + math.sin(Ms/200)*2, 100)
   end
   if (PlayerX < 7) then
-    drawSprite(SArrowRight, 291 - math.sin(Ms/200)*2, 100)
+    DrawSprite(SArrowRight, 291 - math.sin(Ms/200)*2, 100)
   end
 end
 

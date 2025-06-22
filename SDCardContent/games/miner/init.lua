@@ -330,10 +330,10 @@ STileRock = LoadSprite("gfx/tilefragments/tile_rock.bmp", 0, 0x0001)
 
 SItemLantern = LoadSprite("gfx/item_lantern.bmp", 0, 0x0001)
 
-SExplosionAnim = loadAnimSprite("gfx/explosion-0.bmp", 80, 48, 0, 0x0001)
+SExplosionAnim = LoadAnimSprite("gfx/explosion-0.bmp", 80, 48, 0, 0x0001)
 
-SArrowRight = loadSprite("gfx/arrow.bmp", 0, 0xf81f)
-SArrowLeft = loadSprite("gfx/arrow.bmp", 1, 0xf81f)
+SArrowRight = LoadSprite("gfx/arrow.bmp", 0, 0xf81f)
+SArrowLeft = LoadSprite("gfx/arrow.bmp", 1, 0xf81f)
 
 math.randomseed(Ms)
 

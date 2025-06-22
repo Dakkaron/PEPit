@@ -72,7 +72,7 @@ SetTextColor(0xFD00)
 SetTextSize(2)
 DrawString("X", InhalationCrosshairX-4, InhalationCrosshairY-6)
 SetTextColor(0xFFFF)
-DrawString("$" .. money, 190, 188)
+DrawString("$" .. Money, 190, 188)
 
 SetTextColor(0xFFE0)
 DisplayEarnings(50, 50)

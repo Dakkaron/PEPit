@@ -195,7 +195,7 @@ uint16_t getNumberOfGames(String* errorMessage, uint32_t requiredTaskTypes) {
           gameCount++;
           Serial.println("CONFIRMED!");
         } else {
-          Serial.println("Game " + String(file.name()) + "does not support requred task types.");
+          Serial.println("Game " + String(file.name()) + " does not support requred task types.");
         }
       } else {
         Serial.println("NOT A GAME!");

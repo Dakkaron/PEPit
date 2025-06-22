@@ -43,7 +43,7 @@ if (EarnTime > Ms) then
   DrawString("+" .. EarnValue, 265, 40 + (EarnTime - Ms) * 0.01)
 end
 
-DrawString("$" .. money, 190, 188)
+DrawString("$" .. Money, 190, 188)
 SetTextSize(1)
 
 --drawString("Free RAM" .. getFreeRAM(), 10, 100);

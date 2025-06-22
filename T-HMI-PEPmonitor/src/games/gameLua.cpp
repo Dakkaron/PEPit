@@ -654,7 +654,7 @@ void initLua() {
 void initGames_lua(String gamePath, GameConfig* gameConfig, String* errorMessage) {
   String ignoreErrorMessage;
   initLua();
-  String msString = "ms="+String(millis());
+  String msString = "Ms="+String(millis());
   lua_dostring(msString.c_str(), "initGames_lua()");
   luaGamePath = gamePath;
   String luaGameIniPath = gamePath + "gameconfig.ini";
@@ -698,6 +698,7 @@ void updateBlowData(BlowData* blowData) {
                           "BreathingScore="+String(blowData->breathingScore);
   lastKnownTaskNumber = taskNumber;
   lua_dostring(blowDataString.c_str(), "updateBlowData()");
+  Serial.println(blowDataString);
   lastMs = blowData->ms;
   lastRepetition = blowData->blowCount;
 }
