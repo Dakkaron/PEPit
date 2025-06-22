@@ -31,12 +31,7 @@ static void fetchReleaseUrl() {
     systemUpdateWasChecked = true;
     return;
   }
-  String lastUrl = "none";
-  if (SD_MMC.exists(LAST_RELEASE_URL_FILE_PATH)) {
-    lastUrl = readFileToString(LAST_RELEASE_URL_FILE_PATH);
-  }
-  Serial.println("Last URL: "+lastUrl);
-  systemUpdateReleaseUrl = url.equals(lastUrl) ? "" : url;
+  systemUpdateReleaseUrl = url.indexOf("/v"+String(VERSION)+"/")!=-1 ? "" : url;
   systemUpdateWasChecked = true;
   Serial.println("Result: "+systemUpdateReleaseUrl);
 }
@@ -199,14 +194,22 @@ void downloadAndRunSystemUpdate(String* errorMessage) {
     return;
   }
 
+  if (SD_MMC.exists("/FIRMWARE.CUR")) {
+    SD_MMC.remove("/FIRMWARE.CUR");
+  }
+  if (SD_MMC.exists("/FIRMWARE.ERR")) {
+    SD_MMC.remove("/FIRMWARE.ERR");
+  }
+
   if (Update.end()) {
+    SD_MMC.rename("/firmware.bin", "/FIRMWARE.CUR");
     displayFullscreenMessage("Update erfolgreich!\n\nWird neugestartet...");
     Serial.println("Update done");
-    writeStringToFile(LAST_RELEASE_URL_FILE_PATH, systemUpdateReleaseUrl);
     delay(2000);
     Serial.println("Resetting device");
     ESP.restart();
   } else {
+    SD_MMC.rename("/firmware.bin", "/FIRMWARE.ERR");
     errorMessage->concat("Update failed: ");
     errorMessage->concat(Update.errorString());
     errorMessage->concat("\n");
@@ -233,19 +236,21 @@ void checkForAndRunUpdateFromSD(String* errorMessage) {
   if (SD_MMC.exists("/FIRMWARE.CUR")) {
     SD_MMC.remove("/FIRMWARE.CUR");
   }
+  if (SD_MMC.exists("/FIRMWARE.ERR")) {
+    SD_MMC.remove("/FIRMWARE.ERR");
+  }
   if (Update.end()) {
     SD_MMC.rename("/firmware.bin", "/FIRMWARE.CUR");
     displayFullscreenMessage("Update erfolgreich!\n\nWird neugestartet...");
     Serial.println("Update done");
-    writeStringToFile(LAST_RELEASE_URL_FILE_PATH, systemUpdateReleaseUrl);
     delay(2000);
     Serial.println("Resetting device");
     ESP.restart();
   } else {
+    SD_MMC.rename("/firmware.bin", "/FIRMWARE.ERR");
     errorMessage->concat("Update failed: ");
     errorMessage->concat(Update.errorString());
     errorMessage->concat("\n");
-    SD_MMC.rename("/firmware.bin", "/FIRMWARE.ERR");
     return;
   }
 }
