@@ -1,11 +1,11 @@
 # Lua API
 
 ```lua
-delay(seconds)
+Delay(seconds)
 
-loadBmp(path): returns sprite handle as integer
+LoadBmp(path): returns sprite handle as integer
 
-drawSprite(handle, x, y)
-drawString(str, x, y)
+DrawSprite(handle, x, y)
+DrawString(str, x, y)
 
 ```
