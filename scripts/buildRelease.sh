@@ -53,12 +53,12 @@ echo 'Building SDCardContent archives'
 cd SDCardContent
 tar -cf ../release/SDCardContent.tar *
 tar -czf ../release/SDCardContent.tar.gz *
-zip -q ../release/SDCardContent.zip *
+zip -rq ../release/SDCardContent.zip *
 
 cp ../release/firmware.bin .
-tar -cf ../release/SDCardUpdate.tar *
-tar -czf ../release/SDCardUpdate.tar.gz *
-zip -q ../release/SDCardUpdate.zip *
+tar -cf ../release/SDCardUpdate.tar --exclude=profiles.ini --exclude=systemconfig.ini *
+tar -czf ../release/SDCardUpdate.tar.gz --exclude=profiles.ini --exclude=systemconfig.ini *
+zip -rq ../release/SDCardUpdate.zip * -x profiles.ini -x systemconfig.ini
 rm firmware.bin
 cd ..
 
