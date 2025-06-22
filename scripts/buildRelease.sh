@@ -24,12 +24,15 @@ fi
 
 echo "Setting version $VERSION in constants.h"
 
-if grep '#define VERSION "'"$VERSION"'"' 'T-HMI-PEPmonitor/src/constants.h'; then
+if grep '#define VERSION "'"$VERSION"'"' "$CONSTANTS_H_PATH"; then
   echo "Version already set correctly."
 else
-  sed -ie '0,/#define VERSION "[^"]*"/ s/#define VERSION "[^"]*"/#define VERSION "'"$VERSION"'"/' 'T-HMI-PEPmonitor/src/constants.h'
+  sed -ie '0,/#define VERSION "[^"]*"/ s/#define VERSION "[^"]*"/#define VERSION "'"$VERSION"'"/' "$CONSTANTS_H_PATH"
+  if [[ ! -f "$CONSTANTS_H_PATH"'e' ]]; then
+    rm "$CONSTANTS_H_PATH"'e'
+  fi
 
-  git add 'T-HMI-PEPmonitor/src/constants.h'
+  git add "$CONSTANTS_H_PATH"
   git commit -m "Version bump for version $VERSION"
   git push
 fi
