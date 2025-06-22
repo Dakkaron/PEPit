@@ -24,6 +24,7 @@ static void fetchReleaseUrl() {
   Serial.println("Checking for firmware update");
   String ignoreMessage;
   String url = downloadFileToString(FIRMWARE_RELEASE_PATH_URL, &ignoreMessage);
+  url.trim();
   Serial.println("Update URL: "+url);
   if (ignoreMessage.length() > 0) {
     Serial.println("Error checking for firmware update: "+ignoreMessage);
