@@ -164,7 +164,7 @@ function GenStructure(x, y, typ)
     StrH = 2
     StrX = x
     StrY = y
-    --GenStructure(x, y, 0)
+    GenStructure(x, y, 0)
   end
 end
 
@@ -206,7 +206,25 @@ function GenTile(x, y, baseOdds)
   elseif (Stage == 3) then
     if (v < 20) then
       WorldMapArray[x][y] = 7
-    elseif (v < 21 and StrX == -1) then
+    elseif (v < 23 and StrX == -1 and x<=5) then
+      GenStructure(x, y, 1)
+    elseif (v < 40) then
+      WorldMapArray[x][y] = 5
+    elseif (v < 70) then
+      WorldMapArray[x][y] = 4
+    elseif (v < 120) then
+      WorldMapArray[x][y] = 3
+    elseif (v < 220) then
+      WorldMapArray[x][y] = 2
+    else
+      WorldMapArray[x][y] = 1
+    end
+  elseif (Stage == 4) then
+    if (v < 20) then
+      WorldMapArray[x][y] = 7
+    elseif (v < 21 and StrX == -1 and x<=5) then
+      GenStructure(x, y, 2)
+    elseif (v < 23 and StrX == -1 and x<=5) then
       GenStructure(x, y, 1)
     elseif (v < 40) then
       WorldMapArray[x][y] = 5

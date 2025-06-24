@@ -40,6 +40,24 @@ elseif (Stage == 2) then
     PrefsSetInt("stage", Stage)
     PrefsSetInt("money", Money)
   end
+elseif (Stage == 3) then
+  if (Money < 25000) then
+    FillRect(10, 60, 220, 35, 0xF800)
+  else
+    FillRect(10, 60, 220, 35, 0x001F)
+    SetTextSize(1)
+    DrawString("Nicht genug Geld", 15, 84)
+  end
+
+
+  SetTextSize(2)
+  DrawString("Tiefer graben: $25000", 15, 65)
+  if (Money >= 25000 and IsTouchInZone(10, 60, 220, 35)) then
+    Money = Money - 25000
+    Stage = 4
+    PrefsSetInt("stage", Stage)
+    PrefsSetInt("money", Money)
+  end
 end
 
 SetTextSize(2)
