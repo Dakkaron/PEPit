@@ -38,6 +38,7 @@ void runGameSelection(uint32_t requiredTaskTypes) {
   checkFailWithMessage(errorMessage);
   Serial.print("Game path: ");
   Serial.println(gamePath);
+  displayFullscreenMessage("Spiel wird geladen\nBitte warten...");
   initGames(gamePath, &errorMessage);
   checkFailWithMessage(errorMessage);
 }
