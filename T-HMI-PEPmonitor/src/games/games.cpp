@@ -3,6 +3,8 @@
 #include "gameRacing.h"
 #include "gameLua.h"
 
+#define EXECUTION_LOG_MAX_LINES 24
+
 String currentGamePath;
 GameConfig gameConfig;
 void initGames(String gamePath, String* errorMessage) {
@@ -120,8 +122,8 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
   }
 
   if (skipLines > totalLineCount) {
-    if (totalLineCount > 25) {
-      skipLines = totalLineCount - 25;
+    if (totalLineCount > EXECUTION_LOG_MAX_LINES) {
+      skipLines = totalLineCount - EXECUTION_LOG_MAX_LINES;
     } else {
       skipLines = 0;
     }
@@ -156,10 +158,10 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
   drawBmp(&spr, "/gfx/arrow_down.bmp", 280, 208, 0xf81f, false);
   if (skipLines > 0 && isTouchInZone(280, 40, 32, 32)) {
     skipLines--;
-  } else if (skipLines < totalLineCount - 25 && isTouchInZone(280, 208, 32, 32)) {
+  } else if (skipLines < totalLineCount - EXECUTION_LOG_MAX_LINES && isTouchInZone(280, 208, 32, 32)) {
     skipLines++;
   }
-  uint32_t scrollBarHeight = (200*25)/totalLineCount;
+  uint32_t scrollBarHeight = (200*EXECUTION_LOG_MAX_LINES)/totalLineCount;
   uint32_t scrollBarY = (200*skipLines)/totalLineCount;
   spr.fillRect(315, scrollBarY+40, 5, scrollBarHeight, TFT_WHITE);
   return true;
