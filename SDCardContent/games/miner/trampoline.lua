@@ -14,6 +14,7 @@ end
 if (NewRepetition) then
   MineTile(3, 3)
   MineTile(4, 3)
+  StrY = StrY - 1
 end
 
 if (LastJumpMs + 200 > Ms) then
