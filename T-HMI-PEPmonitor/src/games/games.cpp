@@ -131,6 +131,7 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
 
   lineStart = 0;
   uint32_t lineCount = 0;
+  String lastDate = "";
   while (lineStart < executionLog->length()) {
     uint32_t lineEnd = executionLog->indexOf('\n', lineStart);
     if (lineEnd == -1) {
@@ -146,6 +147,12 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
     String profile = line.substring(0, sepIndex);
     sepIndex = line.indexOf(';', sepIndex + 1);
     String date = line.substring(profile.length() + 1, sepIndex);
+    if (date.equals(lastDate)) {
+      date = "";
+    } else {
+      spr.drawFastHLine(0, yPos-1, 320, 0x528a);
+      lastDate = date;
+    }
     String time = line.substring(sepIndex + 1, line.length());
     time = leftPadString(time, 5);
     spr.drawString(date, 0, yPos);
