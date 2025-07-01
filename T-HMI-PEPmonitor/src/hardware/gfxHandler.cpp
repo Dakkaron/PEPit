@@ -52,7 +52,7 @@ static uint32_t read32(fs::File &f) {
   return result;
 }
 
-static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerPixel, uint16_t w, bool hasAlpha, uint16_t padding, uint16_t maskingColor) {
+static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerPixel, uint16_t w, bool hasAlpha, uint16_t padding, uint16_t maskingColor, bool enableDitherTransparency, bool oddRow) {
   uint8_t r, g, b, a;
   bmpFS->read(lineBuffer, w * bytesPerPixel);
   uint8_t*  bptr = lineBuffer;
@@ -64,7 +64,7 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
       g = *bptr++;
       r = *bptr++;
       a = *bptr++;
-      if (a == 0) {
+      if (a == 0 || (enableDitherTransparency && (col & 0x01) == oddRow)) {
         *tptr++ = maskingColor;
       } else {
         uint16_t res = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
@@ -74,16 +74,20 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
         *tptr++ = res;
       }
     } else if (bytesPerPixel == 3) {
-      b = *bptr++;
-      g = *bptr++;
-      r = *bptr++;
-      *tptr++ = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+      if (enableDitherTransparency && (col & 0x01) == oddRow) {
+        *tptr++ = maskingColor;
+      } else {
+        b = *bptr++;
+        g = *bptr++;
+        r = *bptr++;
+        *tptr++ = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+      }
     } else if (bytesPerPixel == 2) {
       if (hasAlpha) {
         uint16_t color = (*bptr++);
         color |= (*bptr++) << 8;
         a = (color & 0x8000) >> 15;
-        if (a == 0) {
+        if (a == 0 || (enableDitherTransparency && (col & 0x01) == oddRow)) {
           *tptr++ = maskingColor;
         } else {
           r = (color & 0xFC00) >> 10;
@@ -95,9 +99,15 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
           *tptr++ = (r << 11) | (g << 6) | b;
         }
       } else {
-        uint16_t color = (*bptr++);
-        color |= (*bptr++) << 8;
-        *tptr++ = color;
+        if (enableDitherTransparency && ((col & 0x01) == oddRow)) {
+          bptr++;
+          bptr++;
+          *tptr++ = maskingColor;
+        } else {
+          uint16_t color = (*bptr++);
+          color |= (*bptr++) << 8;
+          *tptr++ = color;
+        }
       }
     }
   }
@@ -140,28 +150,30 @@ bool loadBmp(DISPLAY_T* display, String filename) {
   return loadBmp(display, filename, 0);
 }
 
-bool loadBmp(DISPLAY_T* display, String filename, uint8_t flipped) {
-  return loadBmpAnim(&display, filename, 1, flipped);
+bool loadBmp(DISPLAY_T* display, String filename, uint8_t options) {
+  return loadBmpAnim(&display, filename, 1, options);
 }
 
-bool loadBmp(DISPLAY_T* display, String filename, uint8_t flipped, uint16_t maskingColor) {
-  return loadBmpAnim(&display, filename, 1, flipped, maskingColor);
+bool loadBmp(DISPLAY_T* display, String filename, uint8_t options, uint16_t maskingColor) {
+  return loadBmpAnim(&display, filename, 1, options, maskingColor);
 }
 
 bool loadBmpAnim(DISPLAY_T** display, String filename, uint8_t animFrames) {
   return loadBmpAnim(display, filename, animFrames, 0);
 }
 
-bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint8_t flipped) {
-  return loadBmpAnim(displays, filename, animFrames, flipped, TFT_BLACK);
+bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint8_t options) {
+  return loadBmpAnim(displays, filename, animFrames, options, TFT_BLACK);
 }
 
 /*
  * animFrames -> number of frames to export, 1 == no animation, still image
  */
-bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint8_t flipped, uint16_t maskingColor) {
+bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint8_t options, uint16_t maskingColor) {
   Serial.print("File: ");
   Serial.println(filename);
+  Serial.print("Options: ");
+  Serial.println(options);
   Serial.println("#");
 
   File bmpFS;
@@ -232,13 +244,13 @@ bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint
         Serial.print("Loading frame: ");
         Serial.println(frameNr);
         for (row = 0; row < frameH; row++) {
-          parseBitmapLine(&bmpFS, lineBuffer, bytesPerPixel, w, hasAlpha, padding, maskingColor);
+          parseBitmapLine(&bmpFS, lineBuffer, bytesPerPixel, w, hasAlpha, padding, maskingColor, options & DITHER_TRANSPARENCY, row & 0x01);
 
-          if (flipped & FLIPPED_H) {
+          if (options & FLIPPED_H) {
             std::reverse((uint16_t*)lineBuffer, ((uint16_t*)lineBuffer)+w);
           }
           // Push the pixel row to screen, pushImage will crop the line if needed
-          if (flipped & FLIPPED_V) {
+          if (options & FLIPPED_V) {
             displays[frameNr]->pushImage(0, row, w, 1, (uint16_t*)lineBuffer);
           } else {
             displays[frameNr]->pushImage(0, frameH - 1 - row, w, 1, (uint16_t*)lineBuffer);
@@ -332,7 +344,7 @@ bool drawBmpSlice(String filename, int16_t x, int16_t y, int16_t maxH, bool debu
       uint8_t lineBuffer[w * bytesPerPixel];
 
       for (row = h-maxH; row < h; row++) {
-        parseBitmapLine(&bmpFS, lineBuffer, bytesPerPixel, w, hasAlpha, padding, TFT_BLACK);
+        parseBitmapLine(&bmpFS, lineBuffer, bytesPerPixel, w, hasAlpha, padding, TFT_BLACK, false, row & 0x01);
 
         // Push the pixel row to screen, pushImage will crop the line if needed
         tft.pushImage(x, y + h - 1 - row, w, 1, (uint16_t*)lineBuffer, 0x0000);
@@ -418,7 +430,7 @@ static bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, ui
       uint8_t lineBuffer[w * bytesPerPixel];
 
       for (row = 0; row < h; row++) {
-        parseBitmapLine(&bmpFS, lineBuffer, bytesPerPixel, w, hasAlpha, padding, transp);
+        parseBitmapLine(&bmpFS, lineBuffer, bytesPerPixel, w, hasAlpha, padding, transp, false, row & 0x01);
 
         // Push the pixel row to screen, pushImage will crop the line if needed
         if (enableTransp) {
@@ -739,7 +751,7 @@ void drawSystemStats(uint32_t ms, uint32_t lastMs) {
   } else {
     lowBatteryWarningCount = 0;
   }
-  if (lowBatteryWarningCount>100 && batteryVoltage<BATTERY_LOW_WARNING_VOLTAGE && (ms/1000)%2) {
+  if (lowBatteryWarningCount>100 && batteryVoltage<BATTERY_LOW_WARNING_VOLTAGE && (ms/1000)&0x01) {
     batteryIcon[0].pushToSprite(&spr, 144, 110, 0x0000);
   }
   if (batteryVoltage<BATTERY_LOW_SHUTDOWN_VOLTAGE) {
