@@ -132,6 +132,8 @@ def readFile(path, retry=0):
 def ls(path, absolute=False):
     if isinstance(path,str):
         path = path.encode("utf-8")
+    if len(path)>1 and path[-1:]==b"/":
+        path = path[:-1]
     ser.flush()
     ser.reset_input_buffer()
     ser.reset_output_buffer()
@@ -246,21 +248,34 @@ def checkDoublePath(param):
     path = param.split(" ")
     if len(path) == 1:
         return [
-            re.sub(r"^/", "", path[0]),
-            re.sub(r"^([^/])", r"/\1", path[0])
+            path[0][1:],
+            path[0]
         ]
     else:
-        return path
+        return [
+            path[0][1:],
+            path[1]
+        ]
 
 def main():
+    if ("WIPSDCardContent" in os.getcwd()):
+        localRoot = os.path.abspath(os.path.join(os.path.join(os.path.join(__file__, os.pardir), os.pardir), "WIPSDCardContent"))
+    else:
+        localRoot = os.path.abspath(os.path.join(os.path.join(os.path.join(__file__, os.pardir), os.pardir), "SDCardContent"))
+    os.chdir(localRoot)
+    print(f"Using root folder {localRoot}")
+    pwd = "/"
     while True:
-        inp = input("$ ").strip()
+        inp = re.sub(" +", " ",input(f"{pwd} $ ")).strip()
         cmd = inp.split(" ")[0]
         param = inp[len(cmd):].strip()
+        param = " ".join([ os.path.join(pwd, x) for x in param.split(" ") ])
         if cmd == "lsa":
-            printLs(ls(param, True))
+            printLs(ls(param if param else pwd, True))
         elif cmd == "ls":
-            printLs(ls(param, False))
+            printLs(ls(param if param else pwd, False))
+        elif cmd == "lsl":
+            print("\t ".join(os.listdir(os.path.join(localRoot, pwd[1:]))))
         elif cmd == "mkdir":
             mkdir(param)
         elif cmd == "rmdir":
@@ -288,6 +303,16 @@ def main():
             path = checkDoublePath(param)
             print(path)
             dlr(path[0], path[1])
+        elif cmd == "cd":
+            if (param.startswith("/")):
+                newPwd = param
+            else:
+                newPwd = os.path.abspath(os.path.join(pwd, param))
+            if os.path.isdir(os.path.join(localRoot, newPwd[1:])):
+                pwd = newPwd
+                print(pwd)
+            else:
+                print(f"Path not found: {newPwd}")
         elif inp == "exit":
             exit()
         elif inp == "reset":
