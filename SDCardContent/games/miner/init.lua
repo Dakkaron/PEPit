@@ -441,6 +441,8 @@ SExplosionAnim = LoadAnimSprite("gfx/explosion-0.bmp", 80, 48, 0, 0x0001)
 SArrowRight = LoadSprite("gfx/arrow.bmp", 0, 0xf81f)
 SArrowLeft = LoadSprite("gfx/arrow.bmp", 1, 0xf81f)
 
+SEffectBurned = LoadAnimSprite("gfx/effect_burned.bmp", 80, 80, 4, 0xf800)
+
 math.randomseed(Ms)
 
 WorldMapArray = {}

@@ -163,7 +163,7 @@ static int lua_wrapper_loadSprite(lua_State* luaState) {
   Serial.print("Load BMP sprite ");
   String path = luaGamePath + luaL_checkstring(luaState, 1);
   Serial.println(path);
-  int32_t flipped = luaL_optinteger(luaState, 2, 0);
+  int32_t options = luaL_optinteger(luaState, 2, 0);
   int32_t maskingColor = luaL_optinteger(luaState, 3, -1);
 
   Serial.print("Collect garbage before loading sprite, free RAM before: ");
@@ -174,7 +174,7 @@ static int lua_wrapper_loadSprite(lua_State* luaState) {
 
   for (int32_t i=0;i<SPRITE_COUNT_LIMIT;i++) {
     if (!sprites[i].created()) {
-      if (!loadBmp(&sprites[i], path, flipped, maskingColor)) {
+      if (!loadBmp(&sprites[i], path, options, maskingColor)) {
         Serial.println("Failed to load sprite "+path);
         if (luaStrictMode) {
           checkFailWithMessage("Failed to load sprite "+path);
@@ -213,21 +213,21 @@ static int lua_wrapper_loadAnimSprite(lua_State* luaState) {
   Serial.print("Load animated BMP sprite ");
   String path = luaGamePath + luaL_checkstring(luaState, 1);
   Serial.println(path);
-  int32_t flipped = luaL_optinteger(luaState, 4, 0);
+  int32_t options = luaL_optinteger(luaState, 4, 0);
   int32_t maskingColor = luaL_optinteger(luaState, 5, -1);
 
-  Serial.print("Collect garbage before loading sprite, free RAM before: ");
+  //Serial.print("Collect garbage before loading sprite, free RAM before: ");
   Serial.println(ESP.getFreeHeap());
   lua_gc(luaState, LUA_GCCOLLECT, 0);
-  Serial.print("Free RAM after: ");
+  //Serial.print("Free RAM after: ");
   Serial.println(ESP.getFreeHeap());
 
   for (int32_t i=0;i<SPRITE_COUNT_LIMIT;i++) {
     if (!sprites[i].created()) {
       if (maskingColor != -1) {
-        loadBmp(&sprites[i], path, flipped, maskingColor);
+        loadBmp(&sprites[i], path, options, maskingColor);
       } else {
-        loadBmp(&sprites[i], path, flipped);
+        loadBmp(&sprites[i], path, options);
       }
       Serial.print("Found sprite slot: ");
       Serial.println(i);
@@ -275,7 +275,7 @@ static int lua_wrapper_drawSprite(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawSpriteRegion(lua_State* luaState) {
-  Serial.println("Draw sprite region");
+  //Serial.println("Draw sprite region");
   int16_t handle = luaL_checkinteger(luaState, 1);
   int16_t tx = luaL_checknumber(luaState, 2);
   int16_t ty = luaL_checknumber(luaState, 3);
@@ -292,14 +292,14 @@ static int lua_wrapper_drawSpriteRegion(lua_State* luaState) {
   } else {
     sprites[handle].pushToSprite(luaDisplay, tx, ty, sx, sy, sw, sh);
   }
-  Serial.println("Draw sprite region done");
+  //Serial.println("Draw sprite region done");
   return 0;
 }
 
 static int lua_wrapper_drawAnimSprite(lua_State* luaState) {
-  Serial.print("Draw anim sprite");
+  //Serial.print("Draw anim sprite ");
   int16_t handle = luaL_checkinteger(luaState, 1);
-  Serial.println(handle);
+  //Serial.println(handle);
   int16_t tx = luaL_checknumber(luaState, 2);
   int16_t ty = luaL_checknumber(luaState, 3);
   int16_t frame = luaL_checknumber(luaState, 4);
@@ -323,7 +323,7 @@ static int lua_wrapper_drawAnimSprite(lua_State* luaState) {
     sprites[handle].pushToSprite(luaDisplay, tx, ty, sw*col, sh*row, sw, sh);
   }
   
-  Serial.println("Draw anim sprite done");
+  //Serial.println("Draw anim sprite done");
   return 0;
 }
 
@@ -718,7 +718,6 @@ void updateBlowData(BlowData* blowData) {
                           "BreathingScore="+String(blowData->breathingScore);
   lastKnownTaskNumber = taskNumber;
   lua_dostring(blowDataString.c_str(), "updateBlowData()");
-  Serial.println(blowDataString);
   lastMs = blowData->ms;
   lastRepetition = blowData->blowCount;
 }
