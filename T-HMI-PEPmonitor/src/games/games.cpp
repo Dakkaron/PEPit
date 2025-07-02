@@ -150,7 +150,9 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
     if (date.equals(lastDate)) {
       date = "";
     } else {
-      spr.drawFastHLine(0, yPos-1, 320, 0x528a);
+      if (yPos > 40) {
+        spr.drawFastHLine(0, yPos-1, 320, 0x528a);
+      }      
       lastDate = date;
     }
     String time = line.substring(sepIndex + 1, line.length());
