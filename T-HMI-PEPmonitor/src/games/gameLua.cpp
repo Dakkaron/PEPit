@@ -19,9 +19,9 @@ struct SpriteMetadata {
   int32_t maskingColor;
 };
 
-static SpriteMetadata spriteMetadata[50];
+static SpriteMetadata spriteMetadata[SPRITE_COUNT_LIMIT];
 
-// Block of 50 sprites to be used within Lua games
+// Block of SPRITE_COUNT_LIMIT sprites to be used within Lua games
 static TFT_eSprite* sprites = nullptr;
 
 String lua_dofile(const String path, bool dontCache) {
@@ -135,7 +135,7 @@ static int lua_wrapper_disableCaching(lua_State* luaState) {
 }
 
 static int lua_wrapper_serialPrint(lua_State* luaState) {
-  Serial.println(luaL_checkstring(luaState, 1));
+  Serial.print(luaL_checkstring(luaState, 1));
   return 0;
 }
 
@@ -243,17 +243,24 @@ static int lua_wrapper_loadAnimSprite(lua_State* luaState) {
   return 1;
 }
 
+static bool isHandleValid(int32_t handle) {
+  if ((handle<0) || (handle>=SPRITE_COUNT_LIMIT) || (!sprites[handle].created())) {
+    Serial.println("ERROR: invalid sprite handle!");
+    if (luaStrictMode) {
+      checkFailWithMessage("ERROR: invalid sprite handle!");
+    }
+    return false;
+  }
+  return true;
+}
+
 static int lua_wrapper_drawSprite(lua_State* luaState) {
   //Serial.print("Draw sprite ");
   int16_t handle = luaL_checkinteger(luaState, 1);
   //Serial.println(handle);
   int16_t x = luaL_checknumber(luaState, 2);
   int16_t y = luaL_checknumber(luaState, 3);
-  if ((handle<0) || (handle>=SPRITE_COUNT_LIMIT) || (!sprites[handle].created())) {
-    Serial.println("ERROR: Could not draw sprite: invalid sprite handle!");
-    if (luaStrictMode) {
-      checkFailWithMessage("ERROR: Could not draw sprite: invalid sprite handle!");
-    }
+  if (!isHandleValid(handle)) {
     return 0;
   }
   int32_t maskingColor = spriteMetadata[handle].maskingColor;
@@ -276,6 +283,9 @@ static int lua_wrapper_drawSpriteRegion(lua_State* luaState) {
   int16_t sy = luaL_checknumber(luaState, 5);
   int16_t sw = luaL_checknumber(luaState, 6);
   int16_t sh = luaL_checknumber(luaState, 7);
+  if (!isHandleValid(handle)) {
+    return 0;
+  }
   int32_t maskingColor = spriteMetadata[handle].maskingColor;
   if (maskingColor != -1) {
     sprites[handle].pushToSprite(luaDisplay, tx, ty, sx, sy, sw, sh, maskingColor);
@@ -293,6 +303,10 @@ static int lua_wrapper_drawAnimSprite(lua_State* luaState) {
   int16_t tx = luaL_checknumber(luaState, 2);
   int16_t ty = luaL_checknumber(luaState, 3);
   int16_t frame = luaL_checknumber(luaState, 4);
+
+  if (!isHandleValid(handle)) {
+    return 0;
+  }
   
   int16_t sw = spriteMetadata[handle].frameW;
   int16_t sh = spriteMetadata[handle].frameH;
@@ -350,12 +364,18 @@ static int lua_wrapper_drawSpriteToSprite(lua_State* luaState) {
 
 static int lua_wrapper_spriteHeight(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
+  if (!isHandleValid(handle)) {
+    return 0;
+  }
   lua_pushinteger(luaState, spriteMetadata[handle].frameH);
   return 1;
 }
 
 static int lua_wrapper_spriteWidth(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
+  if (!isHandleValid(handle)) {
+    return 0;
+  }
   lua_pushinteger(luaState, spriteMetadata[handle].frameW);
   return 1;
 }
@@ -606,7 +626,7 @@ void initLua() {
 
 
   lua_register(luaState, "SerialPrintln", (lua_CFunction) &lua_wrapper_serialPrintln);
-  lua_register(luaState, "SerialPrint", (lua_CFunction) &lua_wrapper_serialPrintln);
+  lua_register(luaState, "SerialPrint", (lua_CFunction) &lua_wrapper_serialPrint);
   lua_register(luaState, "RunScript", (lua_CFunction) &lua_wrapper_runScript);
   lua_register(luaState, "LoadSprite", (lua_CFunction) &lua_wrapper_loadSprite);
   lua_register(luaState, "LoadAnimSprite", (lua_CFunction) &lua_wrapper_loadAnimSprite);
