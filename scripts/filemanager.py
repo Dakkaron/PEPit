@@ -4,6 +4,7 @@ import time
 import re
 import os.path
 import os
+import sys
 import readline
 import atexit
 from esptool.cmds import detect_chip
@@ -30,7 +31,7 @@ def connectSerial():
     ser = None
     for i in range(10):
         try:
-            ser = serial.Serial(f"{PORT_NAME}{i}", 115200, timeout=10)
+            ser = serial.Serial(f"{PORT_NAME}{i}", 115200, timeout=1)
             detectedPortName = f"{PORT_NAME}{i}"
             print(f"Port {PORT_NAME}{i} connected")
             break
@@ -50,6 +51,7 @@ def reset():
     ser = connectSerial()
 
 def writeFile(path, data):
+    st = time.time()
     if isinstance(path,str):
         path = path.encode("utf-8")
     if isinstance(data,str):
@@ -57,22 +59,24 @@ def writeFile(path, data):
     ser.flush()
     ser.reset_input_buffer()
     ser.reset_output_buffer()
-    print(b" ul "+path)
-    print(str(len(data)).encode("utf-8"))
+    print(" ul "+path.decode("utf-8"))
     print(len(data))
     ser.write(b" ul "+path+b"\n")
     ser.write(str(len(data)).encode("utf-8")+b"\n")
-    for i in range(1+len(data)):
-        ser.write(data[i:i+1])
+    while not (l := ser.readline().strip())==b"Starting transmission":
+        pass
+    lastDot = 0
+    for i in range(0, 1+len(data), 128):
+        ser.write(data[i:i+128])
         ser.flush()
-        if i % 1024 == 0:
-            time.sleep(0.02)
-    res = b""
-    time.sleep(5)
-    while ser.in_waiting > 0:
-        res += ser.read(ser.in_waiting)
-        time.sleep(0.01)
-    print(res.decode("utf-8", errors="ignore"))
+        r = ser.read_until(data[i:i+128])
+        if (i/100 > lastDot):
+            lastDot = i/100
+            print(".", end="")
+            sys.stdout.flush()
+    print()
+    print("Done uploading")
+    print(time.time()-st)
 
 def readFile(path, retry=0):
     if retry>=MAX_RETRIES:
@@ -217,7 +221,15 @@ def rmdirr(path):
         rmdir(os.path.join(path, dir))
     rmdir(path)
 
+def ulm(paths):
+    st = time.time()
+    for path in paths:
+        ul(path[1:], path)
+    print("Done uploading multiple")
+    print(time.time()-st)
+
 def ulr(src, target):
+    st = time.time()
     print(f"ULR {src} {target}")
     paths = os.listdir(src)
     mkdir(target)
@@ -229,6 +241,8 @@ def ulr(src, target):
         elif os.path.isfile(srcPath):
             print(f"UL {srcPath} {targetPath}")
             ul(srcPath, targetPath)
+    print("Done uploading recursively")
+    print(time.time()-st)
 
 def dlr(src, target):
     start = time.time()
@@ -292,6 +306,9 @@ def main():
         elif cmd == "ul":
             path = checkDoublePath(param)
             ul(path[0], path[1])
+        elif cmd == "ulm":
+            paths  = param.split(" ")
+            ulm(paths)
         elif cmd == "ulr":
             path = checkDoublePath(param)
             print(path)
