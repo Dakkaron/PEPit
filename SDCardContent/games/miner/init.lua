@@ -442,6 +442,7 @@ SArrowRight = LoadSprite("gfx/arrow.bmp", 0, 0xf81f)
 SArrowLeft = LoadSprite("gfx/arrow.bmp", 1, 0xf81f)
 
 SEffectBurned = LoadAnimSprite("gfx/effect_burned.bmp", 80, 80, 4, 0xf800)
+SEffectGasWarning = LoadSprite("gfx/effect_gaswarning.bmp", 4, 0xffff)
 
 math.randomseed(Ms)
 
@@ -466,6 +467,7 @@ Money = PrefsGetInt("money", 0)
 EarnValue = 0
 EarnTime = 0
 FullVisibilityTime = 0
+LastBlownTimer = -1
 
 
 -- Inhalation game

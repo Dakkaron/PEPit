@@ -1,3 +1,7 @@
+if IsNewTask then
+  LastBlownTimer = Ms
+end
+
 if (LastBlowStatus == 1 and Ms-BlowEndMs > 0 and Ms-BlowEndMs < 1000) then
   YDigOffset = (Ms - BlowEndMs) / 22
   MineTile(PlayerX, 2)
@@ -55,10 +59,31 @@ else
   FillRect(0, 176, 320, 24, 0x0)
 end
 
+local playerSpriteX = PlayerX*40+3 + PlayerXOffset
+local playerSpriteY = 40
 if (CurrentlyBlowing) then
-  DrawSprite(SRobotDig, PlayerX*40+3 + PlayerXOffset, 1*40 + math.fmod(Ms/100, 2) * 4)
+  LastBlownTimer = Ms
+  playerSpriteY =  40 + math.fmod(Ms/100, 2) * 4
+  DrawSprite(SRobotDig, playerSpriteX, playerSpriteY)
 else
-  DrawSprite(SRobotIdle, PlayerX*40+3 + PlayerXOffset, 1*40)
+  DrawSprite(SRobotIdle, playerSpriteX, playerSpriteY)
+end
+if (Ms - BurnStart < 900) then
+  DrawAnimSprite(SEffectBurned, playerSpriteX - 20, playerSpriteY - 20, 3 - math.floor((Ms-BurnStart)/300))
+end
+if (Ms - LastBlownTimer > 15000) then
+	LastBlownTimer = Ms
+	Money = Money - 5
+	EarnTime = Ms + 2000
+    EarnValue = -5
+elseif (Ms - LastBlownTimer > 13000) then
+  if (math.fmod(Ms//100, 2) == 0) then
+    DrawSprite(SEffectGasWarning, playerSpriteX, playerSpriteY)
+  end
+elseif (Ms - LastBlownTimer > 8000) then
+  if (math.fmod(Ms//500, 2) == 0) then
+    DrawSprite(SEffectGasWarning, playerSpriteX, playerSpriteY)
+  end
 end
 
 if (PlayerXOffset > 0) then
