@@ -163,6 +163,14 @@ def rightPad(s, lm):
         return s
     return s + " "*l
 
+def lsl(path):
+    entries = list(os.scandir(path))
+    print("\n#### ON PC")
+    printLs({
+        "dirs": [ x.name.encode("utf-8") for x in entries if x.is_dir() ],
+        "files": [ (x.name.encode("utf-8"), x.stat().st_size) for x in entries if x.is_file() ],
+    })
+
 def printLs(lsData):
     print("DIRs:")
     print("\n".join([ "          "+x.decode("utf-8") for x in lsData["dirs"]]))
@@ -271,6 +279,25 @@ def checkDoublePath(param):
             path[1]
         ]
 
+def printHelp():
+    print("ls [path]                   Lists directory content on PEPit. Path is optional")
+    print("lsa [path]                  Like ls, but lists paths with absolute names")
+    print("lsl [path]                  Like ls but lists directory content on the local PC instead")
+    print("cd [path]                   Changes the current working directory. Path is mandatory")
+    print("mkdir [path]                Creates a new directory on PEPit. Path is mandatory")
+    print("rmdir [path]                Deletes the given empty directory from PEPit")
+    print("rmdirr [path]               Deletes the given directory and all files and directories in it from PEPit")
+    print("rm [path]                   Deletes the given file from PEPit")
+    print("cat [path]                  Reads the given file from PEPit and displays it in command line")
+    print("ul [srcpath] [targetpath]   Uploads the given file to PEPit. Targetpath is optional")
+    print("ulm [path1] [path2] [...]   Uploads the given files to PEPit.")
+    print("ulr [srcpath] [targetpath]  Uploads the given directory and all files in it to PEPit. Targetpath is optional")
+    print("dl [srcpath] [targetpath]   Downloads the given file from PEPit. Targetpath is optional")
+    print("dlr [srcpath] [targetpath]  Downloads the given directory and all files in it from PEPit. Targetpath is optional")
+    print("reset                       Reboots the PEPit and reconnects after boot")
+    print("exit                        Exits the file manager")
+
+
 def main():
     if ("WIPSDCardContent" in os.getcwd()):
         localRoot = os.path.abspath(os.path.join(os.path.join(os.path.join(__file__, os.pardir), os.pardir), "WIPSDCardContent"))
@@ -285,11 +312,16 @@ def main():
         param = inp[len(cmd):].strip()
         param = " ".join([ os.path.join(pwd, x) for x in param.split(" ") ])
         if cmd == "lsa":
+            print("\n#### ON PEPit")
             printLs(ls(param if param else pwd, True))
         elif cmd == "ls":
+            print("\n#### ON PEPit")
             printLs(ls(param if param else pwd, False))
         elif cmd == "lsl":
-            print("\t ".join(os.listdir(os.path.join(localRoot, pwd[1:]))))
+            if (param):
+                lsl(os.path.join(localRoot, param[1:]))
+            else:
+                lsl(os.path.join(localRoot, pwd[1:]))
         elif cmd == "mkdir":
             mkdir(param)
         elif cmd == "rmdir":
@@ -322,7 +354,7 @@ def main():
             dlr(path[0], path[1])
         elif cmd == "cd":
             if (param.startswith("/")):
-                newPwd = param
+                newPwd = os.path.abspath(param)
             else:
                 newPwd = os.path.abspath(os.path.join(pwd, param))
             if os.path.isdir(os.path.join(localRoot, newPwd[1:])):
@@ -336,6 +368,7 @@ def main():
             reset()
         else:
             print(f"Unknown command: {inp}")
+            printHelp()
 
 
 if __name__ == "__main__":
