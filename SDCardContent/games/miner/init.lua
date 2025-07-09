@@ -97,6 +97,8 @@ function DrawTile(x, y, yOffset, showHidden)
       DrawSprite(STileOreDiamond, x*40, y*40 - yOffset)
     elseif (WorldMapArray[x][y] == 7) then
       DrawSprite(STileRock, x*40, y*40 - yOffset)
+    elseif (WorldMapArray[x][y] == 8) then
+      DrawSprite(STileLava, x*40, y*40 - yOffset)
     elseif (WorldMapArray[x][y] == 101) then
       DrawSprite(STileTreasureDino, x*40, y*40 - yOffset)
     elseif (WorldMapArray[x][y] == 102) then
@@ -204,7 +206,9 @@ function GenTile(x, y, baseOdds)
       WorldMapArray[x][y] = 1
     end
   elseif (Stage == 3) then
-    if (v < 20) then
+    if (v < 3) then
+      WorldMapArray[x][y] = 8
+    elseif (v < 20) then
       WorldMapArray[x][y] = 7
     elseif (v < 23 and StrX == -1 and x<=5) then
       GenStructure(x, y, 1)
@@ -220,27 +224,9 @@ function GenTile(x, y, baseOdds)
       WorldMapArray[x][y] = 1
     end
   elseif (Stage == 4) then
-    if (v < 20) then
-      WorldMapArray[x][y] = 7
-    elseif (v < 21 and StrX == -1 and x<=5) then
-      GenStructure(x, y, 2)
-    elseif (v < 23 and StrX == -1 and x<=5) then
-      GenStructure(x, y, 1)
-    elseif (v < 25) then
-      WorldMapArray[x][y] = 6
-    elseif (v < 40) then
-      WorldMapArray[x][y] = 5
-    elseif (v < 70) then
-      WorldMapArray[x][y] = 4
-    elseif (v < 120) then
-      WorldMapArray[x][y] = 3
-    elseif (v < 220) then
-      WorldMapArray[x][y] = 2
-    else
-      WorldMapArray[x][y] = 1
-    end
-  elseif (Stage == 4) then
-    if (v < 20) then
+    if (v < 4) then
+      WorldMapArray[x][y] = 8
+    elseif (v < 20) then
       WorldMapArray[x][y] = 7
     elseif (v < 21 and StrX == -1 and x<=5) then
       GenStructure(x, y, 2)
@@ -260,7 +246,9 @@ function GenTile(x, y, baseOdds)
       WorldMapArray[x][y] = 1
     end
   elseif (Stage == 5) then
-    if (v < 20) then
+    if (v < 4) then
+      WorldMapArray[x][y] = 8
+    elseif (v < 20) then
       WorldMapArray[x][y] = 7
     elseif (v < 21 and StrX == -1 and x<=5) then
       GenStructure(x, y, 3)
@@ -282,7 +270,9 @@ function GenTile(x, y, baseOdds)
       WorldMapArray[x][y] = 1
     end
   elseif (Stage == 6) then
-    if (v < 20) then
+    if (v < 5) then
+      WorldMapArray[x][y] = 8
+    elseif (v < 20) then
       WorldMapArray[x][y] = 7
     elseif (v < 22 and StrX == -1 and x<=5) then
       GenStructure(x, y, 3)
@@ -304,7 +294,9 @@ function GenTile(x, y, baseOdds)
       WorldMapArray[x][y] = 1
     end
   elseif (Stage == 7) then
-    if (v < 20) then
+    if (v < 6) then
+      WorldMapArray[x][y] = 8
+    elseif (v < 20) then
       WorldMapArray[x][y] = 7
     elseif (v < 23 and StrX == -1 and x<=5) then
       GenStructure(x, y, 3)
@@ -433,6 +425,7 @@ STileTreasureBook = LoadSprite("gfx/tilefragments/tile_treasure_book.bmp", 0, 0x
 STileTreasureAlien = LoadSprite("gfx/tilefragments/tile_treasure_alien.bmp", 0, 0xd03e)
 
 STileRock = LoadSprite("gfx/tilefragments/tile_rock.bmp", 0, 0x0001)
+STileLava = LoadSprite("gfx/tilefragments/tile_lava.bmp", 0, 0xFFFF)
 
 SItemLantern = LoadSprite("gfx/item_lantern.bmp", 0, 0x0001)
 
