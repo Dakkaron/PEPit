@@ -59,7 +59,8 @@ uint8_t getSystemUpdateAvailableStatus() {
 
 bool sdUpdateTarExcludeFilter( TAR::header_translated_t *proper ) {
   bool excluded = (strcmp(proper->filename, "profiles.ini") == 0) ||
-                  (strcmp(proper->filename, "systemconfig.ini") == 0);
+                  (strcmp(proper->filename, "systemconfig.ini") == 0) ||
+                  (strcmp(proper->filename, "PaxHeader") == 0);
   return excluded;
 }
 
