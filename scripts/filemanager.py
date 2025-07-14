@@ -31,7 +31,7 @@ def connectSerial():
     ser = None
     for i in range(10):
         try:
-            ser = serial.Serial(f"{PORT_NAME}{i}", 115200, timeout=1)
+            ser = serial.Serial(f"{PORT_NAME}{i}", 115200, timeout=10)
             detectedPortName = f"{PORT_NAME}{i}"
             print(f"Port {PORT_NAME}{i} connected")
             break
@@ -64,7 +64,7 @@ def writeFile(path, data):
     ser.write(b" ul "+path+b"\n")
     ser.write(str(len(data)).encode("utf-8")+b"\n")
     while not (l := ser.readline().strip())==b"Starting transmission":
-        pass
+        print(l)
     lastDot = 0
     for i in range(0, 1+len(data), 128):
         ser.write(data[i:i+128])
@@ -99,7 +99,6 @@ def readFile(path, retry=0):
             readRetry = 0
         if readRetry > MAX_READ_RETRIES:
             print(f"Failed to download {path} due to nothing to read. Retrying.")
-            reset()
             return readFile(path, retry + 1)
         res += read
     lines = res.strip().splitlines()

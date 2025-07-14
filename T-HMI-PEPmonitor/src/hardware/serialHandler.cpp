@@ -153,11 +153,15 @@ void handleUploadFileMode() {
   }
 
   File file = SD_MMC.open(path, FILE_WRITE, true);
-  Serial.readBytes(fileBuffer, fileLength);
+  Serial.println("Starting transmission");
+  Serial.flush();
+  for (uint32_t i=0;i<fileLength;i++) {
+    while (Serial.available()==0) {}
+    fileBuffer[i] = Serial.read();
+    Serial.write(fileBuffer[i]);
+    Serial.flush();
+  }
   fileBuffer[fileLength] = 0;
-  Serial.println("[Result:]");
-  Serial.print((char*)fileBuffer);
-  Serial.println("[Result end]");
   file.write(fileBuffer, fileLength);
 
   delete[] fileBuffer;
