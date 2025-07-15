@@ -2599,6 +2599,9 @@ int16_t TFT_eSprite::drawChar(uint16_t uniCode, int32_t x, int32_t y, uint8_t fo
   return width * textsize;    // x +
 }
 
+uint16_t* TFT_eSprite::get16BitBuffer() {
+  return _img;
+}
 
 #ifdef SMOOTH_FONT
 /***************************************************************************************

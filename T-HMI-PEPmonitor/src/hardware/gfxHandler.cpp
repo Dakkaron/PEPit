@@ -479,6 +479,167 @@ bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, uint16_t 
   return drawBmp(sprite, filename, x, y, transp, true, debugLog);
 }
 
+typedef struct {
+  TFT_eSprite* display;
+  TFT_eSprite* texture;
+  Vector2D* cameraPos;
+  float cameraHeight;
+  float yawAngle;
+  float zoom;
+  float horizonHeight;
+  int32_t startY;
+  int32_t endY;
+  int32_t downwardsY;
+  int32_t upwardsY;
+  bool centerpointY;
+} Mode7TaskParameters;
+
+static Mode7TaskParameters mode7TaskParameters;
+static TaskHandle_t mode7TaskHandle;
+
+void doDrawMode7(DISPLAY_T* display,
+  TFT_eSprite* texture,
+  Vector2D* cameraPos,
+  float cameraHeight,
+  float yawAngle,
+  float zoom,
+  float horizonHeight,
+  int32_t startY,
+  int32_t endY, // radians
+  bool drawDownwards
+) {
+  float cosYaw = std::cos(yawAngle);
+  float sinYaw = std::sin(yawAngle);
+  int32_t screenWidth = display->width();
+  int32_t screenHeight = endY - startY;
+  int32_t textureWidth = texture->width();
+  int32_t textureHeight = texture->height();
+
+  uint16_t* screenBuffer = display->get16BitBuffer();
+  uint16_t* textureBuffer = texture->get16BitBuffer();
+
+  float centerX = screenWidth / 2.0f;
+  float centerY = screenHeight / 2.0f;
+  int32_t centerXi = screenWidth / 2;
+  int32_t centerYi = screenHeight / 2;
+
+  float scaling = 10*cameraHeight;
+
+  int32_t centerpoint = ((endY-startY) + (horizonHeight-startY))/2 - centerYi;
+
+  for (int32_t iY = -centerYi; iY < centerYi; iY++) {
+    int32_t y = drawDownwards ? -iY : iY;
+    if (drawDownwards) {
+      //mode7TaskParameters.downwardsY = y;
+    } else {
+      //mode7TaskParameters.upwardsY = y;
+      if (mode7TaskParameters.centerpointY && y==centerpoint) {
+        //Serial.println("Upwards closed at centerpoint");
+        return;
+      }
+      /*if (mode7TaskParameters.upwardsY!=-1 && mode7TaskParameters.downwardsY!=-1 && mode7TaskParameters.upwardsY >= mode7TaskParameters.downwardsY) {
+        //Serial.print("Upwards closed at ");
+        //Serial.println(mode7TaskParameters.upwardsY);
+        return;
+      }*/
+    }
+    int32_t screenY = y + centerYi + startY;
+    int32_t screenYAdd = screenY * screenWidth;
+
+    if (y + centerYi <= horizonHeight) {
+      // Fill sky above horizon
+      for (int32_t x = 0; x < screenWidth; x++) {
+        screenBuffer[x + screenYAdd] = 0x7E7D; // sky color
+      }
+    } else {
+      float fov = 120 / zoom;
+      float py = fov;
+      float pz = (y + horizonHeight);
+      float sy = py / pz;
+
+      float sYsin = -sy * sinYaw;
+      float sYcon = sy * cosYaw;
+
+      for (int32_t px = -centerXi; px < centerXi; px++) {
+        float sx = px / pz;
+
+        float worldX = sx * cosYaw + sYsin;
+        float worldY = sx * sinYaw + sYcon;
+
+        sx = worldX * scaling + cameraPos->x;
+        sy = worldY * scaling + cameraPos->y;
+
+        uint32_t texX = (uint32_t)sx & 0x1FF; //% textureWidth;
+        uint32_t texY = (uint32_t)sy & 0x1FF; //% textureHeight;
+
+        screenBuffer[px + centerXi + screenYAdd] = textureBuffer[texX + texY * textureWidth];
+      }
+    }
+    if (drawDownwards && mode7TaskParameters.centerpointY && y==centerpoint) {
+      //Serial.println("Downwards closed at centerpoint");
+      return;
+    }
+    /*if (drawDownwards && mode7TaskParameters.upwardsY!=-1 && mode7TaskParameters.downwardsY!=-1 && (mode7TaskParameters.upwardsY >= mode7TaskParameters.downwardsY)) {
+      //Serial.print("Downwards closed at ");
+      //Serial.println(mode7TaskParameters.downwardsY);
+      return;
+    }*/
+  }
+  Serial.println(drawDownwards ? "Downwards ran out" : "Upwards ran out");
+}
+
+void drawMode7Task(void* parameter) {
+  doDrawMode7(
+    mode7TaskParameters.display,
+    mode7TaskParameters.texture,
+    mode7TaskParameters.cameraPos,
+    mode7TaskParameters.cameraHeight,
+    mode7TaskParameters.yawAngle,
+    mode7TaskParameters.zoom,
+    mode7TaskParameters.horizonHeight,
+    mode7TaskParameters.startY,
+    mode7TaskParameters.endY,
+    false
+  );
+  vTaskDelete(NULL);
+}
+
+void drawMode7(DISPLAY_T* display,
+  TFT_eSprite* texture,
+  Vector2D* cameraPos,
+  float cameraHeight,
+  float yawAngle,
+  float zoom,
+  float horizonHeight,
+  int32_t startY,
+  int32_t endY // radians
+) {
+  mode7TaskParameters.display = display;
+  mode7TaskParameters.texture = texture;
+  mode7TaskParameters.cameraPos = cameraPos;
+  mode7TaskParameters.cameraHeight = cameraHeight;
+  mode7TaskParameters.yawAngle = yawAngle;
+  mode7TaskParameters.zoom = zoom;
+  mode7TaskParameters.horizonHeight = horizonHeight;
+  mode7TaskParameters.startY = startY;
+  mode7TaskParameters.endY = endY;
+  mode7TaskParameters.downwardsY = -1;
+  mode7TaskParameters.upwardsY = -1;
+  mode7TaskParameters.centerpointY = true;
+  xTaskCreatePinnedToCore(drawMode7Task, "mode7draw", 10000, NULL, 23, &mode7TaskHandle, 0);
+  doDrawMode7(
+    display,
+    texture,
+    cameraPos,
+    cameraHeight,
+    yawAngle,
+    zoom,
+    horizonHeight,
+    startY,
+    endY,
+    true
+  );
+}
 
 static void drawProgressBarCommon(DISPLAY_T* display, uint16_t percent, uint16_t greenOffset, int16_t x, int16_t y, int16_t w, int16_t h) {
   display->drawRect(x, y, w, h, TFT_WHITE);
