@@ -801,9 +801,11 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
   }
   for (int32_t y = _max(drawPosY, 0); y<toY; y++) {
     int32_t addYScreen = y * displayW;
-    int32_t addYSprite = (int32_t)((y-drawPosY) * inverseScaleY) * spriteW;
+    int32_t scaledSpriteY = constrain((int32_t)((y-drawPosY) * inverseScaleY), 0, spriteH-1);
+    int32_t addYSprite = scaledSpriteY * spriteW;
     for (int32_t x = _max(drawPosX, 0); x<toX; x++) {
-      uint16_t color = spriteBuffer[(uint32_t)((x-drawPosX) * inverseScaleX) + addYSprite];
+      int32_t scaledSpriteX = constrain((uint32_t)((x-drawPosX) * inverseScaleX), 0, spriteW-1);
+      uint16_t color = spriteBuffer[scaledSpriteX + addYSprite];
       if (!(flags & TRANSP_MASK && color == maskColor)) {
         screenBuffer[x + addYScreen] = color;
       }
