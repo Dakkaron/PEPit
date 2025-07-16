@@ -362,6 +362,23 @@ static int lua_wrapper_drawSpriteToSprite(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_drawSpriteScaled(lua_State* luaState) {
+  int16_t handle = luaL_checkinteger(luaState, 1);
+  if (!isHandleValid(handle)) {
+    return 0;
+  }
+  Vector2D position;
+  position.x = luaL_checknumber(luaState, 2);
+  position.y = luaL_checknumber(luaState, 3);
+  Vector2D scale;
+  scale.x = luaL_checknumber(luaState, 4);
+  scale.y = luaL_checknumber(luaState, 5);
+  uint32_t flags = luaL_optinteger(luaState, 6, 0);
+  flags |= TRANSP_MASK;
+  drawSpriteScaled(luaDisplay, &sprites[handle], &position, &scale, flags, spriteMetadata[handle].maskingColor);
+  return 0;
+}
+
 static int lua_wrapper_spriteHeight(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
   if (!isHandleValid(handle)) {
@@ -400,6 +417,27 @@ static int lua_wrapper_drawMode7(lua_State* luaState) {
   float endY = luaL_checknumber(luaState, 9);
   drawMode7(luaDisplay, &sprites[handle], &cameraPos, cameraHeight, yawAngle, zoom, horizonHeight, startY, endY);
   return 0;
+}
+
+static int lua_wrapper_mode7WorldToScreen() {
+  Vector2D worldPos;
+  worldPos.x = luaL_checknumber(luaState, 1);
+  worldPos.y = luaL_checknumber(luaState, 2);
+  Vector2D cameraPos;
+  cameraPos.x = luaL_checknumber(luaState, 3);
+  cameraPos.y = luaL_checknumber(luaState, 4);
+  float cameraHeight = luaL_checknumber(luaState, 5);
+  float yawAngle = luaL_checknumber(luaState, 6);
+  float zoom = luaL_checknumber(luaState, 7);
+  float horizonHeight = luaL_checknumber(luaState, 8);
+  float startY = luaL_checknumber(luaState, 9);
+  float endY = luaL_checknumber(luaState, 10);
+  Vector3D output;
+  mode7WorldToScreen(&worldPos, &cameraPos, cameraHeight, yawAngle, zoom, horizonHeight, startY, endY, &output);
+  lua_pushinteger(luaState, (int32_t)output.x);
+  lua_pushinteger(luaState, (int32_t)output.y);
+  lua_pushnumber(luaState, output.z);
+  return 3;
 }
 
 static int lua_wrapper_log(lua_State* luaState) {
@@ -658,9 +696,11 @@ void initLua() {
   lua_register(luaState, "DrawSpriteRegion", (lua_CFunction) &lua_wrapper_drawSpriteRegion);
   lua_register(luaState, "DrawAnimSprite", (lua_CFunction) &lua_wrapper_drawAnimSprite);
   lua_register(luaState, "DrawSpriteToSprite", (lua_CFunction) &lua_wrapper_drawSpriteToSprite);
+  lua_register(luaState, "DrawSpriteScaled", (lua_CFunction) &lua_wrapper_drawSpriteScaled);
   lua_register(luaState, "SpriteWidth", (lua_CFunction) &lua_wrapper_spriteWidth);
   lua_register(luaState, "SpriteHeight", (lua_CFunction) &lua_wrapper_spriteHeight);
   lua_register(luaState, "DrawMode7", (lua_CFunction) &lua_wrapper_drawMode7);
+  lua_register(luaState, "Mode7WorldToScreen", (lua_CFunction) &lua_wrapper_mode7WorldToScreen);
   lua_register(luaState, "Log", (lua_CFunction) &lua_wrapper_log);
   lua_register(luaState, "DrawString", (lua_CFunction) &lua_wrapper_drawString);
   lua_register(luaState, "DrawRect", (lua_CFunction) &lua_wrapper_drawRect);

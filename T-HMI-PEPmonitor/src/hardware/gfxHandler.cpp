@@ -479,6 +479,110 @@ bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, uint16_t 
   return drawBmp(sprite, filename, x, y, transp, true, debugLog);
 }
 
+/*void drawMode7(DISPLAY_T* display, TFT_eSprite* background, Matrix2D* matrix, Vector2D* origin, uint32_t startY, uint32_t endY) {
+  Vector2Di targetPos;
+  Vector2Di tmp1;
+  Vector2Di tmp2;
+  Vector2Di screenCoordinate;
+  Matrix2Di matrixI;
+  Matrix2Di scaledMatrix;
+  matrixI.a = (int32_t)(matrix->a * 256);
+  matrixI.b = (int32_t)(matrix->b * 256);
+  matrixI.c = (int32_t)(matrix->c * 256);
+  matrixI.d = (int32_t)(matrix->d * 256);
+  Vector2Di originI;
+  originI.x = (int32_t)(origin->x * 256);
+  originI.y = (int32_t)(origin->y * 256);
+  uint32_t bgW = background->width();
+  uint32_t bgH = background->height();
+  uint16_t* screenBuffer = display->get16BitBuffer();
+  uint16_t* textureBuffer = background->get16BitBuffer();
+  uint32_t screenW = display->width();
+  uint32_t textureW = background->width();
+  int32_t tx=0;
+  int32_t ty=0;
+  startY = startY << 8;
+  endY = endY << 8;
+  uint32_t screenWShifted = screenW << 8;
+  scaledMatrix.b = matrixI.b;
+  scaledMatrix.c = matrixI.c;
+  for (screenCoordinate.y = startY; screenCoordinate.y <= endY; screenCoordinate.y += 256) {
+    for (screenCoordinate.x = 0; screenCoordinate.x < screenWShifted; screenCoordinate.x += 256) {
+      int32_t lineScale = (screenCoordinate.y-startY)/(endY-startY);
+      scaledMatrix.a = matrixI.a * lineScale / 256;
+      scaledMatrix.d = matrixI.d * lineScale / 256;
+      subVV(&screenCoordinate, &originI, &tmp1);
+      multMV(&scaledMatrix, &tmp1, &tmp2);
+      addVV(&tmp2, &originI, &targetPos);
+      tx = (((int32_t)targetPos.x) >> 8) & 0x1FF;//% bgW;
+      ty = (((int32_t)targetPos.y) >> 8) & 0x1FF;//% bgH;
+      screenBuffer[(((int32_t)screenCoordinate.x) >> 8) + screenW*(((int32_t)screenCoordinate.y) >> 8)] = textureBuffer[tx + ty * textureW];
+    }
+  }
+}*/
+
+/*void drawMode7(DISPLAY_T* display, TFT_eSprite* background, Matrix2D* matrix, Vector2D* origin, uint32_t startY, uint32_t endY, float cameraHeight, float zoom, float horizonHeight) {
+  Vector2D targetPos;
+  Vector2D tmp1;
+  Vector2D tmp2;
+  Vector2D screenCoordinate;
+  Matrix2D scaledMatrix;
+  scaledMatrix.a = matrix->a;
+  scaledMatrix.b = matrix->b;
+  scaledMatrix.c = matrix->c;
+  scaledMatrix.d = matrix->d;
+  uint32_t bgW = background->width();
+  uint32_t bgH = background->height();
+  uint16_t* screenBuffer = display->get16BitBuffer();
+  uint16_t* textureBuffer = background->get16BitBuffer();
+  uint32_t screenW = display->width();
+  uint32_t textureW = background->width();
+  int32_t tx=0;
+  int32_t ty=0;
+  origin->x = screenW/2;
+  origin->y = (endY-startY)/2 + startY;
+  Serial.println();
+  Serial.print(matrix->a);
+  Serial.print("|");
+  Serial.println(matrix->b);
+  Serial.print(matrix->c);
+  Serial.print("|");
+  Serial.println(matrix->d);
+  for (screenCoordinate.y = startY; screenCoordinate.y <= endY; screenCoordinate.y++) {
+    int32_t screenYAdd = screenW*((int32_t)screenCoordinate.y);
+    if (screenCoordinate.y < horizonHeight) {
+      for (screenCoordinate.x = 0; screenCoordinate.x < screenW; screenCoordinate.x++) {
+        screenBuffer[((int32_t)screenCoordinate.x) + screenYAdd] = 0x7e7d;
+      }
+    } else {
+      float lineScale = cameraHeight*zoom / (screenCoordinate.y - horizonHeight);
+
+      //float lineScale = 1;//(endY-startY)/(screenCoordinate.y-startY);
+      scaledMatrix.a = matrix->a * lineScale;
+      scaledMatrix.b = matrix->b * lineScale;
+      scaledMatrix.c = matrix->c * lineScale;
+      scaledMatrix.d = matrix->d * lineScale;
+      //subVV(&screenCoordinate, origin, &tmp1);
+      tmp1.y = screenCoordinate.y - origin->y;
+      float tmpBY = scaledMatrix.b * tmp1.y;
+      float tmpDY = scaledMatrix.d * tmp1.y;
+      for (screenCoordinate.x = 0; screenCoordinate.x < screenW; screenCoordinate.x++) {
+        //subVV(&screenCoordinate, origin, &tmp1);
+        tmp1.x = screenCoordinate.x - origin->x;
+        //multMV(&scaledMatrix, &tmp1, &tmp2);
+        tmp2.x = scaledMatrix.a * tmp1.x + tmpBY;
+        tmp2.y = scaledMatrix.c * tmp1.x + tmpDY;
+        //addVV(&tmp2, origin, &targetPos);
+        targetPos.x = tmp2.x + origin->x;
+        targetPos.y = tmp2.y + origin->y;
+        tx = ((int32_t)targetPos.x) % bgW;
+        ty = ((int32_t)targetPos.y) % bgH;
+        screenBuffer[((int32_t)screenCoordinate.x) + screenYAdd] = textureBuffer[tx + ty * textureW];
+      }
+    }
+  }
+}*/
+
 typedef struct {
   TFT_eSprite* display;
   TFT_eSprite* texture;
@@ -529,19 +633,8 @@ void doDrawMode7(DISPLAY_T* display,
 
   for (int32_t iY = -centerYi; iY < centerYi; iY++) {
     int32_t y = drawDownwards ? -iY : iY;
-    if (drawDownwards) {
-      //mode7TaskParameters.downwardsY = y;
-    } else {
-      //mode7TaskParameters.upwardsY = y;
-      if (mode7TaskParameters.centerpointY && y==centerpoint) {
-        //Serial.println("Upwards closed at centerpoint");
+    if (!drawDownwards && mode7TaskParameters.centerpointY && y==centerpoint) {
         return;
-      }
-      /*if (mode7TaskParameters.upwardsY!=-1 && mode7TaskParameters.downwardsY!=-1 && mode7TaskParameters.upwardsY >= mode7TaskParameters.downwardsY) {
-        //Serial.print("Upwards closed at ");
-        //Serial.println(mode7TaskParameters.upwardsY);
-        return;
-      }*/
     }
     int32_t screenY = y + centerYi + startY;
     int32_t screenYAdd = screenY * screenWidth;
@@ -576,14 +669,8 @@ void doDrawMode7(DISPLAY_T* display,
       }
     }
     if (drawDownwards && mode7TaskParameters.centerpointY && y==centerpoint) {
-      //Serial.println("Downwards closed at centerpoint");
       return;
     }
-    /*if (drawDownwards && mode7TaskParameters.upwardsY!=-1 && mode7TaskParameters.downwardsY!=-1 && (mode7TaskParameters.upwardsY >= mode7TaskParameters.downwardsY)) {
-      //Serial.print("Downwards closed at ");
-      //Serial.println(mode7TaskParameters.downwardsY);
-      return;
-    }*/
   }
   Serial.println(drawDownwards ? "Downwards ran out" : "Upwards ran out");
 }
@@ -639,6 +726,89 @@ void drawMode7(DISPLAY_T* display,
     endY,
     true
   );
+}
+
+void mode7WorldToScreen(
+                Vector2D* worldPos,
+                Vector2D* cameraPos,
+                float cameraHeight,
+                float yawAngle,
+                float zoom,
+                float horizonHeight,
+                int32_t startY,
+                int32_t endY,
+                Vector3D* output) {
+    float scaling = 1.0f/(10.0f*cameraHeight);
+
+    float dx = worldPos->x - cameraPos->x;
+    float dy = worldPos->y - cameraPos->y;
+    dx = dx * scaling;
+    dy = dy * scaling;
+
+    float cosYaw = std::cos(yawAngle);
+    float sinYaw = -std::sin(yawAngle);
+
+    // Rotate world position into camera space
+    float camX = dx * cosYaw - dy * sinYaw;
+    float camY = dx * sinYaw + dy * cosYaw;
+
+    // Perspective projection
+    float fov = 120.0f / zoom;
+    float px = camX;
+    float py = fov;
+    float pz = camY;
+
+    if (pz <= 0.1f){ // Behind camera or too close
+      output->x = -1000;
+      output->y = -1000;
+      output->z = -1000;
+      return;
+    }
+    float halfScreenHeight = (float)(endY-startY)/2.0f;
+
+    output->x = (px / pz) * (float)SCREEN_WIDTH / 2.0f + (float)SCREEN_WIDTH / 2.0f;
+    output->y = (py / pz) + horizonHeight;
+    output->z = pz;
+}
+
+void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor) {
+  float spriteW = sprite->width();
+  float spriteH = sprite->height();
+  float spriteWScaled = spriteW * scale->x;
+  float spriteHScaled = spriteH * scale->y;
+  float drawPosX = position->x;
+  float drawPosY = position->y;
+  uint16_t* screenBuffer = display->get16BitBuffer();
+  uint16_t* spriteBuffer = sprite->get16BitBuffer();
+  if (flags & ALIGN_H_CENTER) {
+    drawPosX -= spriteWScaled*0.5f;
+  } else if (flags & ALIGN_H_RIGHT) {
+    drawPosX -= spriteWScaled;
+  }
+  if (flags & ALIGN_V_CENTER) {
+    drawPosY -= spriteHScaled*0.5f;
+  } else if (flags & ALIGN_V_BOTTOM) {
+    drawPosY -= spriteHScaled;
+  }
+  uint32_t displayW = display->width();
+  uint32_t displayH = display->height();
+  int32_t toX = _min(drawPosX+spriteWScaled, displayW);
+  int32_t toY = _min(drawPosY+spriteHScaled, displayH);
+  float inverseScaleX = 1/scale->x;
+  float inverseScaleY = 1/scale->y;
+  if (sprite->getSwapBytes()) {
+    maskColor = maskColor << 8 | maskColor >> 8;
+  }
+  for (int32_t y = _max(drawPosY, 0); y<toY; y++) {
+    int32_t addYScreen = y * displayW;
+    int32_t addYSprite = (int32_t)((y-drawPosY) * inverseScaleY) * spriteW;
+    for (int32_t x = _max(drawPosX, 0); x<toX; x++) {
+      uint16_t color = spriteBuffer[(uint32_t)((x-drawPosX) * inverseScaleX) + addYSprite];
+      if (!(flags & TRANSP_MASK && color == maskColor)) {
+        screenBuffer[x + addYScreen] = color;
+      }
+    }
+  }
 }
 
 static void drawProgressBarCommon(DISPLAY_T* display, uint16_t percent, uint16_t greenOffset, int16_t x, int16_t y, int16_t w, int16_t h) {

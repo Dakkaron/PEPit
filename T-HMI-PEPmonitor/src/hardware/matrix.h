@@ -22,6 +22,12 @@ typedef struct {
 } Vector2D;
 
 typedef struct {
+  float x;
+  float y;
+  float z;
+} Vector3D;
+
+typedef struct {
   int32_t x;
   int32_t y;
 } Vector2Di;
