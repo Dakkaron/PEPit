@@ -12,7 +12,7 @@ CameraHeight = 1
 Speed = 0
 
 TargetShip = 1
-Money = 0
+Money = PrefsGetInt("money", 0)
 
 HorizonHeight = 50
 
