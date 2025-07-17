@@ -10,11 +10,17 @@ CameraY = CameraY + math.cos(CameraAngle) * Speed * 0.0001 * MsDelta
 
 DrawMode7(SBackground, CameraX, CameraY, CameraHeight, CameraAngle, 1, HorizonHeight, 20, 180)
 
-drawShip(SSailShip, 0, 100, true)
-drawShip(SSailShip, 400, 400, true)
-drawShip(SSailShip, 0, 380, true)
-drawShip(SSailShip, 400, 100, true)
-drawShip(SSailShip, 200, 200, true)
+for i = 1, #ShipPositions-1 do
+  drawShip(SSailShip, ShipPositions[i][1], ShipPositions[i][2], i == TargetShip)
+end
+
+if (calcDistance2D(CameraX, CameraY, ShipPositions[TargetShip][1], ShipPositions[TargetShip][2]) < 3) then
+  TargetShip = TargetShip + 1
+  AddEarnings(5)
+  if (TargetShip >= #ShipPositions) then
+    TargetShip = 1
+  end
+end
 
 local planeScale = 0.85+CameraHeight/8
 if (IsTouchInZone(0, 0, 100, 240)) then
@@ -29,6 +35,12 @@ end
 FillRect(310, 182 - Speed*0.5, 10, Speed*0.5, 0xf800)
 
 DrawString(CameraHeight, 30, 30)
+DrawString("D ".. calcDistance2D(CameraX, CameraY, ShipPositions[TargetShip][1], ShipPositions[TargetShip][2]), 30, 40)
 --DrawString("x" .. x, 30, 40)
 --DrawString("y" .. y, 30, 50)
 --DrawString("z" .. z, 30, 60)
+
+SetTextSize(2)
+DisplayEarnings(180, 80)
+DrawString("$" .. Money, 190, 188)
+SetTextSize(1)
