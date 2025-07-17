@@ -617,13 +617,10 @@ void doDrawMode7(DISPLAY_T* display,
   int32_t screenWidth = display->width();
   int32_t screenHeight = endY - startY;
   int32_t textureWidth = texture->width();
-  int32_t textureHeight = texture->height();
 
   uint16_t* screenBuffer = display->get16BitBuffer();
   uint16_t* textureBuffer = texture->get16BitBuffer();
 
-  float centerX = screenWidth / 2.0f;
-  float centerY = screenHeight / 2.0f;
   int32_t centerXi = screenWidth / 2;
   int32_t centerYi = screenHeight / 2;
 
@@ -764,8 +761,6 @@ void mode7WorldToScreen(
       output->z = -1000;
       return;
     }
-    float halfScreenHeight = (float)(endY-startY)/2.0f;
-
     output->x = (px / pz) * (float)SCREEN_WIDTH / 2.0f + (float)SCREEN_WIDTH / 2.0f;
     output->y = (py / pz) + horizonHeight;
     output->z = pz;
@@ -804,7 +799,7 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
     int32_t scaledSpriteY = constrain((int32_t)((y-drawPosY) * inverseScaleY), 0, spriteH-1);
     int32_t addYSprite = scaledSpriteY * spriteW;
     for (int32_t x = _max(drawPosX, 0); x<toX; x++) {
-      int32_t scaledSpriteX = constrain((uint32_t)((x-drawPosX) * inverseScaleX), 0, spriteW-1);
+      int32_t scaledSpriteX = constrain((int32_t)((x-drawPosX) * inverseScaleX), 0, spriteW-1);
       uint16_t color = spriteBuffer[scaledSpriteX + addYSprite];
       if (!(flags & TRANSP_MASK && color == maskColor)) {
         screenBuffer[x + addYScreen] = color;
