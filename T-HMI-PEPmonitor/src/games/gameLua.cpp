@@ -380,6 +380,28 @@ static int lua_wrapper_spriteWidth(lua_State* luaState) {
   return 1;
 }
 
+static int lua_wrapper_drawMode7(lua_State* luaState) {
+  int16_t handle = luaL_checkinteger(luaState, 1);
+  if ((handle<0) || (handle>=SPRITE_COUNT_LIMIT) || (!sprites[handle].created())) {
+    Serial.println("ERROR: Could not draw mode7: invalid sprite handle!");
+    if (luaStrictMode) {
+      checkFailWithMessage("ERROR: Could not draw mode7: invalid sprite handle!");
+    }
+    return 0;
+  }
+  Vector2D cameraPos;
+  cameraPos.x = luaL_checknumber(luaState, 2);
+  cameraPos.y = luaL_checknumber(luaState, 3);
+  float cameraHeight = luaL_checknumber(luaState, 4);
+  float yawAngle = luaL_checknumber(luaState, 5);
+  float zoom = luaL_checknumber(luaState, 6);
+  float horizonHeight = luaL_checknumber(luaState, 7);
+  float startY = luaL_checknumber(luaState, 8);
+  float endY = luaL_checknumber(luaState, 9);
+  drawMode7(luaDisplay, &sprites[handle], &cameraPos, cameraHeight, yawAngle, zoom, horizonHeight, startY, endY);
+  return 0;
+}
+
 static int lua_wrapper_log(lua_State* luaState) {
   String s = luaL_checkstring(luaState, 1);
   Serial.println(s);
@@ -622,6 +644,7 @@ void initLua() {
 
   for (size_t i = 0; i < SPRITE_COUNT_LIMIT; ++i) {
     new (&sprites[i]) TFT_eSprite(&tft);
+    sprites[i].setColorDepth(16);
   }
 
 
@@ -637,6 +660,7 @@ void initLua() {
   lua_register(luaState, "DrawSpriteToSprite", (lua_CFunction) &lua_wrapper_drawSpriteToSprite);
   lua_register(luaState, "SpriteWidth", (lua_CFunction) &lua_wrapper_spriteWidth);
   lua_register(luaState, "SpriteHeight", (lua_CFunction) &lua_wrapper_spriteHeight);
+  lua_register(luaState, "DrawMode7", (lua_CFunction) &lua_wrapper_drawMode7);
   lua_register(luaState, "Log", (lua_CFunction) &lua_wrapper_log);
   lua_register(luaState, "DrawString", (lua_CFunction) &lua_wrapper_drawString);
   lua_register(luaState, "DrawRect", (lua_CFunction) &lua_wrapper_drawRect);

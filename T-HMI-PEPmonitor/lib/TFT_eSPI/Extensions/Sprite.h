@@ -153,6 +153,8 @@ class TFT_eSprite : public TFT_eSPI {
            // Print indexed glyph to sprite using loaded font at x,y
   int16_t  printToSprite(int16_t x, int16_t y, uint16_t index);
 
+  uint16_t* get16BitBuffer();
+
  private:
 
   TFT_eSPI *_tft;
