@@ -147,7 +147,8 @@ static int lua_wrapper_serialPrintln(lua_State* luaState) {
 
 static int lua_wrapper_runScript(lua_State* luaState) {
   String path = luaGamePath + luaL_checkstring(luaState, 1);
-  String script = readFileToString((path).c_str());
+  lua_dofile(path);
+  /*String script = readFileToString((path).c_str());
   if (script.isEmpty()) {
     Serial.println("Error: Failed to load script "+path);
     return 0;
@@ -155,7 +156,7 @@ static int lua_wrapper_runScript(lua_State* luaState) {
   String error = lua_dostring(script.c_str(), "runScript()", false);
   if (!error.isEmpty()) {
     Serial.println("Error in script " + path + ": " + error);
-  }
+  }*/
   return 0;
 }
 
@@ -419,7 +420,7 @@ static int lua_wrapper_drawMode7(lua_State* luaState) {
   return 0;
 }
 
-static int lua_wrapper_mode7WorldToScreen() {
+static int lua_wrapper_mode7WorldToScreen(lua_State* luaState) {
   Vector2D worldPos;
   worldPos.x = luaL_checknumber(luaState, 1);
   worldPos.y = luaL_checknumber(luaState, 2);
@@ -755,9 +756,10 @@ void updateBlowData(BlowData* blowData) {
   static int32_t lastKnownTaskNumber = -1;
   static uint32_t lastRepetition = 0;
   int32_t taskNumber = blowData->taskNumber + blowData->cycleNumber * blowData->totalTaskNumber;
+  bool isNewTask = taskNumber != lastKnownTaskNumber;
   String blowDataString = "CurrentlyBlowing="+String(blowData->currentlyBlowing ? "true" : "false")+"\n"+\
                           "Ms="+String(blowData->ms)+"\n"+\
-                          "MsDelta="+String(blowData->ms - lastMs)+"\n"+\
+                          "MsDelta="+String(isNewTask ? 1 : blowData->ms - lastMs)+"\n"+\
                           "BlowStartMs="+String(blowData->blowStartMs)+"\n"+\
                           "BlowEndMs="+String(blowData->blowEndMs)+"\n"+\
                           "TargetDurationMs="+String(blowData->targetDurationMs)+"\n"+\
@@ -778,7 +780,7 @@ void updateBlowData(BlowData* blowData) {
                           "CumulatedTaskNumber="+String(blowData->taskNumber + blowData->cycleNumber * blowData->totalTaskNumber)+"\n"+\
                           "TaskNumber="+String(taskNumber)+"\n"+\
                           "TotalTaskNumber="+String(blowData->totalTaskNumber)+"\n"+
-                          "IsNewTask="+String(taskNumber != lastKnownTaskNumber ? "true" : "false")+"\n"+
+                          "IsNewTask="+String(isNewTask ? "true" : "false")+"\n"+
                           "BreathingScore="+String(blowData->breathingScore);
   lastKnownTaskNumber = taskNumber;
   lua_dostring(blowDataString.c_str(), "updateBlowData()");
