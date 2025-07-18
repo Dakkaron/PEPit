@@ -10,14 +10,33 @@ CameraY = CameraY + math.cos(CameraAngle) * Speed * 0.0001 * MsDelta
 
 DrawMode7(SBackground, CameraX, CameraY, CameraHeight, CameraAngle, 1, HorizonHeight, 20, 180)
 
-for i = 1, #ShipPositions-1 do
-  drawShip(SSailShip, ShipPositions[i][1], ShipPositions[i][2], i == TargetShip)
+for i = 1, #Objects do
+  Objects[i][4] = calcDistance2D(CameraX, CameraY, Objects[i][2], Objects[i][3])
 end
 
-if (calcDistance2D(CameraX, CameraY, ShipPositions[TargetShip][1], ShipPositions[TargetShip][2]) < 3) then
+table.sort(Objects, function (left, right)
+  return left[4] > right[4]
+end)
+
+local targetShipData = {}
+local totalShipCount = 0
+for i = 1, #Objects do
+  local objectType = Objects[i][1]
+  if (objectType == ObjectTypeShip) then
+    drawShip(SSailShip, Objects[i][2], Objects[i][3], Objects[i][5] == TargetShip)
+    if Objects[i][5] == TargetShip then
+      targetShipData = Objects[i]
+	end
+	totalShipCount = totalShipCount + 1
+  elseif (objectType == ObjectTypeStorm) then
+    drawBillboard(SStorm, Objects[i][2], Objects[i][3], 1, 10)
+  end
+end
+
+if (calcDistance2D(CameraX, CameraY, targetShipData[2], targetShipData[3]) < 3) then
   TargetShip = TargetShip + 1
   AddEarnings(5)
-  if (TargetShip >= #ShipPositions) then
+  if (TargetShip > totalShipCount) then
     TargetShip = 1
   end
 end
@@ -35,10 +54,6 @@ end
 FillRect(310, 182 - Speed*0.5, 10, Speed*0.5, 0xf800)
 
 DrawString(CameraHeight, 30, 30)
-DrawString("D ".. calcDistance2D(CameraX, CameraY, ShipPositions[TargetShip][1], ShipPositions[TargetShip][2]), 30, 40)
---DrawString("x" .. x, 30, 40)
---DrawString("y" .. y, 30, 50)
---DrawString("z" .. z, 30, 60)
 
 SetTextSize(2)
 DisplayEarnings(180, 80)
