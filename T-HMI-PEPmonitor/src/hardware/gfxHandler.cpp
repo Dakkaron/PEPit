@@ -593,12 +593,11 @@ typedef struct {
   float horizonHeight;
   int32_t startY;
   int32_t endY;
-  int32_t downwardsY;
-  int32_t upwardsY;
-  bool centerpointY;
+  volatile int32_t downwardsY;
+  volatile int32_t upwardsY;
 } Mode7TaskParameters;
 
-static Mode7TaskParameters mode7TaskParameters;
+static volatile Mode7TaskParameters mode7TaskParameters;
 static TaskHandle_t mode7TaskHandle;
 
 void doDrawMode7(DISPLAY_T* display,
@@ -624,23 +623,29 @@ void doDrawMode7(DISPLAY_T* display,
   int32_t centerXi = screenWidth / 2;
   int32_t centerYi = screenHeight / 2;
 
+  uint32_t textureWidthMask = textureWidth - 1;
+  uint32_t textureHeightMask = texture->height() - 1;
+
   float scaling = 10*cameraHeight;
 
-  int32_t centerpoint = ((endY-startY) + (horizonHeight-startY))/2 - centerYi;
-
   for (int32_t iY = -centerYi; iY < centerYi; iY++) {
-    int32_t y = drawDownwards ? -iY : iY;
-    if (!drawDownwards && mode7TaskParameters.centerpointY && y==centerpoint) {
+    int32_t y = drawDownwards ? iY : -iY;
+    if (drawDownwards) {
+      mode7TaskParameters.downwardsY = y;
+    } else {
+      mode7TaskParameters.upwardsY = y;
+      if (mode7TaskParameters.downwardsY >= y) {
         return;
+      }
     }
     int32_t screenY = y + centerYi + startY;
     int32_t screenYAdd = screenY * screenWidth;
 
     if (y + centerYi <= horizonHeight) {
       // Fill sky above horizon
-      for (int32_t x = 0; x < screenWidth; x++) {
+      /*for (int32_t x = 0; x < screenWidth; x++) {
         screenBuffer[x + screenYAdd] = 0x7E7D; // sky color
-      }
+      }*/
     } else {
       float fov = 120 / zoom;
       float py = fov;
@@ -659,13 +664,12 @@ void doDrawMode7(DISPLAY_T* display,
         sx = worldX * scaling + cameraPos->x;
         sy = worldY * scaling + cameraPos->y;
 
-        uint32_t texX = (uint32_t)sx & 0x1FF; //% textureWidth;
-        uint32_t texY = (uint32_t)sy & 0x1FF; //% textureHeight;
-
+        uint32_t texX = (uint32_t)sx & textureWidthMask;
+        uint32_t texY = (uint32_t)sy & textureHeightMask;
         screenBuffer[px + centerXi + screenYAdd] = textureBuffer[texX + texY * textureWidth];
       }
     }
-    if (drawDownwards && mode7TaskParameters.centerpointY && y==centerpoint) {
+    if (drawDownwards && mode7TaskParameters.upwardsY<=y) {
       return;
     }
   }
@@ -707,9 +711,8 @@ void drawMode7(DISPLAY_T* display,
   mode7TaskParameters.horizonHeight = horizonHeight;
   mode7TaskParameters.startY = startY;
   mode7TaskParameters.endY = endY;
-  mode7TaskParameters.downwardsY = -1;
-  mode7TaskParameters.upwardsY = -1;
-  mode7TaskParameters.centerpointY = true;
+  mode7TaskParameters.downwardsY = -10000;
+  mode7TaskParameters.upwardsY = +10000;
   xTaskCreatePinnedToCore(drawMode7Task, "mode7draw", 10000, NULL, 23, &mode7TaskHandle, 0);
   doDrawMode7(
     display,
