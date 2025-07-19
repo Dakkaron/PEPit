@@ -1,5 +1,31 @@
 #include "matrix.h"
 
+void vectorFromAngle(float angle, float length, Vector2D* output) {
+  output->x = std::cos(angle) * length;
+  output->y = std::sin(angle) * length;
+}
+
+void vectorFromAngle(float angle, Vector2D* output) {
+  output->x = std::cos(angle);
+  output->y = std::sin(angle);
+}
+
+float dotProduct(const Vector2D* a, const Vector2D* b) {
+  return a->x * b->x + a->y * b->y;
+}
+
+float dotProduct(const Vector2D* a, float angle) {
+  Vector2D b;
+  vectorFromAngle(angle, &b);
+  return dotProduct(a, &b);
+}
+
+void normalizeVector(Vector2D* input, Vector2D* output) {
+  float invLen = 1.0f/std::sqrt(input->x*input->x + input->y*input->y);
+  output->x *= invLen;
+  output->y *= invLen;
+}
+
 void multMV(Matrix2D* matrix, Vector2D* vector, Vector2D* output) {
   output->x = matrix->a * vector->x + matrix->b * vector->y;
   output->y = matrix->c * vector->x + matrix->d * vector->y;
