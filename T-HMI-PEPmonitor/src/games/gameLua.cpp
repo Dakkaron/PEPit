@@ -24,6 +24,24 @@ static SpriteMetadata spriteMetadata[SPRITE_COUNT_LIMIT];
 // Block of SPRITE_COUNT_LIMIT sprites to be used within Lua games
 static TFT_eSprite* sprites = nullptr;
 
+
+static String findScriptRedirectPath(char* input) {
+  String scriptString = String(input);
+  scriptString.trim();
+  if (scriptString.indexOf("\n")!=-1 || scriptString.indexOf(";")!=-1 || scriptString.indexOf("\r")!=-1) {
+    return String(""); // Not a one-line redirect
+  }
+  if (!scriptString.startsWith("RunScript(\"") || !scriptString.endsWith("\")")) {
+    return String("");
+  }
+  String redirectPath = scriptString.substring(11, scriptString.length()-2);
+  if (redirectPath.indexOf("\"")!=-1) {
+    return String("");
+  }
+  
+  return luaGamePath + redirectPath;
+}
+
 String lua_dofile(const String path, bool dontCache) {
   static char* script[10];
   static String cachedPath[10];
@@ -89,7 +107,10 @@ String lua_dofile(const String path, bool dontCache) {
       return result;
     }
   }
-  if (luaL_dostring(luaState, script[cacheSlot])) {
+  String redirectPath = findScriptRedirectPath(script[cacheSlot]);
+  if (!redirectPath.isEmpty()) {
+    result = lua_dofile(redirectPath);
+  } else if (luaL_dostring(luaState, script[cacheSlot])) {
     result = "# lua error:\n" + String(lua_tostring(luaState, -1));
     lua_pop(luaState, 1);
     Serial.println("Error in lua file "+path+": " + result);
