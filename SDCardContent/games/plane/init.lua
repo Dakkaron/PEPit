@@ -1,8 +1,17 @@
 SBackground = LoadSprite("gfx/background.bmp")
 SSky = LoadSprite("gfx/sky.bmp")
-SPlane = LoadSprite("gfx/plane.bmp", 0, 0xf81f)
-SPlaneBankL = LoadSprite("gfx/planeBankL.bmp", 0, 0xf81f)
-SPlaneBankR = LoadSprite("gfx/planeBankR.bmp", 0, 0xf81f)
+SPlane = {
+  LoadSprite("gfx/plane.bmp", 0, 0xf81f),
+  LoadSprite("gfx/plane2.bmp", 0, 0xf81f)
+}
+SPlaneBankL = {
+  LoadSprite("gfx/planeBankL.bmp", 0, 0xf81f),
+  LoadSprite("gfx/plane2BankL.bmp", 0, 0xf81f)
+}
+SPlaneBankR = {
+  LoadSprite("gfx/planeBankR.bmp", 0, 0xf81f),
+  LoadSprite("gfx/plane2BankR.bmp", 0, 0xf81f),
+}
 SSailShip = LoadSprite("gfx/sailship.bmp", 0, 0xf81f)
 SDownArrow = LoadSprite("gfx/downArrow.bmp", 0, 0xf81f)
 SRing = LoadSprite("gfx/ring.bmp", 0, 0xf81f)
@@ -12,6 +21,13 @@ SSplash = {
 }
 SStorm = LoadSprite("gfx/storm.bmp", 0, 0xf81f)
 SBird = LoadSprite("gfx/bird.bmp", 0, 0xf81f)
+
+SUpgradeProp = LoadSprite("gfx/propeller.bmp", 0, 0xf81f)
+SUpgradeEngine = LoadSprite("gfx/engine.bmp", 0, 0xf81f)
+SUpgradeControl = LoadSprite("gfx/control.bmp", 0, 0xf81f)
+SButtonUp = LoadSprite("gfx/buttonUp.bmp", 0, 0xf81f)
+SButtonDown = LoadSprite("gfx/buttonDown.bmp", 0, 0xf81f)
+
 CameraAngle = 0
 CameraX = 0
 CameraY = 0
@@ -19,13 +35,22 @@ CameraHeight = 1
 Speed = 100
 TopFlightHeight = 2
 
+PrefsSetInt("uplane", 0)
+PrefsSetInt("uprop", 0)
+PrefsSetInt("uengine", 0)
+PrefsSetInt("usurf", 0)
+
 DrowningStartMs = 0
 TargetShip = 1
 Money = PrefsGetInt("money", 0)
+Money = 100000
+PlaneType = PrefsGetInt("uplane", 0) + 1
+UpgradeSpeed = PrefsGetInt("uprop", 0) + PrefsGetInt("uengine", 0)
+UpgradeTurn = PrefsGetInt("usurf", 0)
 
 HorizonHeight = 49
 
-BIRD_SPEED = 20
+BIRD_SPEED = 5
 
 OBJECT_TYPE_SHIP = 1
 OBJECT_TYPE_STORM = 2
@@ -43,7 +68,6 @@ Objects = {
   {type = OBJECT_TYPE_BIRD, x = math.random(10, 450), y = math.random(10, 450), d = 0, targetX = math.random(10, 450), targetY = math.random(10, 450)},
   {type = OBJECT_TYPE_BIRD, x = math.random(10, 450), y = math.random(10, 450), d = 0, targetX = math.random(10, 450), targetY = math.random(10, 450)},
   {type = OBJECT_TYPE_BIRD, x = math.random(10, 450), y = math.random(10, 450), d = 0, targetX = math.random(10, 450), targetY = math.random(10, 450)},
-  --{ObjectTypeStorm, 50, 300, 0, 2}
 }
 
 
@@ -57,7 +81,7 @@ function drawBillboard(sprite, worldX, worldY, worldHeight, baseScale, hflip)
   local x,y,z = Mode7WorldToScreen(worldX,worldY, CameraX,CameraY,CameraHeight,CameraAngle, 1, HorizonHeight, 20,180)
   local dx = worldX - CameraX
   local dy = worldY - CameraY
-  local dz = -worldHeight * 35--(worldHeight - CameraHeight) * 5
+  local dz = -worldHeight * 35
   local distance = math.sqrt(dx*dx + dy*dy)
   scale = 15/distance
   local sy = y + dz * scale + dz * scale
@@ -89,20 +113,9 @@ function drawShip(sprite, worldX, worldY)
 end
 
 function drawTarget(sprite, worldX, worldY)
-  --local x,y,z = Mode7WorldToScreen(worldX,worldY, CameraX,CameraY,CameraHeight,CameraAngle, 1, HorizonHeight, 20,180)
-  --if (x==-1000 and y==-1000) then
-  --  return
-  --end
   local dx = CameraX - worldX
   local dy = CameraY - worldY
   local distance = math.sqrt(dx*dx + dy*dy)
-  --if (distance<8 and (TopFlightHeight - CameraHeight) < (TopFlightHeight/10.0)) then
-  --  DrawSpriteScaled(SRing, x, 120, scale, scale, 0x05)
-  --elseif (distance<50) then
-    --DrawSpriteScaled(SRing, x, y-100*scale, scale, scale, 0x09)
-  --else
-    --DrawSprite(SDownArrow, x-SpriteWidth(SDownArrow)/2, 25 + math.sin(Ms/100))
-  --end
   if (distance<50) then
     drawBillboard(SRing, worldX, worldY, 2, 1, false)
   else
@@ -158,21 +171,156 @@ PART_TYPE_PROPELLER = 2
 PART_TYPE_ENGINE = 3
 PART_TYPE_WINGS = 4
 
-function DisplayBuyPart(price, partType)
-  if (Money < price) then
-    FillRect(10, 60, 220, 35, 0xF800)
-  else
-    FillRect(10, 60, 220, 35, 0x001F)
-    SetTextSize(1)
-    DrawString("Nicht genug Geld", 15, 84)
-  end
+AllUpgrades = {
+  {
+    id = 1,
+    text = "Propeller",
+    img = SUpgradeProp,
+    cost = 3000,
+    prop = "uprop",
+    upto = 1,
+    req = {}
+  },
+  {
+    id = 2,
+    text = "Motor",
+    img = SUpgradeEngine,
+    cost = 4000,
+    prop = "uengine",
+    upto = 2,
+    req = {}
+  },
+  {
+    id = 3,
+    text = "Klappen",
+    img = SUpgradeControl,
+    cost = 3500,
+    prop = "usurf",
+    upto = 2,
+    req = {}
+  },
+  {
+    id = 4,
+    text = "Flugzeug",
+    img = SPlane[PlaneType+1],
+    cost = 15000,
+    prop = "uplane",
+    upto = 1,
+    req = {
+      {1,1}, {2,2}, {3,2}
+    }
+  },
+  {
+    id = 5,
+    text = "Propeller",
+    img = SUpgradeProp,
+    cost = 6000,
+    prop = "uprop",
+    upto = 2,
+    req = {{4,1}}
+  },
+  {
+    id = 6,
+    text = "Motor",
+    img = SUpgradeEngine,
+    cost = 8000,
+    prop = "uengine",
+    upto = 4,
+    req = {{4,1}}
+  },
+  {
+    id = 7,
+    text = "Klappen",
+    img = SUpgradeControl,
+    cost = 7000,
+    prop = "usurf",
+    upto = 4,
+    req = {{4,1}}
+  },
+  {
+    id = 8,
+    text = "Schiffe",
+    img = SSailShip,
+    cost = 7000,
+    prop = "uship",
+    upto = 1,
+    req = {}
+  }
+}
 
-  SetTextSize(2)
-  DrawImage()
-  if (Money >= price and IsTouchInZone(10, 60, 220, 35)) then
-    Money = Money - price
-    Stage = Stage + 1
-    PrefsSetInt("stage", Stage)
-    PrefsSetInt("money", Money)
+CachedValidUpdates = nil
+function GetValidUpgrades()
+  if (CachedValidUpdates ~= nil) then
+    return CachedValidUpdates
+  end
+  local out = {}
+  local nr = 1
+  for i = 1, #AllUpgrades do
+    local upgrade = AllUpgrades[i]
+    local reqs = upgrade.req
+    local reqOk = upgrade.upto > PrefsGetInt(upgrade.prop)
+    SerialPrintln(upgrade.text .. " = " .. tostring(reqOk))
+    for j = 1, #reqs do
+      SerialPrintln(AllUpgrades[reqs[j][1]].prop .. "->" .. PrefsGetInt(AllUpgrades[reqs[j][1]].prop, 0) .. "<" .. reqs[j][2])
+      if reqOk and PrefsGetInt(AllUpgrades[reqs[j][1]].prop, 0) < reqs[j][2] then
+        reqOk = false
+        SerialPrintln("reqOk = False")
+      end
+    end
+    if (reqOk) then
+      out[nr] = upgrade
+      nr = nr + 1
+    end
+  end
+  CachedValidUpdates = out
+  return out
+end
+
+UpgradeMenuOffset = 0
+TouchBlocked = false
+function DisplayValidUpgrades()
+  if TouchBlocked and not IsTouchInZone(0, 0, 320, 240) then
+    TouchBlocked = false
+  end
+  local upgrades = GetValidUpgrades()
+  if UpgradeMenuOffset>0 then
+    DrawSprite(SButtonUp, 275, 35)
+    if IsTouchInZone(275, 35, 32, 32) and not TouchBlocked then
+      UpgradeMenuOffset = UpgradeMenuOffset - 1
+      TouchBlocked = true
+    end
+  end
+  if UpgradeMenuOffset<#upgrades-3 then
+    DrawSprite(SButtonDown, 275, 150)
+    if IsTouchInZone(275, 150, 32, 32) and not TouchBlocked then
+      UpgradeMenuOffset = UpgradeMenuOffset + 1
+      TouchBlocked = true
+    end
+  end
+  for i = 1, math.min(3,#upgrades) do
+    local upgrade = upgrades[i + UpgradeMenuOffset]
+    local yPos = 30 + (i-1)*64
+    if (Money < upgrade.cost) then
+      FillRect(10, yPos, 220, 60, 0xF800)
+    else
+      FillRect(10, yPos, 220, 60, 0x001F)
+      if IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
+        TouchBlocked = true
+        Money = Money - upgrade.cost
+        PrefsSetInt("money", Money)
+        PrefsSetInt(upgrade.prop, PrefsGetInt(upgrade.prop, 0) + 1)
+        CachedValidUpdates = nil
+      end
+    end
+    SetTextSize(1)
+    local scale = 1
+    local maxDim = math.max(SpriteWidth(upgrade.img),SpriteHeight(upgrade.img))
+    scale = 60.0/maxDim
+    DrawSpriteScaled(upgrade.img, 42, yPos+30, scale, scale, 0x05)
+    SetTextSize(2)
+    DrawString(upgrade.text, 78, yPos+2)
+    DrawString("Stufe " .. (PrefsGetInt(upgrade.prop, 0)+1), 78, yPos+20)
+    DrawString("$"..upgrade.cost, 230 - #("$"..upgrade.cost)*12, yPos+40)
+    SetTextSize(1)
   end
 end

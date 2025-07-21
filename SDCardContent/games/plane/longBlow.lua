@@ -1,4 +1,4 @@
-DisableCaching()
+SetTextSize(1)
 CameraHeight = CameraHeight + (Speed-50) * MsDelta * 0.00001
 if (DrowningStartMs == 0 and CameraHeight < 0.1 ) then
   DrowningStartMs = Ms
@@ -6,7 +6,7 @@ end
 CameraHeight = Constrain(CameraHeight, 0.1, TopFlightHeight)
 if (DrowningStartMs == 0) then
   if NewRepetition then
-    Speed = Speed + 100
+    Speed = Speed + 100 + 15*UpgradeSpeed
   end
   speedDrop = 1 - (0.0001 * MsDelta)
   Speed = Speed * speedDrop
@@ -86,15 +86,15 @@ end
 local planeScale = 0.85+CameraHeight/8
 if (DrowningStartMs == 0) then
   if (IsTouchInZone(0, 0, 100, 240)) then
-    DrawSpriteScaled(SPlaneBankL, 160, 120, planeScale, planeScale, 0x05)
-    CameraAngle = CameraAngle + 0.001 * MsDelta
+    DrawSpriteScaled(SPlaneBankL[PlaneType], 160, 120, planeScale, planeScale, 0x05)
+    CameraAngle = CameraAngle + (0.001 + 0.0002*UpgradeTurn) * MsDelta
     CameraAngle = math.fmod(CameraAngle, math.pi*2)
   elseif (IsTouchInZone(220, 0, 100, 240)) then
-    DrawSpriteScaled(SPlaneBankR, 160, 120, planeScale, planeScale, 0x05)
-    CameraAngle = CameraAngle - 0.001 * MsDelta
+    DrawSpriteScaled(SPlaneBankR[PlaneType], 160, 120, planeScale, planeScale, 0x05)
+    CameraAngle = CameraAngle - (0.001 + 0.0002*UpgradeTurn) * MsDelta
     CameraAngle = math.fmod(CameraAngle, math.pi*2)
   else
-    DrawSpriteScaled(SPlane, 160, 120, planeScale, planeScale, 0x05)
+    DrawSpriteScaled(SPlane[PlaneType], 160, 120, planeScale, planeScale, 0x05)
   end
 else
   local drowningTime = Ms - DrowningStartMs
@@ -114,7 +114,7 @@ else
     CameraX = CameraX - math.sin(CameraAngle) * Speed * 0.0001 * MsDelta
     CameraY = CameraY + math.cos(CameraAngle) * Speed * 0.0001 * MsDelta
     if (math.fmod(Ms//200, 2) == 0) then
-      DrawSpriteScaled(SPlane, 160, 120, planeScale, planeScale, 0x05)
+      DrawSpriteScaled(SPlane[PlaneType], 160, 120, planeScale, planeScale, 0x05)
     end
   else
     AddEarnings(-10)
@@ -124,7 +124,7 @@ end
 FillRect(310, 182 - Speed*0.5, 10, Speed*0.5, 0xf800)
 
 DrawString(CameraHeight, 30, 30)
-DrawString("Drown" .. DrowningStartMs .. "/" .. (Ms-DrowningStartMs), 30, 40)
+DrawString("Free " .. (GetFreeRAM()//1024) .. "k - " .. (GetFreePSRAM()//1024) .. "k - " .. GetFreeSpriteSlots(), 30, 40)
 
 SetTextSize(2)
 DisplayEarnings(180, 80)
