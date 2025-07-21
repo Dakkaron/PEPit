@@ -420,8 +420,8 @@ static int lua_wrapper_spriteWidth(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawMode7(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if ((handle<0) || (handle>=SPRITE_COUNT_LIMIT) || (!sprites[handle].created())) {
+  int16_t textureHandle = luaL_checkinteger(luaState, 1);
+  if ((textureHandle<0) || (textureHandle>=SPRITE_COUNT_LIMIT) || (!sprites[textureHandle].created())) {
     Serial.println("ERROR: Could not draw mode7: invalid sprite handle!");
     if (luaStrictMode) {
       checkFailWithMessage("ERROR: Could not draw mode7: invalid sprite handle!");
@@ -437,7 +437,7 @@ static int lua_wrapper_drawMode7(lua_State* luaState) {
   float horizonHeight = luaL_checknumber(luaState, 7);
   float startY = luaL_checknumber(luaState, 8);
   float endY = luaL_checknumber(luaState, 9);
-  drawMode7(luaDisplay, &sprites[handle], &cameraPos, cameraHeight, yawAngle, zoom, horizonHeight, startY, endY);
+  drawMode7(luaDisplay, &sprites[textureHandle], &cameraPos, cameraHeight, yawAngle, zoom, horizonHeight, startY, endY);
   return 0;
 }
 
@@ -684,6 +684,22 @@ static int lua_wrapper_getFreeRAM(lua_State* luaState) {
   return 1;
 }
 
+static int lua_wrapper_getFreePSRAM(lua_State* luaState) {
+  lua_pushinteger(luaState, ESP.getFreePsram());
+  return 1;
+}
+
+static int lua_wrapper_getFreeSpriteSlots(lua_State* luaState) {
+  int32_t count = 0;
+  for (int32_t i=0;i<SPRITE_COUNT_LIMIT;i++) {
+    if (sprites[i].created()) {
+      count++;
+    }
+  }
+  lua_pushinteger(luaState, count);
+  return 1;
+}
+
 void initLua() {
   static bool bindingsInitiated = false;
   if (bindingsInitiated) {
@@ -753,6 +769,8 @@ void initLua() {
   lua_register(luaState, "GetTouchY", (lua_CFunction) &lua_wrapper_getTouchY);
   lua_register(luaState, "GetTouchPressure", (lua_CFunction) &lua_wrapper_getTouchPressure);
   lua_register(luaState, "GetFreeRAM", (lua_CFunction) &lua_wrapper_getFreeRAM);
+  lua_register(luaState, "GetFreePSRAM", (lua_CFunction) &lua_wrapper_getFreePSRAM);
+  lua_register(luaState, "GetFreeSpriteSlots", (lua_CFunction) &lua_wrapper_getFreeSpriteSlots);
   lua_register(luaState, "DisableCaching", (lua_CFunction) &lua_wrapper_disableCaching);
   bindingsInitiated = true;
 }
