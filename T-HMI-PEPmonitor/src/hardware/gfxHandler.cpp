@@ -770,10 +770,10 @@ void mode7WorldToScreen(
 }
 
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor) {
-  float spriteW = sprite->width();
-  float spriteH = sprite->height();
-  float spriteWScaled = spriteW * scale->x;
-  float spriteHScaled = spriteH * scale->y;
+  int32_t spriteW = sprite->width();
+  int32_t spriteH = sprite->height();
+  float spriteWScaled = std::abs(spriteW * scale->x);
+  float spriteHScaled = std::abs(spriteH * scale->y);
   float drawPosX = position->x;
   float drawPosY = position->y;
   uint16_t* screenBuffer = display->get16BitBuffer();
@@ -792,18 +792,28 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
   uint32_t displayH = display->height();
   int32_t toX = _min(drawPosX+spriteWScaled, displayW);
   int32_t toY = _min(drawPosY+spriteHScaled, displayH);
-  float inverseScaleX = 1/scale->x;
-  float inverseScaleY = 1/scale->y;
+  float inverseScaleX = std::abs(1/scale->x);
+  float inverseScaleY = std::abs(1/scale->y);
   if (sprite->getSwapBytes()) {
     maskColor = maskColor << 8 | maskColor >> 8;
   }
   for (int32_t y = _max(drawPosY, 0); y<toY; y++) {
     int32_t addYScreen = y * displayW;
     int32_t scaledSpriteY = constrain((int32_t)((y-drawPosY) * inverseScaleY), 0, spriteH-1);
-    int32_t addYSprite = scaledSpriteY * spriteW;
+    int32_t addYSprite;
+    if (scale->y >= 0) {
+      addYSprite = scaledSpriteY * spriteW;
+    } else {
+      addYSprite = (spriteH - scaledSpriteY -1) * spriteW;
+    }
     for (int32_t x = _max(drawPosX, 0); x<toX; x++) {
       int32_t scaledSpriteX = constrain((int32_t)((x-drawPosX) * inverseScaleX), 0, spriteW-1);
-      uint16_t color = spriteBuffer[scaledSpriteX + addYSprite];
+      uint16_t color;
+      if (scale->x >= 0) {
+        color = spriteBuffer[scaledSpriteX + addYSprite];
+      } else {
+        color = spriteBuffer[spriteW - scaledSpriteX - 1 + addYSprite];
+      }
       if (!(flags & TRANSP_MASK && color == maskColor)) {
         screenBuffer[x + addYScreen] = color;
       }
