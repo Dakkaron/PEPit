@@ -35,15 +35,9 @@ CameraHeight = 1
 Speed = 100
 TopFlightHeight = 2
 
-PrefsSetInt("uplane", 0)
-PrefsSetInt("uprop", 0)
-PrefsSetInt("uengine", 0)
-PrefsSetInt("usurf", 0)
-
 DrowningStartMs = 0
 TargetShip = 1
 Money = PrefsGetInt("money", 0)
-Money = 100000
 PlaneType = PrefsGetInt("uplane", 0) + 1
 UpgradeSpeed = PrefsGetInt("uprop", 0) + PrefsGetInt("uengine", 0)
 UpgradeTurn = PrefsGetInt("usurf", 0)
