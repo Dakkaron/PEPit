@@ -87,17 +87,17 @@ AttackFunctionType getAttackFunctionFromIdentifier(String attackFunctionIdentifi
   Serial.println(attackFunctionIdentifier);
   if (attackFunctionIdentifier == "confusion") {
     return attackFunction_confusion;
-  } else if (attackFunctionIdentifier = "ember") {
+  } else if (attackFunctionIdentifier.equals("ember")) {
     return attackFunction_ember;
-  } else if (attackFunctionIdentifier = "throwFastAnim") {
+  } else if (attackFunctionIdentifier.equals("throwFastAnim")) {
     return attackFunction_throwFastAnim;
-  } else if (attackFunctionIdentifier = "scratch") {
+  } else if (attackFunctionIdentifier.equals("scratch")) {
     return attackFunction_scratch;
-  } else if (attackFunctionIdentifier = "lightning") {
+  } else if (attackFunctionIdentifier.equals("lightning")) {
     return attackFunction_lightning;
-  } else if (attackFunctionIdentifier = "catch") {
+  } else if (attackFunctionIdentifier.equals("catch")) {
     return attackFunction_catch;
-  } else if (attackFunctionIdentifier = "rareCandy") {
+  } else if (attackFunctionIdentifier.equals("rareCandy")) {
     return attackFunction_rareCandy;
   }
   return NULL;

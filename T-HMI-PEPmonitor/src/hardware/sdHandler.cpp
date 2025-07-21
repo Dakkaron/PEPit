@@ -392,7 +392,7 @@ String getRandomWinScreenPath(String gamePath, String* errorMessage) {
     scanForWinScreens(gamePath, errorMessage);
   }
   uint32_t selectedWinScreenNumber = random(0,numberOfWinScreens);
-  Serial.printf("Getting winscreen number %i/%i path from directory: %s\n", selectedWinScreenNumber, numberOfWinScreens, gameWinScreenDir.c_str());
+  Serial.printf("Getting winscreen number %lu/%lu path from directory: %s\n", selectedWinScreenNumber, numberOfWinScreens, gameWinScreenDir.c_str());
 
   File root = SD_MMC.open(gameWinScreenDir.c_str());
   if (!root) {

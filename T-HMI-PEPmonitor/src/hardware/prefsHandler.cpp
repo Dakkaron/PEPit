@@ -8,7 +8,8 @@ static String gamePrefsNamespace;
 
 void printNamespaces() {
   Serial.println("Namespaces in NVS:\n");
-  nvs_iterator_t it = nvs_entry_find(NVS_DEFAULT_PART_NAME, NULL, NVS_TYPE_ANY);
+  nvs_iterator_t it;
+  nvs_entry_find(NVS_DEFAULT_PART_NAME, NULL, NVS_TYPE_ANY, &it);
   if (it == NULL) {
     Serial.println("No entries found in NVS.");
     return;
@@ -20,7 +21,7 @@ void printNamespaces() {
     Serial.print(info.namespace_name);
     Serial.print(" - ");
     Serial.println(info.key);
-    it = nvs_entry_next(it);
+    nvs_entry_next(&it);
   }
 
   prefs.begin("touch");

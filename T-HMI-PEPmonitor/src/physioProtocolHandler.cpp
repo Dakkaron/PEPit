@@ -344,6 +344,7 @@ void displayPhysioRotateScreen() {
       spr.pushSpriteFast(0, 0);
       displayOkButtonMs = 0;
     }
+    handleSerial();
     vTaskDelay(1); // watchdog
   }
   
