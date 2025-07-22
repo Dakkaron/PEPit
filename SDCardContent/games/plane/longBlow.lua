@@ -39,7 +39,7 @@ for i = 1, #Objects do
   local object = Objects[i]
   local objectType = object.type
   if (objectType == OBJECT_TYPE_SHIP) then
-    drawShip(SSailShip, object.x, object.y)
+    drawShip(SShip[object.shipType], object.x, object.y)
     if object.id == TargetShip then
       targetShipData = object
     end
@@ -51,7 +51,7 @@ for i = 1, #Objects do
     object.x = object.x + mx * BIRD_SPEED * 0.001 * MsDelta
     object.y = object.y + mx * BIRD_SPEED * 0.001 * MsDelta
     local dir = getObjectRelativeDirection(mx, my)
-    drawBillboard(SBird, object.x, object.y, 10, 0.5, dir > 0 and true or false)
+    drawBillboard(SBird, object.x, object.y, TopFlightHeight, 0.5, dir < 0 and true or false)
     local dx = object.targetX-object.x
     local dy = object.targetY-object.y
     local targetDistance = math.sqrt(dx*dx + dy*dy)
@@ -62,7 +62,7 @@ for i = 1, #Objects do
   end
 end
 
-drawTarget(SSailShip, targetShipData.x, targetShipData.y)
+drawTarget(targetShipData.x, targetShipData.y)
 
 for i = 1, #Objects do
   local object = Objects[i]
@@ -72,12 +72,16 @@ for i = 1, #Objects do
       DrowningStartMs = Ms
     end
     CameraHeight = Constrain(CameraHeight, 0.1, TopFlightHeight)
+  elseif (object.type == OBJECT_TYPE_BIRD and object.d < 10) then
+    object.x = math.random(10, 450)
+    object.y = math.random(10, 450)
+    AddEarnings(5)
   end
 end
 
 if (calcDistance2D(CameraX, CameraY, targetShipData.x, targetShipData.y) < 3 and (TopFlightHeight - CameraHeight) < (TopFlightHeight/10.0)) then
   TargetShip = TargetShip + 1
-  AddEarnings(5)
+  AddEarnings(3 + targetShipData.shipType * 2)
   if (TargetShip > totalShipCount) then
     TargetShip = 1
   end
@@ -123,8 +127,7 @@ else
 end
 FillRect(310, 182 - Speed*0.5, 10, Speed*0.5, 0xf800)
 
-DrawString(CameraHeight, 30, 30)
-DrawString("Free " .. (GetFreeRAM()//1024) .. "k - " .. (GetFreePSRAM()//1024) .. "k - " .. GetFreeSpriteSlots(), 30, 40)
+--DrawString("Free " .. (GetFreeRAM()//1024) .. "k - " .. (GetFreePSRAM()//1024) .. "k - " .. GetFreeSpriteSlots(), 30, 40)
 
 SetTextSize(2)
 DisplayEarnings(180, 80)

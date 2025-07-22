@@ -12,7 +12,10 @@ SPlaneBankR = {
   LoadSprite("gfx/planeBankR.bmp", 0, 0xf81f),
   LoadSprite("gfx/plane2BankR.bmp", 0, 0xf81f),
 }
-SSailShip = LoadSprite("gfx/sailship.bmp", 0, 0xf81f)
+SShip = {
+  LoadSprite("gfx/ship1.bmp", 0, 0xf81f),
+  LoadSprite("gfx/ship2.bmp", 0, 0xf81f)
+}
 SDownArrow = LoadSprite("gfx/downArrow.bmp", 0, 0xf81f)
 SRing = LoadSprite("gfx/ring.bmp", 0, 0xf81f)
 SSplash = {
@@ -39,8 +42,9 @@ DrowningStartMs = 0
 TargetShip = 1
 Money = PrefsGetInt("money", 0)
 PlaneType = PrefsGetInt("uplane", 0) + 1
-UpgradeSpeed = PrefsGetInt("uprop", 0) + PrefsGetInt("uengine", 0)
-UpgradeTurn = PrefsGetInt("usurf", 0)
+ShipType = PrefsGetInt("uship", 0) + 1
+UpgradeSpeed = PrefsGetInt("uprop", 0) + PrefsGetInt("uengine", 0) + PlaneType
+UpgradeTurn = PrefsGetInt("usurf", 0) + PlaneType
 
 HorizonHeight = 49
 
@@ -51,11 +55,11 @@ OBJECT_TYPE_STORM = 2
 OBJECT_TYPE_BIRD = 3
 
 Objects = {
-  {type = OBJECT_TYPE_SHIP, x = 0,   y = 100, d = 0, id = 1},
-  {type = OBJECT_TYPE_SHIP, x = 400, y = 400, d = 0, id = 2},
-  {type = OBJECT_TYPE_SHIP, x = 0,   y = 380, d = 0, id = 3},
-  {type = OBJECT_TYPE_SHIP, x = 400, y = 100, d = 0, id = 4},
-  {type = OBJECT_TYPE_SHIP, x = 200, y = 200, d = 0, id = 5},
+  {type = OBJECT_TYPE_SHIP, x = 0,   y = 100, d = 0, id = 1, shipType = math.random(1, ShipType)},
+  {type = OBJECT_TYPE_SHIP, x = 400, y = 450, d = 0, id = 2, shipType = math.random(1, ShipType)},
+  {type = OBJECT_TYPE_SHIP, x = 0,   y = 380, d = 0, id = 3, shipType = math.random(1, ShipType)},
+  {type = OBJECT_TYPE_SHIP, x = 400, y = 50, d = 0, id = 4, shipType = math.random(1, ShipType)},
+  {type = OBJECT_TYPE_SHIP, x = 200, y = 200, d = 0, id = 5, shipType = math.random(1, ShipType)},
   {type = OBJECT_TYPE_STORM, x = 200, y = 300, d = 0},
   {type = OBJECT_TYPE_BIRD, x = 0, y = 80, d = 0, targetX = math.random(10, 450), targetY = math.random(10, 450)},
   {type = OBJECT_TYPE_BIRD, x = math.random(10, 450), y = math.random(10, 450), d = 0, targetX = math.random(10, 450), targetY = math.random(10, 450)},
@@ -79,11 +83,6 @@ function drawBillboard(sprite, worldX, worldY, worldHeight, baseScale, hflip)
   local distance = math.sqrt(dx*dx + dy*dy)
   scale = 15/distance
   local sy = y + dz * scale + dz * scale
-  if (distance < 50) then
-    DrawString("y  " .. y, 250, 20)
-    DrawString("dz " .. dz, 250, 30)
-    DrawString("sy " .. sy, 250, 40)
-  end
   DrawSpriteScaled(sprite, x, sy, hflip and -scale*baseScale or scale*baseScale, scale*baseScale, 0x05)
 end
 
@@ -106,7 +105,7 @@ function drawShip(sprite, worldX, worldY)
   end
 end
 
-function drawTarget(sprite, worldX, worldY)
+function drawTarget(worldX, worldY)
   local dx = CameraX - worldX
   local dy = CameraY - worldY
   local distance = math.sqrt(dx*dx + dy*dy)
@@ -170,7 +169,7 @@ AllUpgrades = {
     id = 1,
     text = "Propeller",
     img = SUpgradeProp,
-    cost = 3000,
+    cost = 400,
     prop = "uprop",
     upto = 1,
     req = {}
@@ -179,7 +178,7 @@ AllUpgrades = {
     id = 2,
     text = "Motor",
     img = SUpgradeEngine,
-    cost = 4000,
+    cost = 500,
     prop = "uengine",
     upto = 2,
     req = {}
@@ -188,7 +187,7 @@ AllUpgrades = {
     id = 3,
     text = "Klappen",
     img = SUpgradeControl,
-    cost = 3500,
+    cost = 550,
     prop = "usurf",
     upto = 2,
     req = {}
@@ -197,7 +196,7 @@ AllUpgrades = {
     id = 4,
     text = "Flugzeug",
     img = SPlane[PlaneType+1],
-    cost = 15000,
+    cost = 1500,
     prop = "uplane",
     upto = 1,
     req = {
@@ -208,7 +207,7 @@ AllUpgrades = {
     id = 5,
     text = "Propeller",
     img = SUpgradeProp,
-    cost = 6000,
+    cost = 700,
     prop = "uprop",
     upto = 2,
     req = {{4,1}}
@@ -217,7 +216,7 @@ AllUpgrades = {
     id = 6,
     text = "Motor",
     img = SUpgradeEngine,
-    cost = 8000,
+    cost = 800,
     prop = "uengine",
     upto = 4,
     req = {{4,1}}
@@ -226,7 +225,7 @@ AllUpgrades = {
     id = 7,
     text = "Klappen",
     img = SUpgradeControl,
-    cost = 7000,
+    cost = 900,
     prop = "usurf",
     upto = 4,
     req = {{4,1}}
@@ -234,8 +233,8 @@ AllUpgrades = {
   {
     id = 8,
     text = "Schiffe",
-    img = SSailShip,
-    cost = 7000,
+    img = SShip[ShipType+1],
+    cost = 800,
     prop = "uship",
     upto = 1,
     req = {}
@@ -277,6 +276,9 @@ function DisplayValidUpgrades()
     TouchBlocked = false
   end
   local upgrades = GetValidUpgrades()
+  if #upgrades >= 3 and UpgradeMenuOffset>#upgrades-3 then
+    UpgradeMenuOffset = #upgrades-3
+  end
   if UpgradeMenuOffset>0 then
     DrawSprite(SButtonUp, 275, 35)
     if IsTouchInZone(275, 35, 32, 32) and not TouchBlocked then
