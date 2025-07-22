@@ -35,6 +35,8 @@ bool loadBmp(DISPLAY_T* display, String filename, uint8_t options, uint16_t mask
 bool loadBmpAnim(DISPLAY_T** display, String filename, uint8_t animFrames);
 bool loadBmpAnim(DISPLAY_T** display, String filename, uint8_t animFrames, uint8_t options);
 bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint8_t options, uint16_t maskingColor);
+void fillTriangle(DISPLAY_T* display, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t color);
+void fillQuad(DISPLAY_T* display, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t x3, int32_t y3, uint16_t color);
 void drawMode7(DISPLAY_T* display, TFT_eSprite* texture, Vector2D* cameraPos, float cameraHeight, float yawAngle, float zoom, float horizonHeight, int32_t startY, int32_t endY);
 void mode7WorldToScreen(Vector2D* worldPos, Vector2D* cameraPos, float cameraHeight, float yawAngle, float zoom, float horizonHeight, int32_t startY, int32_t endY, Vector3D* output);
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor);

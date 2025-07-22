@@ -16,6 +16,13 @@
 
 #define BMP16_ALPHA_FLAG_OFFSET 0x43
 
+#define swap(x, y) do \
+  { unsigned char swap_temp[sizeof(x) == sizeof(y) ? (signed)sizeof(x) : -1]; \
+    memcpy(swap_temp, &y, sizeof(x)); \
+    memcpy(&y, &x, sizeof(x)); \
+    memcpy(&x, swap_temp, sizeof(x)); \
+  } while(0)
+
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite spr = TFT_eSprite(&tft);
 TFT_eSprite batteryIcon[] = {TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprite(&tft)};
@@ -477,6 +484,41 @@ bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, bool debu
 
 bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, uint16_t transp, bool debugLog) {
   return drawBmp(sprite, filename, x, y, transp, true, debugLog);
+}
+
+void fillTriangle(DISPLAY_T* display, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t color) {
+  fillQuad(display, x0, y0, x1, y1, x2, y2, x2, y2, color);
+}
+
+void fillQuad(DISPLAY_T* display, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t x3, int32_t y3, uint16_t color) {
+  if (y0 < y1) { swap(y0, y1); swap(x0, x1); }
+  if (y2 < y3) { swap(y2, y3); swap(x2, x3); }
+  if (y0 < y2) { swap(y0, y2); swap(x0, x2); }
+  if (y1 < y2) { swap(y1, y2); swap(x1, x2); }
+  int32_t x4 = x0 + (x2 - x0) * (y1 - y0) / (y2 - y0);
+  int32_t x5 = x1 + (x3 - x1) * (y2 - y1) / (y3 - y1);
+  if ((x5 > x2) == (x4 > x1)) {
+    swap(x2, x5);
+  }
+  int32_t y, a, b;
+  for (y = y0; y <= y1; y++) {
+    a = x0 + (x4 - x0) * (y - y0) / (y1 - y0);
+    b = x0 + (x1 - x0) * (y - y0) / (y1 - y0);
+    if (a > b) swap(a, b);
+    display->drawFastHLine(a, y, b-a, color);
+  }
+  for (; y <= y2; y++) {
+    a = x4 + (x2 - x4) * (y - y1) / (y2 - y1);
+    b = x1 + (x5 - x1) * (y - y1) / (y2 - y1);
+    if (a > b) swap(a, b);
+    display->drawFastHLine(a, y, b-a, color);
+  }
+  for (; y <= y3; y++) {
+    a = x2 + (x3 - x2) * (y - y2) / (y3 - y2);
+    b = x5 + (x3 - x5) * (y - y2) / (y3 - y2);
+    if (a > b) swap(a, b);
+    display->drawFastHLine(a, y, b-a, color);
+  }
 }
 
 /*void drawMode7(DISPLAY_T* display, TFT_eSprite* background, Matrix2D* matrix, Vector2D* origin, uint32_t startY, uint32_t endY) {
