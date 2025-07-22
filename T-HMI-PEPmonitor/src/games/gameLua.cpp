@@ -24,6 +24,24 @@ static SpriteMetadata spriteMetadata[SPRITE_COUNT_LIMIT];
 // Block of SPRITE_COUNT_LIMIT sprites to be used within Lua games
 static TFT_eSprite* sprites = nullptr;
 
+
+static String findScriptRedirectPath(char* input) {
+  String scriptString = String(input);
+  scriptString.trim();
+  if (scriptString.indexOf("\n")!=-1 || scriptString.indexOf(";")!=-1 || scriptString.indexOf("\r")!=-1) {
+    return String(""); // Not a one-line redirect
+  }
+  if (!scriptString.startsWith("RunScript(\"") || !scriptString.endsWith("\")")) {
+    return String("");
+  }
+  String redirectPath = scriptString.substring(11, scriptString.length()-2);
+  if (redirectPath.indexOf("\"")!=-1) {
+    return String("");
+  }
+  
+  return luaGamePath + redirectPath;
+}
+
 String lua_dofile(const String path, bool dontCache) {
   static char* script[10];
   static String cachedPath[10];
@@ -89,7 +107,10 @@ String lua_dofile(const String path, bool dontCache) {
       return result;
     }
   }
-  if (luaL_dostring(luaState, script[cacheSlot])) {
+  String redirectPath = findScriptRedirectPath(script[cacheSlot]);
+  if (!redirectPath.isEmpty()) {
+    result = lua_dofile(redirectPath);
+  } else if (luaL_dostring(luaState, script[cacheSlot])) {
     result = "# lua error:\n" + String(lua_tostring(luaState, -1));
     lua_pop(luaState, 1);
     Serial.println("Error in lua file "+path+": " + result);
@@ -147,7 +168,8 @@ static int lua_wrapper_serialPrintln(lua_State* luaState) {
 
 static int lua_wrapper_runScript(lua_State* luaState) {
   String path = luaGamePath + luaL_checkstring(luaState, 1);
-  String script = readFileToString((path).c_str());
+  lua_dofile(path);
+  /*String script = readFileToString((path).c_str());
   if (script.isEmpty()) {
     Serial.println("Error: Failed to load script "+path);
     return 0;
@@ -155,7 +177,7 @@ static int lua_wrapper_runScript(lua_State* luaState) {
   String error = lua_dostring(script.c_str(), "runScript()", false);
   if (!error.isEmpty()) {
     Serial.println("Error in script " + path + ": " + error);
-  }
+  }*/
   return 0;
 }
 
@@ -362,6 +384,23 @@ static int lua_wrapper_drawSpriteToSprite(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_drawSpriteScaled(lua_State* luaState) {
+  int16_t handle = luaL_checkinteger(luaState, 1);
+  if (!isHandleValid(handle)) {
+    return 0;
+  }
+  Vector2D position;
+  position.x = luaL_checknumber(luaState, 2);
+  position.y = luaL_checknumber(luaState, 3);
+  Vector2D scale;
+  scale.x = luaL_checknumber(luaState, 4);
+  scale.y = luaL_checknumber(luaState, 5);
+  uint32_t flags = luaL_optinteger(luaState, 6, 0);
+  flags |= TRANSP_MASK;
+  drawSpriteScaled(luaDisplay, &sprites[handle], &position, &scale, flags, spriteMetadata[handle].maskingColor);
+  return 0;
+}
+
 static int lua_wrapper_spriteHeight(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
   if (!isHandleValid(handle)) {
@@ -381,8 +420,8 @@ static int lua_wrapper_spriteWidth(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawMode7(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if ((handle<0) || (handle>=SPRITE_COUNT_LIMIT) || (!sprites[handle].created())) {
+  int16_t textureHandle = luaL_checkinteger(luaState, 1);
+  if ((textureHandle<0) || (textureHandle>=SPRITE_COUNT_LIMIT) || (!sprites[textureHandle].created())) {
     Serial.println("ERROR: Could not draw mode7: invalid sprite handle!");
     if (luaStrictMode) {
       checkFailWithMessage("ERROR: Could not draw mode7: invalid sprite handle!");
@@ -398,8 +437,29 @@ static int lua_wrapper_drawMode7(lua_State* luaState) {
   float horizonHeight = luaL_checknumber(luaState, 7);
   float startY = luaL_checknumber(luaState, 8);
   float endY = luaL_checknumber(luaState, 9);
-  drawMode7(luaDisplay, &sprites[handle], &cameraPos, cameraHeight, yawAngle, zoom, horizonHeight, startY, endY);
+  drawMode7(luaDisplay, &sprites[textureHandle], &cameraPos, cameraHeight, yawAngle, zoom, horizonHeight, startY, endY);
   return 0;
+}
+
+static int lua_wrapper_mode7WorldToScreen(lua_State* luaState) {
+  Vector2D worldPos;
+  worldPos.x = luaL_checknumber(luaState, 1);
+  worldPos.y = luaL_checknumber(luaState, 2);
+  Vector2D cameraPos;
+  cameraPos.x = luaL_checknumber(luaState, 3);
+  cameraPos.y = luaL_checknumber(luaState, 4);
+  float cameraHeight = luaL_checknumber(luaState, 5);
+  float yawAngle = luaL_checknumber(luaState, 6);
+  float zoom = luaL_checknumber(luaState, 7);
+  float horizonHeight = luaL_checknumber(luaState, 8);
+  float startY = luaL_checknumber(luaState, 9);
+  float endY = luaL_checknumber(luaState, 10);
+  Vector3D output;
+  mode7WorldToScreen(&worldPos, &cameraPos, cameraHeight, yawAngle, zoom, horizonHeight, startY, endY, &output);
+  lua_pushinteger(luaState, (int32_t)output.x);
+  lua_pushinteger(luaState, (int32_t)output.y);
+  lua_pushnumber(luaState, output.z);
+  return 3;
 }
 
 static int lua_wrapper_log(lua_State* luaState) {
@@ -624,6 +684,22 @@ static int lua_wrapper_getFreeRAM(lua_State* luaState) {
   return 1;
 }
 
+static int lua_wrapper_getFreePSRAM(lua_State* luaState) {
+  lua_pushinteger(luaState, ESP.getFreePsram());
+  return 1;
+}
+
+static int lua_wrapper_getFreeSpriteSlots(lua_State* luaState) {
+  int32_t count = 0;
+  for (int32_t i=0;i<SPRITE_COUNT_LIMIT;i++) {
+    if (sprites[i].created()) {
+      count++;
+    }
+  }
+  lua_pushinteger(luaState, count);
+  return 1;
+}
+
 void initLua() {
   static bool bindingsInitiated = false;
   if (bindingsInitiated) {
@@ -658,9 +734,11 @@ void initLua() {
   lua_register(luaState, "DrawSpriteRegion", (lua_CFunction) &lua_wrapper_drawSpriteRegion);
   lua_register(luaState, "DrawAnimSprite", (lua_CFunction) &lua_wrapper_drawAnimSprite);
   lua_register(luaState, "DrawSpriteToSprite", (lua_CFunction) &lua_wrapper_drawSpriteToSprite);
+  lua_register(luaState, "DrawSpriteScaled", (lua_CFunction) &lua_wrapper_drawSpriteScaled);
   lua_register(luaState, "SpriteWidth", (lua_CFunction) &lua_wrapper_spriteWidth);
   lua_register(luaState, "SpriteHeight", (lua_CFunction) &lua_wrapper_spriteHeight);
   lua_register(luaState, "DrawMode7", (lua_CFunction) &lua_wrapper_drawMode7);
+  lua_register(luaState, "Mode7WorldToScreen", (lua_CFunction) &lua_wrapper_mode7WorldToScreen);
   lua_register(luaState, "Log", (lua_CFunction) &lua_wrapper_log);
   lua_register(luaState, "DrawString", (lua_CFunction) &lua_wrapper_drawString);
   lua_register(luaState, "DrawRect", (lua_CFunction) &lua_wrapper_drawRect);
@@ -691,6 +769,8 @@ void initLua() {
   lua_register(luaState, "GetTouchY", (lua_CFunction) &lua_wrapper_getTouchY);
   lua_register(luaState, "GetTouchPressure", (lua_CFunction) &lua_wrapper_getTouchPressure);
   lua_register(luaState, "GetFreeRAM", (lua_CFunction) &lua_wrapper_getFreeRAM);
+  lua_register(luaState, "GetFreePSRAM", (lua_CFunction) &lua_wrapper_getFreePSRAM);
+  lua_register(luaState, "GetFreeSpriteSlots", (lua_CFunction) &lua_wrapper_getFreeSpriteSlots);
   lua_register(luaState, "DisableCaching", (lua_CFunction) &lua_wrapper_disableCaching);
   bindingsInitiated = true;
 }
@@ -715,9 +795,10 @@ void updateBlowData(BlowData* blowData) {
   static int32_t lastKnownTaskNumber = -1;
   static uint32_t lastRepetition = 0;
   int32_t taskNumber = blowData->taskNumber + blowData->cycleNumber * blowData->totalTaskNumber;
+  bool isNewTask = taskNumber != lastKnownTaskNumber;
   String blowDataString = "CurrentlyBlowing="+String(blowData->currentlyBlowing ? "true" : "false")+"\n"+\
                           "Ms="+String(blowData->ms)+"\n"+\
-                          "MsDelta="+String(blowData->ms - lastMs)+"\n"+\
+                          "MsDelta="+String(isNewTask ? 1 : blowData->ms - lastMs)+"\n"+\
                           "BlowStartMs="+String(blowData->blowStartMs)+"\n"+\
                           "BlowEndMs="+String(blowData->blowEndMs)+"\n"+\
                           "TargetDurationMs="+String(blowData->targetDurationMs)+"\n"+\
@@ -738,7 +819,7 @@ void updateBlowData(BlowData* blowData) {
                           "CumulatedTaskNumber="+String(blowData->taskNumber + blowData->cycleNumber * blowData->totalTaskNumber)+"\n"+\
                           "TaskNumber="+String(taskNumber)+"\n"+\
                           "TotalTaskNumber="+String(blowData->totalTaskNumber)+"\n"+
-                          "IsNewTask="+String(taskNumber != lastKnownTaskNumber ? "true" : "false")+"\n"+
+                          "IsNewTask="+String(isNewTask ? "true" : "false")+"\n"+
                           "BreathingScore="+String(blowData->breathingScore);
   lastKnownTaskNumber = taskNumber;
   lua_dostring(blowDataString.c_str(), "updateBlowData()");

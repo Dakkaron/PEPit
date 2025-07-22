@@ -3,7 +3,7 @@
 VERSION=$1
 
 if [[ -z "$VERSION" ]]; then
-  echo "ERROR: No version supplied!" >&2
+  echo "ERROR: No version supplied! Required format: x.y" >&2
   exit 1
 fi
 

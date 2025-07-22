@@ -562,7 +562,7 @@ void initGames_monsterCatcher(String gamePath, GameConfig* gameConfig, String* e
 
   for (int8_t i=0;i<2;i++) {
     attackSprites[i] = (TFT_eSprite*) heap_caps_malloc(sizeof(TFT_eSprite) * ATTACK_SPRITE_NUMBER, MALLOC_CAP_SPIRAM);
-    if (!attackSprites) {
+    if (attackSprites[i] == NULL) {
       Serial.println("Failed to allocate attack sprites in PSRAM!");
       checkFailWithMessage("Failed to allocate attack sprites in PSRAM!");
       return;

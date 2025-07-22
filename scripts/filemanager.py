@@ -296,6 +296,70 @@ def printHelp():
     print("reset                       Reboots the PEPit and reconnects after boot")
     print("exit                        Exits the file manager")
 
+def parseInput(inp, localRoot, pwd):
+    inp = re.sub(" +", " ",inp).strip()
+    cmd = inp.split(" ")[0]
+    param = inp[len(cmd):].strip()
+    param = " ".join([ os.path.join(pwd, x) for x in param.split(" ") ])
+    if cmd == "lsa":
+        print("\n#### ON PEPit")
+        printLs(ls(param if param else pwd, True))
+    elif cmd == "ls":
+        print("\n#### ON PEPit")
+        printLs(ls(param if param else pwd, False))
+    elif cmd == "lsl":
+        if (param):
+            lsl(os.path.join(localRoot, param[1:]))
+        else:
+            lsl(os.path.join(localRoot, pwd[1:]))
+    elif cmd == "mkdir":
+        mkdir(param)
+    elif cmd == "rmdir":
+        rmdir(param)
+    elif cmd == "rmdirr":
+        rmdirr(param)
+    elif cmd == "rm":
+        rm(param)
+    elif cmd == "cat":
+        res = readFile(param)
+        res = res.decode("utf-8")
+        print("File content:")
+        print(res)
+    elif cmd == "ul":
+        path = checkDoublePath(param)
+        ul(path[0], path[1])
+    elif cmd == "ulm":
+        paths  = param.split(" ")
+        ulm(paths)
+    elif cmd == "ulr":
+        path = checkDoublePath(param)
+        print(path)
+        ulr(path[0], path[1])
+    elif cmd == "dl":
+        path = checkDoublePath(param)
+        dl(path[0], path[1])
+    elif cmd == "dlr":
+        path = checkDoublePath(param)
+        print(path)
+        dlr(path[0], path[1])
+    elif cmd == "cd":
+        if (param.startswith("/")):
+            newPwd = os.path.abspath(param)
+        else:
+            newPwd = os.path.abspath(os.path.join(pwd, param))
+        if os.path.isdir(os.path.join(localRoot, newPwd[1:])):
+            pwd = newPwd
+            print(pwd)
+        else:
+            print(f"Path not found: {newPwd}")
+    elif inp == "exit":
+        exit()
+    elif inp == "reset":
+        reset()
+    else:
+        print(f"Unknown command: {inp}")
+        printHelp()
+    return pwd
 
 def main():
     if ("WIPSDCardContent" in os.getcwd()):
@@ -306,68 +370,9 @@ def main():
     print(f"Using root folder {localRoot}")
     pwd = "/"
     while True:
-        inp = re.sub(" +", " ",input(f"{pwd} $ ")).strip()
-        cmd = inp.split(" ")[0]
-        param = inp[len(cmd):].strip()
-        param = " ".join([ os.path.join(pwd, x) for x in param.split(" ") ])
-        if cmd == "lsa":
-            print("\n#### ON PEPit")
-            printLs(ls(param if param else pwd, True))
-        elif cmd == "ls":
-            print("\n#### ON PEPit")
-            printLs(ls(param if param else pwd, False))
-        elif cmd == "lsl":
-            if (param):
-                lsl(os.path.join(localRoot, param[1:]))
-            else:
-                lsl(os.path.join(localRoot, pwd[1:]))
-        elif cmd == "mkdir":
-            mkdir(param)
-        elif cmd == "rmdir":
-            rmdir(param)
-        elif cmd == "rmdirr":
-            rmdirr(param)
-        elif cmd == "rm":
-            rm(param)
-        elif cmd == "cat":
-            res = readFile(param)
-            res = res.decode("utf-8")
-            print("File content:")
-            print(res)
-        elif cmd == "ul":
-            path = checkDoublePath(param)
-            ul(path[0], path[1])
-        elif cmd == "ulm":
-            paths  = param.split(" ")
-            ulm(paths)
-        elif cmd == "ulr":
-            path = checkDoublePath(param)
-            print(path)
-            ulr(path[0], path[1])
-        elif cmd == "dl":
-            path = checkDoublePath(param)
-            dl(path[0], path[1])
-        elif cmd == "dlr":
-            path = checkDoublePath(param)
-            print(path)
-            dlr(path[0], path[1])
-        elif cmd == "cd":
-            if (param.startswith("/")):
-                newPwd = os.path.abspath(param)
-            else:
-                newPwd = os.path.abspath(os.path.join(pwd, param))
-            if os.path.isdir(os.path.join(localRoot, newPwd[1:])):
-                pwd = newPwd
-                print(pwd)
-            else:
-                print(f"Path not found: {newPwd}")
-        elif inp == "exit":
-            exit()
-        elif inp == "reset":
-            reset()
-        else:
-            print(f"Unknown command: {inp}")
-            printHelp()
+        inp = input(f"{pwd} $ ")
+        for segment in inp.split(";"):
+            pwd = parseInput(segment, localRoot, pwd)
 
 
 if __name__ == "__main__":

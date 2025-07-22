@@ -13,6 +13,16 @@ extern TFT_eSprite spr;
 #define FLIPPED_V 0x02
 #define DITHER_TRANSPARENCY 0x04
 
+#define ALIGN_H_LEFT 0x00
+#define ALIGN_H_CENTER 0x01
+#define ALIGN_H_RIGHT 0x02
+#define ALIGN_V_TOP 0x00
+#define ALIGN_V_CENTER 0x04
+#define ALIGN_V_BOTTOM 0x08
+
+#define TRANSP_OFF 0x00
+#define TRANSP_MASK 0x10
+
 void initGfxHandler();
 bool getBmpDimensions(String filename, int16_t* w, int16_t* h);
 bool drawBmp(String filename, int16_t x, int16_t y, bool debugLog = true);
@@ -28,6 +38,8 @@ bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint
 void fillTriangle(DISPLAY_T* display, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, uint16_t color);
 void fillQuad(DISPLAY_T* display, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2, int32_t x3, int32_t y3, uint16_t color);
 void drawMode7(DISPLAY_T* display, TFT_eSprite* texture, Vector2D* cameraPos, float cameraHeight, float yawAngle, float zoom, float horizonHeight, int32_t startY, int32_t endY);
+void mode7WorldToScreen(Vector2D* worldPos, Vector2D* cameraPos, float cameraHeight, float yawAngle, float zoom, float horizonHeight, int32_t startY, int32_t endY, Vector3D* output);
+void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor);
 void drawProgressBar(DISPLAY_T* display, uint16_t progress, uint16_t greenOffset, int16_t x, int16_t y, int16_t w, int16_t h);
 void drawProgressBar(DISPLAY_T* display, uint16_t val, uint16_t maxVal, uint16_t greenOffset, int16_t x, int16_t y, int16_t w, int16_t h);
 void printShaded(DISPLAY_T* display, String text, uint8_t shadeStrength, uint16_t textColor, uint16_t shadeColor);
