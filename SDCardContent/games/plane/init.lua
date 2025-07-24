@@ -4,14 +4,6 @@ SPlane = {
   LoadSprite("gfx/plane.bmp", 0, 0xf81f),
   LoadSprite("gfx/plane2.bmp", 0, 0xf81f)
 }
-SPlaneBankL = {
-  LoadSprite("gfx/planeBankL.bmp", 0, 0xf81f),
-  LoadSprite("gfx/plane2BankL.bmp", 0, 0xf81f)
-}
-SPlaneBankR = {
-  LoadSprite("gfx/planeBankR.bmp", 0, 0xf81f),
-  LoadSprite("gfx/plane2BankR.bmp", 0, 0xf81f),
-}
 SShip = {
   LoadSprite("gfx/ship1.bmp", 0, 0xf81f),
   LoadSprite("gfx/ship2.bmp", 0, 0xf81f)
@@ -25,12 +17,16 @@ SSplash = {
 SStorm = LoadSprite("gfx/storm.bmp", 0, 0xf81f)
 SBird = LoadSprite("gfx/bird.bmp", 0, 0xf81f)
 
+SSpeedDial = LoadSprite("gfx/speeddial.bmp", 0, 0xf81f)
+SSpeedDialNeedle = LoadSprite("gfx/speeddial_needle.bmp", 0, 0xf81f)
+
 SUpgradeProp = LoadSprite("gfx/propeller.bmp", 0, 0xf81f)
 SUpgradeEngine = LoadSprite("gfx/engine.bmp", 0, 0xf81f)
 SUpgradeControl = LoadSprite("gfx/control.bmp", 0, 0xf81f)
 SButtonUp = LoadSprite("gfx/buttonUp.bmp", 0, 0xf81f)
 SButtonDown = LoadSprite("gfx/buttonDown.bmp", 0, 0xf81f)
 
+PlaneAngle = 0
 CameraAngle = 0
 CameraX = 0
 CameraY = 0

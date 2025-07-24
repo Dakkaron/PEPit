@@ -90,15 +90,19 @@ end
 local planeScale = 0.85+CameraHeight/8
 if (DrowningStartMs == 0) then
   if (IsTouchInZone(0, 0, 100, 240)) then
-    DrawSpriteScaled(SPlaneBankL[PlaneType], 160, 120, planeScale, planeScale, 0x05)
-    CameraAngle = CameraAngle + (0.001 + 0.0002*UpgradeTurn) * MsDelta
-    CameraAngle = math.fmod(CameraAngle, math.pi*2)
+    PlaneAngle = Constrain(PlaneAngle - 40 * 0.0001 * MsDelta, -1, 1)
   elseif (IsTouchInZone(220, 0, 100, 240)) then
-    DrawSpriteScaled(SPlaneBankR[PlaneType], 160, 120, planeScale, planeScale, 0x05)
-    CameraAngle = CameraAngle - (0.001 + 0.0002*UpgradeTurn) * MsDelta
-    CameraAngle = math.fmod(CameraAngle, math.pi*2)
+    PlaneAngle = Constrain(PlaneAngle + 40 * 0.0001 * MsDelta, -1, 1)
   else
+    local angleReturn = 1 - (0.005 * MsDelta)
+    PlaneAngle = PlaneAngle * angleReturn
+  end
+  CameraAngle = CameraAngle - (0.001 + 0.0002*UpgradeTurn) * MsDelta * PlaneAngle * 1.0
+  CameraAngle = math.fmod(CameraAngle, math.pi*2)
+  if (math.abs(PlaneAngle)<0.05) then
     DrawSpriteScaled(SPlane[PlaneType], 160, 120, planeScale, planeScale, 0x05)
+  else
+    DrawSpriteScaledRotated(SPlane[PlaneType], 160, 120, planeScale, planeScale, PlaneAngle, 0x05)
   end
 else
   local drowningTime = Ms - DrowningStartMs
@@ -125,7 +129,11 @@ else
     DrowningStartMs = 0
   end
 end
-FillRect(310, 182 - Speed*0.5, 10, Speed*0.5, 0xf800)
+--FillRect(310, 182 - Speed*0.5, 10, Speed*0.5, 0xf800)
+
+DrawSprite(SSpeedDial, 256, 116)
+local speedDialAngle = math.pi*2.0 * math.min(Speed, 600) * 0.0015
+DrawSpriteScaledRotated(SSpeedDialNeedle, 288, 148, 1, 1, speedDialAngle, 0x05)
 
 --DrawString("Free " .. (GetFreeRAM()//1024) .. "k - " .. (GetFreePSRAM()//1024) .. "k - " .. GetFreeSpriteSlots(), 30, 40)
 
