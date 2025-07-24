@@ -40,6 +40,7 @@ void fillQuad(DISPLAY_T* display, int32_t x0, int32_t y0, int32_t x1, int32_t y1
 void drawMode7(DISPLAY_T* display, TFT_eSprite* texture, Vector2D* cameraPos, float cameraHeight, float yawAngle, float zoom, float horizonHeight, int32_t startY, int32_t endY);
 void mode7WorldToScreen(Vector2D* worldPos, Vector2D* cameraPos, float cameraHeight, float yawAngle, float zoom, float horizonHeight, int32_t startY, int32_t endY, Vector3D* output);
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor);
+void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* pos, Matrix2D* transform, uint32_t flags, uint16_t maskColor);
 void drawProgressBar(DISPLAY_T* display, uint16_t progress, uint16_t greenOffset, int16_t x, int16_t y, int16_t w, int16_t h);
 void drawProgressBar(DISPLAY_T* display, uint16_t val, uint16_t maxVal, uint16_t greenOffset, int16_t x, int16_t y, int16_t w, int16_t h);
 void printShaded(DISPLAY_T* display, String text, uint8_t shadeStrength, uint16_t textColor, uint16_t shadeColor);

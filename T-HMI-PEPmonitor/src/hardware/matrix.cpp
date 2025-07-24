@@ -71,3 +71,13 @@ void subVV(Vector2Di* vector1, Vector2Di* vector2, Vector2Di* output) {
   output->x = vector1->x - vector2->x;
   output->y = vector1->y - vector2->y;
 }
+
+void invertM(Matrix2D* in, Matrix2D* out) {
+  float det = in->a * in->d - in->b * in->c;
+  if (fabs(det) < 1e-6) return; // Non-invertible
+
+  out->a =  in->d / det;
+  out->b = -in->b / det;
+  out->c = -in->c / det;
+  out->d =  in->a / det;
+}

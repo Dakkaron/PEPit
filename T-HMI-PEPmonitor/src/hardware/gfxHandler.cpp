@@ -811,6 +811,65 @@ void mode7WorldToScreen(
     output->z = pz;
 }
 
+void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* pos, Matrix2D* transform, uint32_t flags, uint16_t maskColor) {
+  const int32_t spriteWidth = sprite->width();
+  const int32_t spriteHeight = sprite->height();
+  uint16_t* screenBuffer = display->get16BitBuffer();
+  uint16_t* spriteBuffer = sprite->get16BitBuffer();
+
+  maskColor = maskColor << 8 | maskColor >> 8;
+
+  Matrix2D inv;
+  invertM(transform, &inv);
+
+  Vector2D corners[4] = {
+    {-spriteWidth / 2.0f, -spriteHeight / 2.0f},
+    { spriteWidth / 2.0f, -spriteHeight / 2.0f},
+    { spriteWidth / 2.0f,  spriteHeight / 2.0f},
+    {-spriteWidth / 2.0f,  spriteHeight / 2.0f}
+  };
+
+  Vector2D screenCorners[4];
+  for (int32_t i = 0; i < 4; ++i) {
+    screenCorners[i].x = transform->a * corners[i].x + transform->b * corners[i].y + pos->x;
+    screenCorners[i].y = transform->c * corners[i].x + transform->d * corners[i].y + pos->y;
+  }
+
+  float minX = screenCorners[0].x;
+  float maxX = screenCorners[0].x;
+  float minY = screenCorners[0].y;
+  float maxY = screenCorners[0].y;
+  for (int32_t i = 1; i < 4; ++i) {
+    minX = fmin(minX, screenCorners[i].x);
+    maxX = fmax(maxX, screenCorners[i].x);
+    minY = fmin(minY, screenCorners[i].y);
+    maxY = fmax(maxY, screenCorners[i].y);
+  }
+
+  int32_t startX = fmax(0, (int32_t)floor(minX));
+  int32_t endX   = fmin(SCREEN_WIDTH - 1, (int32_t)ceil(maxX));
+  int32_t startY = fmax(0, (int32_t)floor(minY));
+  int32_t endY   = fmin(SCREEN_HEIGHT - 1, (int32_t)ceil(maxY));
+
+  for (int32_t y = startY; y <= endY; ++y) {
+    for (int32_t x = startX; x <= endX; ++x) {
+      float dx = x - pos->x;
+      float dy = y - pos->y;
+      float sx = inv.a * dx + inv.b * dy + spriteWidth / 2.0f;
+      float sy = inv.c * dx + inv.d * dy + spriteHeight / 2.0f;
+
+      int32_t yAddScreen = y * SCREEN_WIDTH;
+      int32_t yAddSprite = (int32_t)sy * spriteWidth;
+      if (sx >= 0 && sx < spriteWidth && sy >= 0 && sy < spriteHeight) {
+        uint16_t color = spriteBuffer[yAddSprite + (int32_t)sx];
+        if (!(flags & TRANSP_MASK && color == maskColor)) {
+          screenBuffer[yAddScreen + x] = color;
+        }
+      }
+    }
+  }
+}
+
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor) {
   int32_t spriteW = sprite->width();
   int32_t spriteH = sprite->height();

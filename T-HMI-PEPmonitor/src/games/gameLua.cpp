@@ -401,6 +401,49 @@ static int lua_wrapper_drawSpriteScaled(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_drawSpriteTransformed(lua_State* luaState) {
+  int16_t handle = luaL_checkinteger(luaState, 1);
+  if (!isHandleValid(handle)) {
+    return 0;
+  }
+  Vector2D position;
+  position.x = luaL_checknumber(luaState, 2);
+  position.y = luaL_checknumber(luaState, 3);
+  Matrix2D transform;
+  transform.a = luaL_checknumber(luaState, 4);
+  transform.b = luaL_checknumber(luaState, 5);
+  transform.c = luaL_checknumber(luaState, 6);
+  transform.d = luaL_checknumber(luaState, 7);
+  uint32_t flags = luaL_optinteger(luaState, 8, 0);
+  flags |= TRANSP_MASK;
+  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transform, flags, spriteMetadata[handle].maskingColor);
+  return 0;
+}
+
+static int lua_wrapper_drawSpriteScaledRotated(lua_State* luaState) {
+  int16_t handle = luaL_checkinteger(luaState, 1);
+  if (!isHandleValid(handle)) {
+    return 0;
+  }
+  Vector2D position;
+  position.x = luaL_checknumber(luaState, 2);
+  position.y = luaL_checknumber(luaState, 3);
+  Vector2D scale;
+  scale.x = luaL_checknumber(luaState, 4);
+  scale.y = luaL_checknumber(luaState, 5);
+  float angle = luaL_checknumber(luaState, 6);
+  uint32_t flags = luaL_optinteger(luaState, 7, 0);
+  flags |= TRANSP_MASK;
+  float s = sin(angle);
+  float c = cos(angle);
+  Matrix2D transform = {
+    c * scale.x, -s,
+    s, c * scale.y
+  };
+  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transform, flags, spriteMetadata[handle].maskingColor);
+  return 0;
+}
+
 static int lua_wrapper_spriteHeight(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
   if (!isHandleValid(handle)) {
@@ -735,6 +778,8 @@ void initLua() {
   lua_register(luaState, "DrawAnimSprite", (lua_CFunction) &lua_wrapper_drawAnimSprite);
   lua_register(luaState, "DrawSpriteToSprite", (lua_CFunction) &lua_wrapper_drawSpriteToSprite);
   lua_register(luaState, "DrawSpriteScaled", (lua_CFunction) &lua_wrapper_drawSpriteScaled);
+  lua_register(luaState, "DrawSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawSpriteScaledRotated);
+  lua_register(luaState, "DrawSpriteTransformed", (lua_CFunction) &lua_wrapper_drawSpriteTransformed);
   lua_register(luaState, "SpriteWidth", (lua_CFunction) &lua_wrapper_spriteWidth);
   lua_register(luaState, "SpriteHeight", (lua_CFunction) &lua_wrapper_spriteHeight);
   lua_register(luaState, "DrawMode7", (lua_CFunction) &lua_wrapper_drawMode7);

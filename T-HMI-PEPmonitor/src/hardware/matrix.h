@@ -39,6 +39,8 @@ float dotProduct(const Vector2D* a, float angle);
 
 void normalizeVector(Vector2D* input, Vector2D* output);
 
+void invertM(Matrix2D* in, Matrix2D* out);
+
 void multMV(Matrix2D* matrix, Vector2D* vector, Vector2D* output);
 void multMF(Matrix2D* matrix, float value, Matrix2D* output);
 void addVV(Vector2D* vector1, Vector2D* vector2, Vector2D* output);
