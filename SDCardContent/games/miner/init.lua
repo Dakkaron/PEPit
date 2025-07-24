@@ -207,7 +207,7 @@ function GenTile(x, y, baseOdds)
     end
   elseif (Stage == 3) then
     if (v < 3) then
-      WorldMapArray[x][y] = 8
+      WorldMapArray[x][y] = 7 -- 8
     elseif (v < 20) then
       WorldMapArray[x][y] = 7
     elseif (v < 23 and StrX == -1 and x<=5) then
@@ -225,7 +225,7 @@ function GenTile(x, y, baseOdds)
     end
   elseif (Stage == 4) then
     if (v < 4) then
-      WorldMapArray[x][y] = 8
+      WorldMapArray[x][y] = 7 -- 8
     elseif (v < 20) then
       WorldMapArray[x][y] = 7
     elseif (v < 21 and StrX == -1 and x<=5) then
@@ -247,7 +247,7 @@ function GenTile(x, y, baseOdds)
     end
   elseif (Stage == 5) then
     if (v < 4) then
-      WorldMapArray[x][y] = 8
+      WorldMapArray[x][y] = 7 -- 8
     elseif (v < 20) then
       WorldMapArray[x][y] = 7
     elseif (v < 21 and StrX == -1 and x<=5) then
@@ -271,7 +271,7 @@ function GenTile(x, y, baseOdds)
     end
   elseif (Stage == 6) then
     if (v < 5) then
-      WorldMapArray[x][y] = 8
+      WorldMapArray[x][y] = 7 -- 8
     elseif (v < 20) then
       WorldMapArray[x][y] = 7
     elseif (v < 22 and StrX == -1 and x<=5) then
@@ -295,7 +295,7 @@ function GenTile(x, y, baseOdds)
     end
   elseif (Stage == 7) then
     if (v < 6) then
-      WorldMapArray[x][y] = 8
+      WorldMapArray[x][y] = 7 -- 8
     elseif (v < 20) then
       WorldMapArray[x][y] = 7
     elseif (v < 23 and StrX == -1 and x<=5) then
@@ -313,7 +313,7 @@ function GenTile(x, y, baseOdds)
     elseif (v < 120) then
       WorldMapArray[x][y] = 3
     elseif (v < 220) then
-      WorldMapArray[x][y] = 2
+      WorldMapArray[x][y] = 1
     else
       WorldMapArray[x][y] = 1
     end
@@ -461,6 +461,7 @@ EarnValue = 0
 EarnTime = 0
 FullVisibilityTime = 0
 LastBlownTimer = -1
+BurnStart = 0
 
 
 -- Inhalation game
