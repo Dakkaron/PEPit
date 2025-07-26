@@ -2,7 +2,8 @@ SBackground = LoadSprite("gfx/background.bmp")
 SSky = LoadSprite("gfx/sky.bmp")
 SPlane = {
   LoadSprite("gfx/plane.bmp", 0, 0xf81f),
-  LoadSprite("gfx/plane2.bmp", 0, 0xf81f)
+  LoadSprite("gfx/plane2.bmp", 0, 0xf81f),
+  LoadSprite("gfx/plane3.bmp", 0, 0xf81f),
 }
 SShip = {
   LoadSprite("gfx/ship1.bmp", 0, 0xf81f),
@@ -203,7 +204,7 @@ AllUpgrades = {
     id = 5,
     text = "Propeller",
     img = SUpgradeProp,
-    cost = 700,
+    cost = 800,
     prop = "uprop",
     upto = 2,
     req = {{4,1}}
@@ -212,7 +213,7 @@ AllUpgrades = {
     id = 6,
     text = "Motor",
     img = SUpgradeEngine,
-    cost = 800,
+    cost = 900,
     prop = "uengine",
     upto = 4,
     req = {{4,1}}
@@ -221,7 +222,7 @@ AllUpgrades = {
     id = 7,
     text = "Klappen",
     img = SUpgradeControl,
-    cost = 900,
+    cost = 950,
     prop = "usurf",
     upto = 4,
     req = {{4,1}}
@@ -234,7 +235,18 @@ AllUpgrades = {
     prop = "uship",
     upto = 1,
     req = {}
-  }
+  },
+  {
+    id = 9,
+    text = "Flugzeug",
+    img = SPlane[PlaneType+1],
+    cost = 3500,
+    prop = "uplane",
+    upto = 2,
+    req = {
+      {5,2}, {6,4}, {7,4}
+    }
+  },
 }
 
 CachedValidUpdates = nil
