@@ -50,7 +50,9 @@ fi
 mkdir release
 
 echo 'Copying firmware.bin to output directory'
+cp T-HMI-PEPmonitor/.pio/build/lilygo-t-hmi/bootloader.bin release
 cp T-HMI-PEPmonitor/.pio/build/lilygo-t-hmi/firmware.bin release
+cp T-HMI-PEPmonitor/.pio/build/lilygo-t-hmi/partitions.bin release
 
 echo 'Building SDCardContent archives'
 cd SDCardContent
