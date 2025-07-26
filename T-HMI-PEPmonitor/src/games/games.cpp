@@ -112,6 +112,17 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
   uint32_t totalLineCount = 0;
   uint32_t yPos = 40;
 
+  if (executionLog->length()==0 || executionLog->indexOf('\n')==-1) {
+    spr.setTextSize(2);
+    spr.drawString("Keine gespeicherten Ausführungen.", 0, 100);
+    spr.fillRect(240, 200, 100, 40, 0x001F);
+    spr.drawString("Zurück", 250, 215);
+    spr.setTextSize(1);
+    if (isTouchInZone(240, 200, 100, 40)) {
+      ESP.restart();
+    }
+    return true;
+  }
   while (lineStart < executionLog->length()) {
     uint32_t lineEnd = executionLog->indexOf('\n', lineStart);
     if (lineEnd == -1) {
@@ -164,15 +175,23 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
     lineStart = lineEnd + 1;
   }
   drawBmp(&spr, "/gfx/arrow_up.bmp", 280, 40, 0xf81f, false);
-  drawBmp(&spr, "/gfx/arrow_down.bmp", 280, 208, 0xf81f, false);
+  drawBmp(&spr, "/gfx/arrow_down.bmp", 280, 158, 0xf81f, false);
   if (skipLines > 0 && isTouchInZone(280, 40, 32, 32)) {
     skipLines--;
-  } else if (skipLines < totalLineCount - EXECUTION_LOG_MAX_LINES && isTouchInZone(280, 208, 32, 32)) {
+  } else if (skipLines < totalLineCount - EXECUTION_LOG_MAX_LINES && isTouchInZone(280, 158, 32, 32)) {
     skipLines++;
   }
-  uint32_t scrollBarHeight = (200*EXECUTION_LOG_MAX_LINES)/totalLineCount;
-  uint32_t scrollBarY = (200*skipLines)/totalLineCount;
+  uint32_t scrollBarHeight = (160*EXECUTION_LOG_MAX_LINES)/totalLineCount;
+  uint32_t scrollBarY = (160*skipLines)/totalLineCount;
   spr.fillRect(315, scrollBarY+40, 5, scrollBarHeight, TFT_WHITE);
+
+  spr.setTextSize(2);
+  spr.fillRect(240, 200, 100, 40, 0x001F);
+    spr.drawString("Zurück", 250, 215);
+    spr.setTextSize(1);
+  if (isTouchInZone(240, 200, 100, 40)) {
+    ESP.restart();
+  }
   return true;
 }
 

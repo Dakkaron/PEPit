@@ -78,7 +78,10 @@ uint32_t runProfileSelection() {
       spr.fillSprite(TFT_BLACK);
       spr.pushSpriteFast(0,0);
       tft.fillScreen(TFT_BLACK);
-      String executionLog = readFileToString(EXECUTION_LOG_PATH);
+      String executionLog = "";
+      if (SD_MMC.exists(EXECUTION_LOG_PATH)) {
+        executionLog = readFileToString(EXECUTION_LOG_PATH);
+      }
       while (displayExecutionList(&spr, &executionLog, &errorMessage)) {
         uint32_t ms = millis();
         checkFailWithMessage(errorMessage);
