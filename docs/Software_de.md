@@ -8,10 +8,9 @@
 1. Das neuesten firmware.bin, bootloader.bin und partitions.bin von der [Release-Seite](https://github.com/Dakkaron/T-HMI-PEPmonitor/releases) herunterladen.
 1. LILLYGO T-HMI per USB-Kabel mit dem PC verbinden. Sollte das Display des LILLYGO T-HMI nicht angehen, sobald es mit dem PC verbunden ist, bitte ein USB-A-auf-USB-C-Kabel verwenden. Bei der Verwendung von USB-C-auf-USB-C-Kabeln kann es zu Problemen kommen.
 2. [flash_download_tool](https://dl.espressif.com/public/flash_download_tool.zip) herunterladen und ausführen.
-3. Im flash_download_tool `ChipType:` auf `ESP32-S3` stellen:
-![flash_download_tool](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/flashdownloadtool1.png) und mit `OK` bestätigen.
+3. Im flash_download_tool `ChipType:` auf `ESP32-S3` stellen und mit `OK` bestätigen.
+![flash_download_tool](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/flashdownloadtool1.png)
 4. Auf der zweiten Seite folgende Einstellungen auswählen:
-![flash_download_tool](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/flashdownloadtool2.png)
    * Oberste Checkbox am linken Rand aktivieren
    * Im Textfeld rechts neben der Checkbox den Pfad zu `bootloader.bin` angeben
    * In das Feld rechts daneben `0` eingeben.
@@ -19,6 +18,7 @@
    * In der nächsten Zeile muss `partitions.bin` und `0x8000` stehen.
    * Rechts unten bei `BAUD:` 921600 eingeben.
    * Bestätigen mit einem Click auf `START`
+![flash_download_tool](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/flashdownloadtool2.png)
 5. Wenn das Hochladen abgeschlossen ist, kann der T-HMI vom PC getrennt werden.
 
 # Testen
