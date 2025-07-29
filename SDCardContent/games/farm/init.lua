@@ -9,4 +9,6 @@ SFarm = {
 SFarmer = {
     LoadAnimSprite("gfx/farmer_f_berry.bmp", 33, 36, 0, 0xf81f),
     LoadAnimSprite("gfx/farmer_m_berry.bmp", 33, 36, 0, 0xf81f),
+    LoadAnimSprite("gfx/farmer_m_fish.bmp", 33, 31, 0, 0xf81f),
+    LoadAnimSprite("gfx/farmer_m_fish.bmp", 33, 31, 0, 0xf81f),
 }
