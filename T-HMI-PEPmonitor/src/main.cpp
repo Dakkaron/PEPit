@@ -75,7 +75,9 @@ void setup() {
   tft.setTextSize(2);
   tft.drawString("Nicht", 10, 10);
   tft.drawString("blasen!", 10, 25);
-  initPressureSensor();
+  String errorMessage;
+  initPressureSensor(&errorMessage);
+  checkFailWithMessage(errorMessage);
 
   initTouch();
 
@@ -85,7 +87,6 @@ void setup() {
 
   randomSeed(analogRead(0));
   
-  String errorMessage;
   initSD(&errorMessage);
   checkFailWithMessage(errorMessage);
   checkForPrefsReset();

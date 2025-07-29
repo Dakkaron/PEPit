@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include "constants.h"
 
-void initPressureSensor();
+void initPressureSensor(String* errorMessage);
 void readPressure(BlowData* blowData);
 
 #endif /*PRESSURESENSOR*/
