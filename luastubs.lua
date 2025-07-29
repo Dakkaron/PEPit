@@ -8,6 +8,10 @@ function DrawSprite(handle, x, y) end
 function DrawSpriteRegion(handle, tx, ty, sx, sy, sw, sh) end
 function DrawAnimSprite(handle, x, y, frame) end
 function DrawSpriteToSprite(srcHandle, dstHandle, x, y) end
+function DrawSpriteScaled(handle, x, y, scaleX, scaleY, flags) end
+function DrawAnimSpriteScaled(handle, x, y, scaleX, scaleY, frame, flags) end
+function DrawSpriteScaledRotated(handle, x, y, scaleX, scaleY, angle, flags) end
+function DrawSpriteTransformed(handle, x, y, matrixA, matrixB, matrixC, matrixD, flags) end
 function SpriteWidth(handle) end
 function SpriteHeight(handle) end
 function Log(s) end
@@ -18,7 +22,7 @@ function DrawCircle(x, y, r, color) end
 function FillCircle(x, y, r, color) end
 function DrawLine(x, y, x2, y2, color) end
 function DrawFastHLine(x, y, w, color) end
-function DrawFastWLine(x, y, h, color) end
+function DrawFastVLine(x, y, h, color) end
 function FillScreen(color) end
 function SetTextColor(color) end
 function SetTextSize(size) end
