@@ -401,6 +401,26 @@ static int lua_wrapper_drawSpriteScaled(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_drawAnimSpriteScaled(lua_State* luaState) {
+  int16_t handle = luaL_checkinteger(luaState, 1);
+  if (!isHandleValid(handle)) {
+    return 0;
+  }
+  int16_t sw = spriteMetadata[handle].frameW;
+  int16_t sh = spriteMetadata[handle].frameH;
+  Vector2D position;
+  position.x = luaL_checknumber(luaState, 2);
+  position.y = luaL_checknumber(luaState, 3);
+  Vector2D scale;
+  scale.x = luaL_checknumber(luaState, 4);
+  scale.y = luaL_checknumber(luaState, 5);
+  int16_t frame = luaL_checknumber(luaState, 6);
+  uint32_t flags = luaL_optinteger(luaState, 7, 0);
+  flags |= TRANSP_MASK;
+  drawSpriteScaled(luaDisplay, &sprites[handle], &position, &scale, flags, spriteMetadata[handle].maskingColor, sw, sh, frame);
+  return 0;
+}
+
 static int lua_wrapper_drawSpriteTransformed(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
   if (!isHandleValid(handle)) {
@@ -576,7 +596,7 @@ static int lua_wrapper_drawFastHLine(lua_State* luaState) {
   return 0;
 }
 
-static int lua_wrapper_drawFastWLine(lua_State* luaState) {
+static int lua_wrapper_drawFastVLine(lua_State* luaState) {
   int16_t x = luaL_checknumber(luaState, 1);
   int16_t y = luaL_checknumber(luaState, 2);
   int16_t h = luaL_checknumber(luaState, 3);
@@ -778,6 +798,7 @@ void initLua() {
   lua_register(luaState, "DrawAnimSprite", (lua_CFunction) &lua_wrapper_drawAnimSprite);
   lua_register(luaState, "DrawSpriteToSprite", (lua_CFunction) &lua_wrapper_drawSpriteToSprite);
   lua_register(luaState, "DrawSpriteScaled", (lua_CFunction) &lua_wrapper_drawSpriteScaled);
+  lua_register(luaState, "DrawAnimSpriteScaled", (lua_CFunction) &lua_wrapper_drawAnimSpriteScaled);
   lua_register(luaState, "DrawSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawSpriteScaledRotated);
   lua_register(luaState, "DrawSpriteTransformed", (lua_CFunction) &lua_wrapper_drawSpriteTransformed);
   lua_register(luaState, "SpriteWidth", (lua_CFunction) &lua_wrapper_spriteWidth);
@@ -792,7 +813,7 @@ void initLua() {
   lua_register(luaState, "FillCircle", (lua_CFunction) &lua_wrapper_fillCircle);
   lua_register(luaState, "DrawLine", (lua_CFunction) &lua_wrapper_drawLine);
   lua_register(luaState, "DrawFastHLine", (lua_CFunction) &lua_wrapper_drawFastHLine);
-  lua_register(luaState, "DrawFastWLine", (lua_CFunction) &lua_wrapper_drawFastWLine);
+  lua_register(luaState, "DrawFastVLine", (lua_CFunction) &lua_wrapper_drawFastVLine);
   lua_register(luaState, "FillScreen", (lua_CFunction) &lua_wrapper_fillScreen);
   lua_register(luaState, "SetTextColor", (lua_CFunction) &lua_wrapper_setTextColor);
   lua_register(luaState, "SetTextSize", (lua_CFunction) &lua_wrapper_setTextSize);
