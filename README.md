@@ -80,5 +80,5 @@ Aktuell befindet sich PepIt noch im Early Access. Weitere Spiele und Features we
 [Hier klicken um zur Bauanleitung zu kommen.](docs/Parts_de.md)
 
 ## Inbetriebnahme
-[Konfiguration](Configuration_de.md)
+[Konfiguration](docs/Configuration_de.md)
 
