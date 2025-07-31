@@ -177,3 +177,11 @@ Der Trampolinsensor ist aktuell noch nicht veröffentlicht und befindet sich noc
     task_0_time=300000
 
 `task_0_time=` gibt an, wie viele Millisekunden gehüpft werden muss. Für 5 Minuten ist das also `task_0_time=300000`.
+
+## Spielstände zurücksetzen
+
+Wird das PEPit (z.B. in einem Klinik-Setting) an einen anderen Nutzer weitergegeben, kann es sinnvoll sein die gespeicherten Spielstände zurückzusetzen.
+
+Dafür muss im Hauptverzeichnis der SD-Karte eine leere Textdatei mit dem Namen `resetSaves` erstellt werden. Die SD-Karte wird dann wieder in das PEPit gesteckt und das PEPit wird gestartet.
+
+Das PEPit löscht dann die Spielstände und die Datei und kann an den nächsten Nutzer weiter gegeben werden.
