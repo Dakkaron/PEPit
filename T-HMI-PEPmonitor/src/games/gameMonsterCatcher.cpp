@@ -551,7 +551,11 @@ void drawTrampolineGame_monsterCatcher(DISPLAY_T* display, JumpData* jumpData, S
 
 
 void drawInhalationGame_monsterCatcher(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
+  // Not implemented
+}
 
+void drawInhalationBlowGame_monsterCatcher(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
+  // Not implemented
 }
 
 void initGames_monsterCatcher(String gamePath, GameConfig* gameConfig, String* errorMessage) {

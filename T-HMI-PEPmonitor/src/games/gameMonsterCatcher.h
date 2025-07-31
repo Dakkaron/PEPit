@@ -22,6 +22,7 @@ void drawEqualBlowGame_monsterCatcher(DISPLAY_T* display, BlowData* blowData, St
 void drawLongBlowGame_monsterCatcher(DISPLAY_T* display, BlowData* blowData, String* errorMessage);
 void drawTrampolineGame_monsterCatcher(DISPLAY_T* display, JumpData* jumpData, String* errorMessage);
 void drawInhalationGame_monsterCatcher(DISPLAY_T* display, BlowData* blowData, String* errorMessage);
+void drawInhalationBlowGame_monsterCatcher(DISPLAY_T* display, BlowData* blowData, String* errorMessage);
 bool displayProgressionMenu_monsterCatcher(DISPLAY_T *display, String *errorMessage);
 
 #define TRAINER_ANIM_PATH "gfx/trainer/brendan.bmp"

@@ -21,6 +21,7 @@ void drawEqualBlowGame_racing(DISPLAY_T* display, BlowData* blowData, String* er
 void drawLongBlowGame_racing(DISPLAY_T* display, BlowData* blowData, String* errorMessage);
 void drawTrampolineGame_racing(DISPLAY_T* display, JumpData* jumpData, String* errorMessage);
 void drawInhalationGame_racing(DISPLAY_T* display, BlowData* blowData, String* errorMessage);
+void drawInhalationBlowGame_racing(DISPLAY_T* display, BlowData* blowData, String* errorMessage);
 bool displayProgressionMenu_racing(DISPLAY_T *display, String *errorMessage);
 
 #define TRAINER_ANIM_PATH "gfx/trainer/brendan.bmp"

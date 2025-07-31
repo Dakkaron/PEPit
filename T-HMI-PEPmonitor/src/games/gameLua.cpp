@@ -948,6 +948,12 @@ void drawInhalationGame_lua(DISPLAY_T* display, BlowData* blowData, String* erro
   lua_dofile(luaGamePath + "inhalation.lua");
 }
 
+void drawInhalationBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
+  luaDisplay = display;
+  updateBlowData(blowData);
+  lua_dofile(luaGamePath + "inhalationBlow.lua");
+}
+
 bool displayProgressionMenu_lua(DISPLAY_T *display, String *errorMessage) {
   luaProgressionMenuRunning = true;
   luaDisplay = display;
