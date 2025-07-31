@@ -480,7 +480,7 @@ TargetVector = {}
 TypeSprites = {0, STileOreIron, STileOreCopper, STileOreEmerald, STileOreGold, STileOreDiamond}
 WasBlowing = false
 
--- Shortblows
+-- PEPShort
 RockImageLoaded = -1
 
 -- Progression Menu
