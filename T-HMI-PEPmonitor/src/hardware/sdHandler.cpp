@@ -132,9 +132,9 @@ void readProfileData(uint32_t profileId, ProfileData* profileData, String* error
       profileData->taskTime[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_inhalationTime", errorMessage).c_str());
       profileData->taskNegativeStrength[taskId] = true;
 
-      profileData->taskMinStrength2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_blowMinStrength", errorMessage).c_str());
-      profileData->taskTargetStrength2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_blowTargetStrength", errorMessage).c_str());
-      profileData->taskTime2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_blowTime", errorMessage).c_str());
+      profileData->taskMinStrength2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationMinStrength", errorMessage).c_str());
+      profileData->taskTargetStrength2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationTargetStrength", errorMessage).c_str());
+      profileData->taskTime2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationTime", errorMessage).c_str());
       profileData->taskNegativeStrength2[taskId] = false;
     } else if (profileData->taskType[taskId] == PROFILE_TASK_TYPE_TRAMPOLINE) {
       profileData->taskTime[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_time", errorMessage).c_str());
