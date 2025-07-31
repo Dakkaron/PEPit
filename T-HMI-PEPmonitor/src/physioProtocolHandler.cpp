@@ -10,6 +10,12 @@
 #include "constants.h"
 #include "updateHandler.h"
 
+#define INHALE_ICON_PATH "/gfx/inhale.bmp"
+#define EXHALE_ICON_PATH "/gfx/exhale.bmp"
+
+static TFT_eSprite inhaleIcon(&tft);
+static TFT_eSprite exhaleIcon(&tft);
+
 ProfileData profileData;
 uint32_t currentTask;
 uint32_t currentCycle;
@@ -114,6 +120,8 @@ uint32_t runProfileSelection() {
         requiredTaskTypes |= REQUIRED_TASK_TYPE_EQUALBLOWS;
       } else if (profileData.taskType[i] == PROFILE_TASK_TYPE_INHALATION) {
         requiredTaskTypes |= REQUIRED_TASK_TYPE_INHALATION;
+      } else if (profileData.taskType[i] == PROFILE_TASK_TYPE_INHALATIONPEP) {
+        requiredTaskTypes |= REQUIRED_TASK_TYPE_INHALATIONPEP;
       } else if (profileData.taskType[i] == PROFILE_TASK_TYPE_TRAMPOLINE) {
         requiredTaskTypes |= REQUIRED_TASK_TYPE_TRAMPOLINE;
         spr.fillSprite(TFT_BLACK);
@@ -195,6 +203,18 @@ static void drawInhalationDisplay() {
   spr.pushSpriteFast(0, 0);
 }
 
+static void drawInhaleExhaleIcons(BlowData* blowData) {
+  if (!inhaleIcon.created()) {
+    loadBmp(&inhaleIcon, INHALE_ICON_PATH);
+    loadBmp(&exhaleIcon, EXHALE_ICON_PATH);
+  }
+  if (blowData->negativePressure) {
+    inhaleIcon.pushToSprite(&spr, PRESSURE_BAR_X + PRESSURE_BAR_WIDTH - 32, PRESSURE_BAR_Y - 32, 0xf81f);
+  } else {
+    exhaleIcon.pushToSprite(&spr, PRESSURE_BAR_X + PRESSURE_BAR_WIDTH - 32, PRESSURE_BAR_Y - 32, 0xf81f);
+  }
+}
+
 static void drawPEPDisplay() {
   spr.fillSprite(TFT_BLACK);
   String errorMessage;
@@ -205,6 +225,8 @@ static void drawPEPDisplay() {
       drawEqualBlowGame(&spr, &blowData, &errorMessage);break;
     case PROFILE_TASK_TYPE_SHORTBLOWS:
       drawShortBlowGame(&spr, &blowData, &errorMessage);break;
+    case PROFILE_TASK_TYPE_INHALATIONPEP:
+      drawInhalationBlowGame(&spr, &blowData, &errorMessage);break;
   }
   drawProgressBar(&spr, blowData.currentlyBlowing ? (100 * (blowData.ms - blowData.blowStartMs) / blowData.targetDurationMs) : 0, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
   checkFailWithMessage(errorMessage);
@@ -223,6 +245,14 @@ static void drawPEPDisplay() {
     printShaded(&spr, String(blowData.cycleNumber));
   }
   
+  if (blowData.taskType == PROFILE_TASK_TYPE_INHALATIONPEP) {
+    drawInhaleExhaleIcons(&blowData);
+    if (blowData.blowCount >= blowData.totalBlowCount) {
+      spr.fillRect(240, 210, 80, 30, TFT_BLUE);
+      spr.drawString("Fertig", 255, 220);
+    }
+  }
+
   drawSystemStats(blowData.ms, lastMs);
   spr.pushSpriteFast(0, 0);
 }
@@ -368,6 +398,14 @@ inline static bool isPepTask() {
     }
 }
 
+inline static bool isInhalationPEPTask() {
+  return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_INHALATIONPEP;
+}
+
+inline static bool isInhalationPEPTaskActingLikePEP(BlowData* blowData) {
+  return blowData->blowCount & 0x01;
+}
+
 inline static bool isInhalationTask() {
   return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_INHALATION;
 }
@@ -398,14 +436,21 @@ void handlePhysioTask() {
     getJumpData(&jumpData);
     drawTrampolineDisplay();
   } else {
-    blowData.targetPressure = profileData.taskTargetStrength[currentTask];
     blowData.taskNumber = currentTask;
     blowData.cycleNumber = currentCycle;
-    blowData.minPressure = 100*profileData.taskMinStrength[currentTask]/profileData.taskTargetStrength[currentTask];
-    blowData.negativePressure = profileData.taskNegativeStrength[currentTask];
-    blowData.targetDurationMs = profileData.taskTime[currentTask];
     blowData.totalBlowCount = profileData.taskRepetitions[currentTask];
     blowData.taskType = profileData.taskType[currentTask];
+    if (isPepTask() || isInhalationTask() || (isInhalationPEPTask() && !isInhalationPEPTaskActingLikePEP(&blowData))) {
+      blowData.targetPressure = profileData.taskTargetStrength[currentTask];
+      blowData.minPressure = 100*profileData.taskMinStrength[currentTask]/profileData.taskTargetStrength[currentTask];
+      blowData.negativePressure = profileData.taskNegativeStrength[currentTask];
+      blowData.targetDurationMs = profileData.taskTime[currentTask];
+    } else { // InhalationPEP task acting in PEP mode
+      blowData.targetPressure = profileData.taskTargetStrength2[currentTask];
+      blowData.minPressure = 100*profileData.taskMinStrength2[currentTask]/profileData.taskTargetStrength2[currentTask];
+      blowData.negativePressure = profileData.taskNegativeStrength2[currentTask];
+      blowData.targetDurationMs = profileData.taskTime2[currentTask];
+    }
 
     if (currentCycle >= blowData.totalCycleNumber) {
       drawFinished();
@@ -451,10 +496,10 @@ void handlePhysioTask() {
       if (isTouchInZone(240, 210, 80, 30)) {
         taskFinishedTimeout = blowData.ms;
         tft.invertDisplay(0);
-      } else if (isInhalationTask() && !blowData.currentlyBlowing && blowData.ms-getLastBlowEvent() > INHALATION_TASK_END_TIMEOUT && taskFinishedTimeout==0) {
+      } else if ((isInhalationTask() || isInhalationPEPTask()) && !blowData.currentlyBlowing && blowData.ms-getLastBlowEvent() > INHALATION_TASK_END_TIMEOUT && taskFinishedTimeout==0) {
         taskFinishedTimeout = blowData.ms;
         tft.invertDisplay(0);
-      } else if (isInhalationTask() && !blowData.currentlyBlowing && blowData.ms-getLastBlowEvent() > INHALATION_TASK_WARN_TIMEOUT) {
+      } else if ((isInhalationTask() || isInhalationPEPTask()) && !blowData.currentlyBlowing && blowData.ms-getLastBlowEvent() > INHALATION_TASK_WARN_TIMEOUT) {
         tft.invertDisplay((blowData.ms/500) % 2);
       } else {
         tft.invertDisplay(0);
@@ -476,6 +521,8 @@ void handlePhysioTask() {
           Serial.print("Trampoline");break;
         case PROFILE_TASK_TYPE_INHALATION:
           Serial.print("Inhalation");break;
+        case PROFILE_TASK_TYPE_INHALATIONPEP:
+          Serial.print("Inhalation blows");break;
       }
       Serial.println();
       currentTask++;
@@ -491,7 +538,7 @@ void handlePhysioTask() {
         displayPhysioRotateScreen();
       }
     }
-    if (isPepTask()) {
+    if (isPepTask() || isInhalationPEPTask()) {
       drawPEPDisplay();
     } else if (isInhalationTask()) {
       drawInhalationDisplay();

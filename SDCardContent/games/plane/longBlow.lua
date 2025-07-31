@@ -89,9 +89,9 @@ end
 
 local planeScale = 0.85+CameraHeight/8
 if (DrowningStartMs == 0) then
-  if (IsTouchInZone(0, 0, 100, 240)) then
+  if (IsTouchInZone(0, 0, 100, 200)) then
     PlaneAngle = Constrain(PlaneAngle - 40 * 0.0001 * MsDelta, -1, 1)
-  elseif (IsTouchInZone(220, 0, 100, 240)) then
+  elseif (IsTouchInZone(220, 0, 100, 200)) then
     PlaneAngle = Constrain(PlaneAngle + 40 * 0.0001 * MsDelta, -1, 1)
   else
     local angleReturn = 1 - (0.005 * MsDelta)

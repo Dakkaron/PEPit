@@ -86,6 +86,18 @@ void drawInhalationGame(DISPLAY_T* display, BlowData* blowData, String* errorMes
   }
 }
 
+void drawInhalationBlowGame(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
+  if (gameConfig.templateName == "monster") {
+    drawInhalationBlowGame_monsterCatcher(display, blowData, errorMessage);
+  } else if (gameConfig.templateName == "race") {
+    drawInhalationBlowGame_racing(display, blowData, errorMessage);
+  } else if (gameConfig.templateName == "lua") {
+    drawInhalationBlowGame_lua(display, blowData, errorMessage);
+  } else {
+    errorMessage->concat("No game loaded!");
+  }
+}
+
 bool displayProgressionMenu(DISPLAY_T *display, String *errorMessage) {
   if (gameConfig.templateName == "monster") {
     return displayProgressionMenu_monsterCatcher(display, errorMessage);

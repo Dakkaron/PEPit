@@ -21,3 +21,4 @@
 - Die obere Gehäusehälfte auf die Untere aufsetzen.
 - Die vier M3-Schrauben in die Ecken der oberen Gehäusehälfte einsetzen und festschrauben.
 
+Nächster Schritt: [Konfiguration](Configuration_de.md)

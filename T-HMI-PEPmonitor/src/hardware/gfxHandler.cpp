@@ -869,12 +869,13 @@ void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* po
     }
   }
 }
-
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor) {
-  int32_t spriteW = sprite->width();
-  int32_t spriteH = sprite->height();
-  float spriteWScaled = std::abs(spriteW * scale->x);
-  float spriteHScaled = std::abs(spriteH * scale->y);
+  drawSpriteScaled(display, sprite, position, scale, flags, maskColor, sprite->width(), sprite->height(), 0);
+}
+
+void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor, int16_t frameWidth, int16_t frameHeight, int16_t frameNr) {
+  float spriteWScaled = std::abs(frameWidth * scale->x);
+  float spriteHScaled = std::abs(frameHeight * scale->y);
   float drawPosX = position->x;
   float drawPosY = position->y;
   uint16_t* screenBuffer = display->get16BitBuffer();
@@ -898,22 +899,23 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
   if (sprite->getSwapBytes()) {
     maskColor = maskColor << 8 | maskColor >> 8;
   }
+  int32_t frameOffset = frameNr * frameHeight * frameWidth;
   for (int32_t y = _max(drawPosY, 0); y<toY; y++) {
     int32_t addYScreen = y * displayW;
-    int32_t scaledSpriteY = constrain((int32_t)((y-drawPosY) * inverseScaleY), 0, spriteH-1);
+    int32_t scaledSpriteY = constrain((int32_t)((y-drawPosY) * inverseScaleY), 0, frameHeight-1);
     int32_t addYSprite;
     if (scale->y >= 0) {
-      addYSprite = scaledSpriteY * spriteW;
+      addYSprite = scaledSpriteY * frameWidth + frameOffset;
     } else {
-      addYSprite = (spriteH - scaledSpriteY -1) * spriteW;
+      addYSprite = (frameHeight - scaledSpriteY -1) * frameWidth + frameOffset;
     }
     for (int32_t x = _max(drawPosX, 0); x<toX; x++) {
-      int32_t scaledSpriteX = constrain((int32_t)((x-drawPosX) * inverseScaleX), 0, spriteW-1);
+      int32_t scaledSpriteX = constrain((int32_t)((x-drawPosX) * inverseScaleX), 0, frameWidth-1);
       uint16_t color;
       if (scale->x >= 0) {
         color = spriteBuffer[scaledSpriteX + addYSprite];
       } else {
-        color = spriteBuffer[spriteW - scaledSpriteX - 1 + addYSprite];
+        color = spriteBuffer[frameWidth - scaledSpriteX - 1 + addYSprite];
       }
       if (!(flags & TRANSP_MASK && color == maskColor)) {
         screenBuffer[x + addYScreen] = color;

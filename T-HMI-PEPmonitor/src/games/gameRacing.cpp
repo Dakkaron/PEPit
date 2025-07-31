@@ -406,7 +406,11 @@ void drawTrampolineGame_racing(DISPLAY_T* display, JumpData* jumpData, String* e
 }
 
 void drawInhalationGame_racing(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
+  // Not implemented
+}
 
+void drawInhalationBlowGame_racing(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
+  // Not implemented
 }
 
 bool displayProgressionMenu_racing(DISPLAY_T *display, String *errorMessage) {

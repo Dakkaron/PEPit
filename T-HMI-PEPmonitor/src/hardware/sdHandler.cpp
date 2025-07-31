@@ -94,18 +94,20 @@ void readProfileData(uint32_t profileId, ProfileData* profileData, String* error
       break;
     }
     String taskType = getIniValueFromSection(resBuffer, "task_" + String(taskId) + "_type", errorMessage);
-    if (taskType == "shortBlows") {
+    if (taskType == "pepShort" || taskType == "shortBlows") {
       profileData->taskType[taskId] = PROFILE_TASK_TYPE_SHORTBLOWS;
-    } else if (taskType == "longBlows") {
+    } else if (taskType == "pepLong" || taskType == "longBlows") {
       profileData->taskType[taskId] = PROFILE_TASK_TYPE_LONGBLOWS;
-    } else if (taskType == "equalBlows") {
+    } else if (taskType == "pepEqual" || taskType == "equalBlows") {
       profileData->taskType[taskId] = PROFILE_TASK_TYPE_EQUALBLOWS;
     } else if (taskType == "trampoline") {
       profileData->taskType[taskId] = PROFILE_TASK_TYPE_TRAMPOLINE;
     } else if (taskType == "inhalation") {
       profileData->taskType[taskId] = PROFILE_TASK_TYPE_INHALATION;
+    } else if (taskType == "inhalationPep") {
+      profileData->taskType[taskId] = PROFILE_TASK_TYPE_INHALATIONPEP;
     } else {
-      errorMessage->concat("Unknown task type "+taskType+". Needs to be either of shortBlows, longBlows, equalBlows or trampoline.\n");
+      errorMessage->concat("Unknown task type "+taskType+". Needs to be either of pepShort, pepLong, pepEqual or trampoline.\n");
     }
     String ignoreErrors;
     if (profileData->taskType[taskId] == PROFILE_TASK_TYPE_LONGBLOWS ||
@@ -115,14 +117,28 @@ void readProfileData(uint32_t profileId, ProfileData* profileData, String* error
       profileData->taskNegativeStrength[taskId] = false;
       profileData->taskTargetStrength[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_targetStrength", errorMessage).c_str());
       profileData->taskRepetitions[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_repetitions", errorMessage).c_str());
+      profileData->taskTime[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_time", errorMessage).c_str());
     } else if (profileData->taskType[taskId] == PROFILE_TASK_TYPE_INHALATION) {
       profileData->taskMinStrength[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_minStrength", errorMessage).c_str());
       profileData->taskTargetStrength[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_targetStrength", errorMessage).c_str());
       profileData->taskRepetitions[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_minRepetitions", errorMessage).c_str());
+      profileData->taskTime[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_time", errorMessage).c_str());
       profileData->taskNegativeStrength[taskId] = true;
+    } else if (profileData->taskType[taskId] == PROFILE_TASK_TYPE_INHALATIONPEP) {
+      profileData->taskRepetitions[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_minRepetitions", errorMessage).c_str());
+
+      profileData->taskMinStrength[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_inhalationMinStrength", errorMessage).c_str());
+      profileData->taskTargetStrength[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_inhalationTargetStrength", errorMessage).c_str());
+      profileData->taskTime[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_inhalationTime", errorMessage).c_str());
+      profileData->taskNegativeStrength[taskId] = true;
+
+      profileData->taskMinStrength2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationMinStrength", errorMessage).c_str());
+      profileData->taskTargetStrength2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationTargetStrength", errorMessage).c_str());
+      profileData->taskTime2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationTime", errorMessage).c_str());
+      profileData->taskNegativeStrength2[taskId] = false;
     } else if (profileData->taskType[taskId] == PROFILE_TASK_TYPE_TRAMPOLINE) {
+      profileData->taskTime[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_time", errorMessage).c_str());
     }
-    profileData->taskTime[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_time", errorMessage).c_str());
     profileData->taskChangeImagePath[taskId] = getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_changeImagePath", &ignoreErrors).c_str();
     profileData->taskChangeMessage[taskId] = getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_changeText", &ignoreErrors).c_str();
     checkFailWithMessage(*errorMessage);
@@ -155,6 +171,9 @@ bool gameSupportsTaskTypes(String gamePath, uint32_t requiredTaskTypes, String* 
   }
   if (SD_MMC.exists(gamePath+"/inhalation.lua")) {
     gameTaskTypes |= REQUIRED_TASK_TYPE_INHALATION;
+  }
+  if (SD_MMC.exists(gamePath+"/inhalationBlow.lua")) {
+    gameTaskTypes |= REQUIRED_TASK_TYPE_INHALATIONPEP;
   }
   if (SD_MMC.exists(gamePath+"/progressionMenu.lua")) {
     gameTaskTypes |= REQUIRED_TASK_TYPE_PROGRESSION_MENU;
