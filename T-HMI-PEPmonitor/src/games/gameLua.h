@@ -2,7 +2,7 @@
 #define __GAME_LUA_H__
 
 #define LUA_USE_C89
-#include "lua/lua.hpp"
+#include "lua-5.4.7/src/lua.hpp"
 
 #include "constants.h"
 #include "hardware/gfxHandler.hpp"
