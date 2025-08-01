@@ -46,6 +46,7 @@
 #define PROFILE_TASK_TYPE_EQUALBLOWS 3
 #define PROFILE_TASK_TYPE_TRAMPOLINE 4
 #define PROFILE_TASK_TYPE_INHALATION 5
+#define PROFILE_TASK_TYPE_INHALATIONPEP 6
 
 #define INHALATION_TASK_WARN_TIMEOUT 10000L
 #define INHALATION_TASK_END_TIMEOUT 15000L
@@ -66,7 +67,8 @@
 #define REQUIRED_TASK_TYPE_EQUALBLOWS       0b00000100
 #define REQUIRED_TASK_TYPE_TRAMPOLINE       0b00001000
 #define REQUIRED_TASK_TYPE_INHALATION       0b00010000
-#define REQUIRED_TASK_TYPE_PROGRESSION_MENU 0b00100000
+#define REQUIRED_TASK_TYPE_INHALATIONPEP    0b00100000
+#define REQUIRED_TASK_TYPE_PROGRESSION_MENU 0b01000000
 
 struct GameConfig {
   String name;
@@ -87,6 +89,10 @@ struct ProfileData {
   uint32_t taskMinStrength[10];
   bool taskNegativeStrength[10];
   uint32_t taskTargetStrength[10];
+  uint32_t taskTime2[10];
+  uint32_t taskMinStrength2[10];
+  bool taskNegativeStrength2[10];
+  uint32_t taskTargetStrength2[10];
 };
 
 
