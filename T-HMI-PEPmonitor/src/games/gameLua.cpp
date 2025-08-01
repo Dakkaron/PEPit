@@ -771,8 +771,11 @@ void initLua() {
   luaState = luaL_newstate();
   luaopen_base(luaState);
   luaopen_table(luaState);
+  lua_setglobal(luaState, "table");
   luaopen_string(luaState);
+  lua_setglobal(luaState, "string");
   luaopen_math(luaState);
+  lua_setglobal(luaState, "math");
 
   sprites = (TFT_eSprite*) heap_caps_malloc(sizeof(TFT_eSprite) * SPRITE_COUNT_LIMIT, MALLOC_CAP_SPIRAM);
   if (!sprites) {
