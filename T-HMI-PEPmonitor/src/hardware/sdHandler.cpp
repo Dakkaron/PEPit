@@ -172,7 +172,7 @@ bool gameSupportsTaskTypes(String gamePath, uint32_t requiredTaskTypes, String* 
   if (SD_MMC.exists(gamePath+"/inhalation.lua")) {
     gameTaskTypes |= REQUIRED_TASK_TYPE_INHALATION;
   }
-  if (SD_MMC.exists(gamePath+"/inhalationBlow.lua")) {
+  if (SD_MMC.exists(gamePath+"/inhalationPep.lua")) {
     gameTaskTypes |= REQUIRED_TASK_TYPE_INHALATIONPEP;
   }
   if (SD_MMC.exists(gamePath+"/progressionMenu.lua")) {
