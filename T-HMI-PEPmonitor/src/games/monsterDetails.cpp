@@ -34,17 +34,17 @@ uint8_t getMonsterSafariRarity(String gameIniPath, uint16_t monsterId, String* e
     return 0;
   }
   String ignoreErrors;
-  return atoi(getIniValueFromSection(resBuffer, "safariRarity", &ignoreErrors).c_str());
+  return getIntIniValueFromSection(resBuffer, "safariRarity", &ignoreErrors);
 }
 
 uint16_t getMaxMonsterCount(String gameIniPath, String* errorMessage) {
   char resBuffer[1024];
-  getIniSection(gameIniPath, String("[game]"), (char*)resBuffer, 1024, errorMessage);
+  getIniSection(gameIniPath, "[game]", (char*)resBuffer, 1024, errorMessage);
   if (!errorMessage->isEmpty()) {
     return 0;
   }
   String ignoreErrors;
-  return atoi(getIniValueFromSection(resBuffer, "maxMonsterCount", &ignoreErrors).c_str());
+  return getIntIniValueFromSection(resBuffer, "maxMonsterCount", &ignoreErrors);
 }
 
 uint16_t getMonsterCount(String gameIniPath, String* errorMessage) {
@@ -54,7 +54,7 @@ uint16_t getMonsterCount(String gameIniPath, String* errorMessage) {
     return 0;
   }
   String ignoreErrors;
-  return atoi(getIniValueFromSection(resBuffer, "monsterCount", &ignoreErrors).c_str());
+  return getIntIniValueFromSection(resBuffer, "monsterCount", &ignoreErrors);
 }
 
 uint16_t getRandomMonsterId(String gameIniPath, String* errorMessage) {
@@ -76,7 +76,8 @@ uint16_t getSafariMonster(String gameIniPath, uint8_t targetRarity, String* erro
 }
 
 uint16_t getEvolutionTarget(char* sectionData, String* errorMessage) {
-  String value = getIniValueFromSection(sectionData, "evolvesTo", errorMessage);
+  String value;
+  getIniValueFromSection(sectionData, "evolvesTo", &value, errorMessage);
   String token = getRandomTokenCSV(value);
   token.trim();
   return atoi(token.c_str());
@@ -115,9 +116,11 @@ void loadAttackData(String gameIniPath, AttackData* attackData, String attackIde
   }
   String ignoreErrors;
   attackData->identifier = attackIdentifier;
-  attackData->animFrames = atoi(getIniValueFromSection(resBuffer, "animFrames", &ignoreErrors).c_str());
-  attackData->imagePath = getIniValueFromSection(resBuffer, "imagePath", &ignoreErrors);
-  attackData->attackFunction = getAttackFunctionFromIdentifier(getIniValueFromSection(resBuffer, "attackFunction", errorMessage));
+  attackData->animFrames = getIntIniValueFromSection(resBuffer, "animFrames", &ignoreErrors);
+  getIniValueFromSection(resBuffer, "imagePath", &(attackData->imagePath), &ignoreErrors);
+  String output;
+  getIniValueFromSection(resBuffer, "attackFunction", &output, errorMessage);
+  attackData->attackFunction = getAttackFunctionFromIdentifier(output);
   if (!errorMessage->isEmpty()) {
     return;
   }
@@ -138,13 +141,14 @@ void loadMonsterData(String gameIniPath, MonsterData* monsterData, uint16_t mons
       return;
     }
     monsterData->id = monsterId;
-    monsterData->name = getIniValueFromSection(resBuffer, "name", errorMessage);
-    monsterData->imagePath = getIniValueFromSection(resBuffer, "imagePath", errorMessage);
-    String isBasicMonster = getIniValueFromSection(resBuffer, "basicMonster", errorMessage);
+    getIniValueFromSection(resBuffer, "name", &(monsterData->name), errorMessage);
+    getIniValueFromSection(resBuffer, "imagePath", &(monsterData->imagePath), errorMessage);
+    String isBasicMonster;
+    getIniValueFromSection(resBuffer, "basicMonster", &isBasicMonster, errorMessage);
     monsterData->isBasicMonster = (isBasicMonster == "True") || (isBasicMonster == "true") || (isBasicMonster == "1");
     monsterData->evolvesTo = getEvolutionTarget(resBuffer, &ignoreErrors);
-    monsterData->safariRarity = atoi(getIniValueFromSection(resBuffer, "safariRarity", &ignoreErrors).c_str());
-    attackIdentifier = getIniValueFromSection(resBuffer, "attackIdentifier", &ignoreErrors);
+    monsterData->safariRarity = getIntIniValueFromSection(resBuffer, "safariRarity", &ignoreErrors);
+    getIniValueFromSection(resBuffer, "attackIdentifier", &attackIdentifier, &ignoreErrors);
     if (!errorMessage->isEmpty()) {
       return;
     }

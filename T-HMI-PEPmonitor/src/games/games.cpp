@@ -5,8 +5,8 @@
 
 #define EXECUTION_LOG_MAX_LINES 24
 
-String currentGamePath;
-GameConfig gameConfig;
+static String currentGamePath;
+static GameConfig gameConfig;
 void initGames(String gamePath, String* errorMessage) {
   currentGamePath = gamePath;
   readGameConfig(gamePath, &gameConfig, errorMessage);

@@ -74,6 +74,13 @@ struct GameConfig {
   String name;
   String templateName;
   String prefsNamespace;
+  String pepShortScriptPath;
+  String pepLongScriptPath;
+  String pepEqualScriptPath;
+  String inhalationPepScriptPath;
+  String inhalationScriptPath;
+  String trampolineScriptPath;
+  String progressionMenuScriptPath;
 };
 
 struct ProfileData {
