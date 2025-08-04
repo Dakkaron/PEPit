@@ -28,7 +28,7 @@ Beim Einatmen wird inhaliert, beim Ausatmen wird das PEP S als Luftwiderstand ve
 
 ## RC Cornet / RC Cornet+
 
-![PEPit mit RC Cornet+](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/peps.jpg)
+![PEPit mit RC Cornet+](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/cornet.jpg)
 
 Zur Verwendung mit dem "RC Cornet"-Profil.
 
@@ -36,7 +36,7 @@ In das Mundstück des RC Cornet/RC Cornet+ wird der ["RC-Cornet® Druck-Mess-Ada
 
 ## eFlow / LC Sprint + RC Cornet / RC Cornet+
 
-![PEPit mit eFlow und RC Cornet+](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/eflow_peps.jpg)
+![PEPit mit eFlow und RC Cornet+](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/eflow_cornet.jpg)
 
 Zur Verwendung mit dem "Inhalation+PEP"-Profil.
 
