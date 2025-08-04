@@ -18,7 +18,8 @@ uint8_t startWifi() {
   if (wifiStatus == CONNECTION_OK) {
     return wifiStatus;
   }
-  for (uint32_t wifiNumber=0; wifiNumber<MAX_WIFI_NETWORKS; wifiNumber++) {
+  int32_t networksFound = WiFi.scanNetworks();
+  for (int32_t wifiNumber=0; wifiNumber<MAX_WIFI_NETWORKS; wifiNumber++) {
     Serial.println("Starting WIFI");
     WiFi.mode(WIFI_STA);
     switch (wifiNumber) {
@@ -36,9 +37,23 @@ uint8_t startWifi() {
         break;
     }
     trampolineIp = systemConfig.trampolineIp;
+    Serial.print(wifiNumber+1);
+    Serial.print("/");
+    Serial.println(MAX_WIFI_NETWORKS);
     Serial.println(ssid);
     Serial.println(password);
     Serial.println(trampolineIp);
+    bool wifiFound = false;
+    for (int32_t i=0;i<networksFound;i++) {
+      if (WiFi.SSID(i) == ssid) {
+        wifiFound = true;
+        break;
+      }
+    }
+    if (!wifiFound) {
+      Serial.println("Wifi not found");
+      continue;
+    }
     WiFi.begin(ssid, password);
     Serial.print("Connecting to WIFI");
     for (uint8_t i=0;i<WIFI_RETRY_COUNT;i++) {
@@ -47,16 +62,13 @@ uint8_t startWifi() {
         delay(1000);
       } else {
         wifiStatus = CONNECTION_OK;
-        break;
+        Serial.println("done");
+        return wifiStatus;
       }
     }
-    if (wifiStatus == CONNECTION_OK) {
-      Serial.println("done");
-      return wifiStatus;
-    } else {
-      Serial.println("Failed to connect to WIFI "+ssid);
-    }
+    Serial.println("Failed to connect to WIFI "+ssid);
   }
+  Serial.println("ENDING WIFI CONNECT");
   return wifiStatus;
 }
 

@@ -40,9 +40,9 @@ bool stringIsTrue(String str, bool defaultValue) {
 }
 
 void readSystemConfig(SystemConfig* systemConfig, String* errorMessage) {
-  char resBuffer[1024];
+  char resBuffer[1024*3];
   String ignoreErrors = "";
-  getIniSection(SYSTEM_CONFIG_INI_PATH, "[system]", resBuffer, 1024, errorMessage);
+  getIniSection(SYSTEM_CONFIG_INI_PATH, "[system]", resBuffer, 1024*3, errorMessage);
   getIniValueFromSection(resBuffer, "wifiSSID", &(systemConfig->wifiSsid), &ignoreErrors);
   getIniValueFromSection(resBuffer, "wifiPassword", &(systemConfig->wifiPassword),  &ignoreErrors);
   getIniValueFromSection(resBuffer, "wifiSSID2", &(systemConfig->wifiSsid2),  &ignoreErrors);
@@ -50,6 +50,10 @@ void readSystemConfig(SystemConfig* systemConfig, String* errorMessage) {
   getIniValueFromSection(resBuffer, "wifiSSID3", &(systemConfig->wifiSsid3),  &ignoreErrors);
   getIniValueFromSection(resBuffer, "wifiPassword3", &(systemConfig->wifiPassword3),  &ignoreErrors);
   getIniValueFromSection(resBuffer, "trampolineIp", &(systemConfig->trampolineIp),  &ignoreErrors);
+  Serial.println("Loaded Wifi config:");
+  Serial.println("1: "+systemConfig->wifiSsid + "/" + systemConfig->wifiPassword);
+  Serial.println("2: "+systemConfig->wifiSsid2 + "/" + systemConfig->wifiPassword2);
+  Serial.println("3: "+systemConfig->wifiSsid3 + "/" + systemConfig->wifiPassword3);
   systemConfig->touchScreenZThreshold = 2.5*(100-getIntIniValueFromSection(resBuffer, "touchScreenSensitivity", &ignoreErrors));
   systemConfig->simulateTrampoline    = getBoolIniValueFromSection(resBuffer, "simulateTrampoline", &ignoreErrors, false);
   systemConfig->simulateBlows         = getBoolIniValueFromSection(resBuffer, "simulateBlowing", &ignoreErrors, false);
@@ -374,7 +378,7 @@ void getIniValueFromSection(char* sectionData, String key, String* output, Strin
   while (sectionData[i]!=0) {
     if (sectionData[i] == '\n') {
       if (keyEndMarker!=-1) {
-        if (strncmp(key.c_str(), sectionData + lineStartMarker, keyEndMarker - lineStartMarker) == 0) {
+        if (strncmp(key.c_str(), sectionData + lineStartMarker, key.length()) == 0) {
           strncpy(buffer, sectionData + valStartMarker, i-valStartMarker);
           buffer[i-valStartMarker] = 0;
           output->clear();

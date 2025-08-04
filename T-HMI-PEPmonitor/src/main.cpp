@@ -9,6 +9,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include <OneButton.h>
+#include "esp_log.h"
 
 #include "hardware/gfxHandler.hpp"
 #include "hardware/pressuresensor.h"
@@ -50,6 +51,7 @@ void setBrightness(uint8_t value) {
 }
 
 void setup() {
+  esp_log_level_set("wifi", ESP_LOG_WARN);
   pinMode(PWR_ON_PIN, OUTPUT);
   digitalWrite(PWR_ON_PIN, HIGH);
   pinMode(BK_LIGHT_PIN, OUTPUT);
