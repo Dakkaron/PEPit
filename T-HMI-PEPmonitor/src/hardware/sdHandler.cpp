@@ -159,31 +159,36 @@ void readProfileData(uint32_t profileId, ProfileData* profileData, String* error
 bool gameSupportsTaskTypes(String gamePath, uint32_t requiredTaskTypes, String* errorMessage) {
   GameConfig config;
   String ignoreErrors;
+  if (!gamePath.endsWith("/")) {
+    gamePath += "/";
+  }
   readGameConfig(gamePath, &config, &ignoreErrors);
   uint32_t gameTaskTypes = 0;
   if (config.templateName == "monster" || config.templateName == "race") {
     gameTaskTypes = REQUIRED_TASK_TYPE_SHORTBLOWS | REQUIRED_TASK_TYPE_LONGBLOWS | REQUIRED_TASK_TYPE_EQUALBLOWS | REQUIRED_TASK_TYPE_TRAMPOLINE;
-  }
-  if (SD_MMC.exists(gamePath+"/"+config.pepShortScriptPath)) {
-    gameTaskTypes |= REQUIRED_TASK_TYPE_SHORTBLOWS;
-  }
-  if (SD_MMC.exists(gamePath+"/"+config.pepLongScriptPath)) {
-    gameTaskTypes |= REQUIRED_TASK_TYPE_LONGBLOWS;
-  }
-  if (SD_MMC.exists(gamePath+"/"+config.pepEqualScriptPath)) {
-    gameTaskTypes |= REQUIRED_TASK_TYPE_EQUALBLOWS;
-  }
-  if (SD_MMC.exists(gamePath+"/"+config.trampolineScriptPath)) {
-    gameTaskTypes |= REQUIRED_TASK_TYPE_TRAMPOLINE;
-  }
-  if (SD_MMC.exists(gamePath+"/"+config.inhalationScriptPath)) {
-    gameTaskTypes |= REQUIRED_TASK_TYPE_INHALATION;
-  }
-  if (SD_MMC.exists(gamePath+"/"+config.inhalationPepScriptPath)) {
-    gameTaskTypes |= REQUIRED_TASK_TYPE_INHALATIONPEP;
-  }
-  if (SD_MMC.exists(gamePath+"/"+config.progressionMenuScriptPath)) {
-    gameTaskTypes |= REQUIRED_TASK_TYPE_PROGRESSION_MENU;
+  } else {
+    Serial.println(gamePath+config.trampolineScriptPath);
+    if (!config.pepShortScriptPath.isEmpty() && SD_MMC.exists(gamePath+config.pepShortScriptPath)) {
+      gameTaskTypes |= REQUIRED_TASK_TYPE_SHORTBLOWS;
+    }
+    if (!config.pepLongScriptPath.isEmpty() && SD_MMC.exists(gamePath+config.pepLongScriptPath)) {
+      gameTaskTypes |= REQUIRED_TASK_TYPE_LONGBLOWS;
+    }
+    if (!config.pepEqualScriptPath.isEmpty() && SD_MMC.exists(gamePath+config.pepEqualScriptPath)) {
+      gameTaskTypes |= REQUIRED_TASK_TYPE_EQUALBLOWS;
+    }
+    if (!config.trampolineScriptPath.isEmpty() && SD_MMC.exists(gamePath+config.trampolineScriptPath)) {
+      gameTaskTypes |= REQUIRED_TASK_TYPE_TRAMPOLINE;
+    }
+    if (!config.inhalationScriptPath.isEmpty() && SD_MMC.exists(gamePath+config.inhalationScriptPath)) {
+      gameTaskTypes |= REQUIRED_TASK_TYPE_INHALATION;
+    }
+    if (!config.inhalationPepScriptPath.isEmpty() && SD_MMC.exists(gamePath+config.inhalationPepScriptPath)) {
+      gameTaskTypes |= REQUIRED_TASK_TYPE_INHALATIONPEP;
+    }
+    if (!config.progressionMenuScriptPath.isEmpty() && SD_MMC.exists(gamePath+config.progressionMenuScriptPath)) {
+      gameTaskTypes |= REQUIRED_TASK_TYPE_PROGRESSION_MENU;
+    }
   }
   Serial.print("Game task types: ");
   Serial.print(gameTaskTypes, BIN);
@@ -271,6 +276,9 @@ String getGamePath(uint16_t gameId, uint32_t requiredTaskTypes, String* errorMes
 
 void readGameConfig(String gamePath, GameConfig* gameConfig, String* errorMessage) {
   char resBuffer[1024];
+  if (!gamePath.endsWith("/")) {
+    gamePath += "/";
+  }
   getIniSection(gamePath+"gameconfig.ini", "[game]", resBuffer, 1024, errorMessage);
   getIniValueFromSection(resBuffer, "name",           &(gameConfig->name),           errorMessage);
   getIniValueFromSection(resBuffer, "template",       &(gameConfig->templateName),   errorMessage);
