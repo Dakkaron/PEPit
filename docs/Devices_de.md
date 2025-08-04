@@ -16,7 +16,7 @@ Von links nach rechts verwendet man das Reservoir des eFlow oder LCSprint, dann 
 
 Das Mittelstück des PEP S wird nur als Schlauchadapter verwendet und muss auf die kleinste Stenose gesetzt werden.
 
-## eFlow + PEP S / LCSprint + PEP S
+## eFlow / LCSprint + PEP S
 
 ![PEPit mit eFlow und PEP S](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/eflow_peps.jpg)
 
