@@ -82,3 +82,5 @@ Aktuell befindet sich PepIt noch im Early Access. Weitere Spiele und Features we
 ## Inbetriebnahme
 [Konfiguration](docs/Configuration_de.md)
 
+## Verbinden mit Physiotherapie-Geräten
+[Hier klicken um zur Verbindungsanleitung zu kommen.](docs/Devices_de.md)

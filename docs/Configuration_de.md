@@ -185,3 +185,5 @@ Wird das PEPit (z.B. in einem Klinik-Setting) an einen anderen Nutzer weitergege
 Dafür muss im Hauptverzeichnis der SD-Karte eine leere Textdatei mit dem Namen `resetSaves` erstellt werden. Die SD-Karte wird dann wieder in das PEPit gesteckt und das PEPit wird gestartet.
 
 Das PEPit löscht dann die Spielstände und die Datei und kann an den nächsten Nutzer weiter gegeben werden.
+
+Nächster Schritt: [Verbinden mit Physiotherapie-Geräten](Devices_de.md)
