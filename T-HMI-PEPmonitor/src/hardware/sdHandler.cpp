@@ -43,21 +43,21 @@ void readSystemConfig(SystemConfig* systemConfig, String* errorMessage) {
   char resBuffer[1024];
   String ignoreErrors = "";
   getIniSection(SYSTEM_CONFIG_INI_PATH, "[system]", resBuffer, 1024, errorMessage);
-  systemConfig->wifiSsid = getIniValueFromSection(resBuffer, "wifiSSID", &ignoreErrors);
-  systemConfig->wifiPassword = getIniValueFromSection(resBuffer, "wifiPassword", &ignoreErrors);
-  systemConfig->wifiSsid2 = getIniValueFromSection(resBuffer, "wifiSSID2", &ignoreErrors);
-  systemConfig->wifiPassword2 = getIniValueFromSection(resBuffer, "wifiPassword2", &ignoreErrors);
-  systemConfig->wifiSsid3 = getIniValueFromSection(resBuffer, "wifiSSID3", &ignoreErrors);
-  systemConfig->wifiPassword3 = getIniValueFromSection(resBuffer, "wifiPassword3", &ignoreErrors);
-  systemConfig->trampolineIp = getIniValueFromSection(resBuffer, "trampolineIp", &ignoreErrors);
-  systemConfig->touchScreenZThreshold = 2.5*(100-atoi(getIniValueFromSection(resBuffer, "touchScreenSensitivity", &ignoreErrors).c_str()));
-  systemConfig->simulateTrampoline = stringIsTrue(getIniValueFromSection(resBuffer, "simulateTrampoline", &ignoreErrors), false);
-  systemConfig->simulateBlows = stringIsTrue(getIniValueFromSection(resBuffer, "simulateBlowing", &ignoreErrors), false);
-  systemConfig->simulateInhalation = stringIsTrue(getIniValueFromSection(resBuffer, "simulateInhalation", &ignoreErrors), false);
-  systemConfig->debugLogBlowPressure = stringIsTrue(getIniValueFromSection(resBuffer, "debugLogBlowPressure", &ignoreErrors), false);
-  systemConfig->debugLogTrampoline = stringIsTrue(getIniValueFromSection(resBuffer, "debugLogTrampoline", &ignoreErrors), false);
-  systemConfig->logExecutions = stringIsTrue(getIniValueFromSection(resBuffer, "logExecutions", errorMessage), false);
-  systemConfig->timezoneOffset = 60*atoi(getIniValueFromSection(resBuffer, "timezoneOffset", &ignoreErrors).c_str());
+  getIniValueFromSection(resBuffer, "wifiSSID", &(systemConfig->wifiSsid), &ignoreErrors);
+  getIniValueFromSection(resBuffer, "wifiPassword", &(systemConfig->wifiPassword),  &ignoreErrors);
+  getIniValueFromSection(resBuffer, "wifiSSID2", &(systemConfig->wifiSsid2),  &ignoreErrors);
+  getIniValueFromSection(resBuffer, "wifiPassword2", &(systemConfig->wifiPassword2),  &ignoreErrors);
+  getIniValueFromSection(resBuffer, "wifiSSID3", &(systemConfig->wifiSsid3),  &ignoreErrors);
+  getIniValueFromSection(resBuffer, "wifiPassword3", &(systemConfig->wifiPassword3),  &ignoreErrors);
+  getIniValueFromSection(resBuffer, "trampolineIp", &(systemConfig->trampolineIp),  &ignoreErrors);
+  systemConfig->touchScreenZThreshold = 2.5*(100-getIntIniValueFromSection(resBuffer, "touchScreenSensitivity", &ignoreErrors));
+  systemConfig->simulateTrampoline    = getBoolIniValueFromSection(resBuffer, "simulateTrampoline", &ignoreErrors, false);
+  systemConfig->simulateBlows         = getBoolIniValueFromSection(resBuffer, "simulateBlowing", &ignoreErrors, false);
+  systemConfig->simulateInhalation    = getBoolIniValueFromSection(resBuffer, "simulateInhalation", &ignoreErrors, false);
+  systemConfig->debugLogBlowPressure  = getBoolIniValueFromSection(resBuffer, "debugLogBlowPressure", &ignoreErrors, false);
+  systemConfig->debugLogTrampoline    = getBoolIniValueFromSection(resBuffer, "debugLogTrampoline", &ignoreErrors, false);
+  systemConfig->logExecutions         = getBoolIniValueFromSection(resBuffer, "logExecutions", errorMessage, false);
+  systemConfig->timezoneOffset = 60*getIntIniValueFromSection(resBuffer, "timezoneOffset", &ignoreErrors);
   Serial.println("Simulate blowing: "+String(systemConfig->simulateBlows));
   Serial.println("Simulate trampoline: "+String(systemConfig->simulateTrampoline));
   if (systemConfig->trampolineIp.isEmpty() || systemConfig->wifiSsid.isEmpty() || systemConfig->wifiPassword.isEmpty()) {
@@ -86,14 +86,15 @@ uint32_t getNumberOfProfiles(String* errorMessage) {
 void readProfileData(uint32_t profileId, ProfileData* profileData, String* errorMessage) {
   char resBuffer[2048];
   getIniSection(PROFILE_DATA_INI_PATH, "[profile_" + String(profileId) + "]", resBuffer, 2048, errorMessage);
-  profileData->name = getIniValueFromSection(resBuffer, "name", errorMessage);
-  profileData->imagePath = getIniValueFromSection(resBuffer, "imagePath", errorMessage);
-  profileData->cycles = atoi(getIniValueFromSection(resBuffer, "cycles", errorMessage).c_str());
+  getIniValueFromSection(resBuffer, "name",      &(profileData->name), errorMessage);
+  getIniValueFromSection(resBuffer, "imagePath", &(profileData->imagePath), errorMessage);
+  profileData->cycles = getIntIniValueFromSection(resBuffer, "cycles", errorMessage, 1);
   for (uint8_t taskId=0; taskId<10; taskId++) {
     if (!isKeyInSection(resBuffer, "task_" + String(taskId) + "_type")) {
       break;
     }
-    String taskType = getIniValueFromSection(resBuffer, "task_" + String(taskId) + "_type", errorMessage);
+    String taskType;
+    getIniValueFromSection(resBuffer, "task_" + String(taskId) + "_type", &taskType, errorMessage);
     if (taskType == "pepShort" || taskType == "shortBlows") {
       profileData->taskType[taskId] = PROFILE_TASK_TYPE_SHORTBLOWS;
     } else if (taskType == "pepLong" || taskType == "longBlows") {
@@ -113,34 +114,34 @@ void readProfileData(uint32_t profileId, ProfileData* profileData, String* error
     if (profileData->taskType[taskId] == PROFILE_TASK_TYPE_LONGBLOWS ||
         profileData->taskType[taskId] == PROFILE_TASK_TYPE_EQUALBLOWS || 
         profileData->taskType[taskId] == PROFILE_TASK_TYPE_SHORTBLOWS) {
-      profileData->taskMinStrength[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_minStrength", errorMessage).c_str());
+      profileData->taskMinStrength[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_minStrength", errorMessage);
       profileData->taskNegativeStrength[taskId] = false;
-      profileData->taskTargetStrength[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_targetStrength", errorMessage).c_str());
-      profileData->taskRepetitions[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_repetitions", errorMessage).c_str());
-      profileData->taskTime[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_time", errorMessage).c_str());
+      profileData->taskTargetStrength[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_targetStrength", errorMessage);
+      profileData->taskRepetitions[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_repetitions", errorMessage);
+      profileData->taskTime[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_time", errorMessage);
     } else if (profileData->taskType[taskId] == PROFILE_TASK_TYPE_INHALATION) {
-      profileData->taskMinStrength[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_minStrength", errorMessage).c_str());
-      profileData->taskTargetStrength[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_targetStrength", errorMessage).c_str());
-      profileData->taskRepetitions[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_minRepetitions", errorMessage).c_str());
-      profileData->taskTime[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_time", errorMessage).c_str());
+      profileData->taskMinStrength[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_minStrength", errorMessage);
+      profileData->taskTargetStrength[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_targetStrength", errorMessage);
+      profileData->taskRepetitions[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_minRepetitions", errorMessage);
+      profileData->taskTime[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_time", errorMessage);
       profileData->taskNegativeStrength[taskId] = true;
     } else if (profileData->taskType[taskId] == PROFILE_TASK_TYPE_INHALATIONPEP) {
-      profileData->taskRepetitions[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_minRepetitions", errorMessage).c_str());
+      profileData->taskRepetitions[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_minRepetitions", errorMessage);
 
-      profileData->taskMinStrength[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_inhalationMinStrength", errorMessage).c_str());
-      profileData->taskTargetStrength[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_inhalationTargetStrength", errorMessage).c_str());
-      profileData->taskTime[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_inhalationTime", errorMessage).c_str());
+      profileData->taskMinStrength[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_inhalationMinStrength", errorMessage);
+      profileData->taskTargetStrength[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_inhalationTargetStrength", errorMessage);
+      profileData->taskTime[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_inhalationTime", errorMessage);
       profileData->taskNegativeStrength[taskId] = true;
 
-      profileData->taskMinStrength2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationMinStrength", errorMessage).c_str());
-      profileData->taskTargetStrength2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationTargetStrength", errorMessage).c_str());
-      profileData->taskTime2[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationTime", errorMessage).c_str());
+      profileData->taskMinStrength2[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationMinStrength", errorMessage);
+      profileData->taskTargetStrength2[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationTargetStrength", errorMessage);
+      profileData->taskTime2[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_exhalationTime", errorMessage);
       profileData->taskNegativeStrength2[taskId] = false;
     } else if (profileData->taskType[taskId] == PROFILE_TASK_TYPE_TRAMPOLINE) {
-      profileData->taskTime[taskId] = atoi(getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_time", errorMessage).c_str());
+      profileData->taskTime[taskId] = getIntIniValueFromSection(resBuffer, "task_"+String(taskId)+"_time", errorMessage);
     }
-    profileData->taskChangeImagePath[taskId] = getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_changeImagePath", &ignoreErrors).c_str();
-    profileData->taskChangeMessage[taskId] = getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_changeText", &ignoreErrors).c_str();
+    getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_changeImagePath", &(profileData->taskChangeImagePath[taskId]), &ignoreErrors);
+    getIniValueFromSection(resBuffer, "task_"+String(taskId)+"_changeText", &(profileData->taskChangeMessage[taskId]), &ignoreErrors);
     checkFailWithMessage(*errorMessage);
     profileData->tasks++; 
   }
@@ -152,30 +153,32 @@ void readProfileData(uint32_t profileId, ProfileData* profileData, String* error
 }
 
 bool gameSupportsTaskTypes(String gamePath, uint32_t requiredTaskTypes, String* errorMessage) {
-  String gameTemplate = getIniValue(gamePath+"/gameconfig.ini", "[game]", "template", errorMessage);
+  GameConfig config;
+  String ignoreErrors;
+  readGameConfig(gamePath, &config, &ignoreErrors);
   uint32_t gameTaskTypes = 0;
-  if (gameTemplate == "monster" || gameTemplate == "race") {
+  if (config.templateName == "monster" || config.templateName == "race") {
     gameTaskTypes = REQUIRED_TASK_TYPE_SHORTBLOWS | REQUIRED_TASK_TYPE_LONGBLOWS | REQUIRED_TASK_TYPE_EQUALBLOWS | REQUIRED_TASK_TYPE_TRAMPOLINE;
   }
-  if (SD_MMC.exists(gamePath+"/shortBlow.lua")) {
+  if (SD_MMC.exists(gamePath+"/"+config.pepShortScriptPath)) {
     gameTaskTypes |= REQUIRED_TASK_TYPE_SHORTBLOWS;
   }
-  if (SD_MMC.exists(gamePath+"/longBlow.lua")) {
+  if (SD_MMC.exists(gamePath+"/"+config.pepLongScriptPath)) {
     gameTaskTypes |= REQUIRED_TASK_TYPE_LONGBLOWS;
   }
-  if (SD_MMC.exists(gamePath+"/equalBlow.lua")) {
+  if (SD_MMC.exists(gamePath+"/"+config.pepEqualScriptPath)) {
     gameTaskTypes |= REQUIRED_TASK_TYPE_EQUALBLOWS;
   }
-  if (SD_MMC.exists(gamePath+"/trampoline.lua")) {
+  if (SD_MMC.exists(gamePath+"/"+config.trampolineScriptPath)) {
     gameTaskTypes |= REQUIRED_TASK_TYPE_TRAMPOLINE;
   }
-  if (SD_MMC.exists(gamePath+"/inhalation.lua")) {
+  if (SD_MMC.exists(gamePath+"/"+config.inhalationScriptPath)) {
     gameTaskTypes |= REQUIRED_TASK_TYPE_INHALATION;
   }
-  if (SD_MMC.exists(gamePath+"/inhalationBlow.lua")) {
+  if (SD_MMC.exists(gamePath+"/"+config.inhalationPepScriptPath)) {
     gameTaskTypes |= REQUIRED_TASK_TYPE_INHALATIONPEP;
   }
-  if (SD_MMC.exists(gamePath+"/progressionMenu.lua")) {
+  if (SD_MMC.exists(gamePath+"/"+config.progressionMenuScriptPath)) {
     gameTaskTypes |= REQUIRED_TASK_TYPE_PROGRESSION_MENU;
   }
   Serial.print("Game task types: ");
@@ -265,9 +268,17 @@ String getGamePath(uint16_t gameId, uint32_t requiredTaskTypes, String* errorMes
 void readGameConfig(String gamePath, GameConfig* gameConfig, String* errorMessage) {
   char resBuffer[1024];
   getIniSection(gamePath+"gameconfig.ini", "[game]", resBuffer, 1024, errorMessage);
-  gameConfig->name = getIniValueFromSection(resBuffer, "name", errorMessage);
-  gameConfig->templateName = getIniValueFromSection(resBuffer, "template", errorMessage);
-  gameConfig->prefsNamespace = getIniValueFromSection(resBuffer, "prefsNamespace", errorMessage);
+  getIniValueFromSection(resBuffer, "name",           &(gameConfig->name),           errorMessage);
+  getIniValueFromSection(resBuffer, "template",       &(gameConfig->templateName),   errorMessage);
+  getIniValueFromSection(resBuffer, "prefsNamespace", &(gameConfig->prefsNamespace), errorMessage);
+  String ignoreErrors;
+  getIniValueFromSection(resBuffer, "pepShortScriptPath",        &(gameConfig->pepShortScriptPath), &ignoreErrors);
+  getIniValueFromSection(resBuffer, "pepLongScriptPath",         &(gameConfig->pepLongScriptPath), &ignoreErrors);
+  getIniValueFromSection(resBuffer, "pepEqualScriptPath",        &(gameConfig->pepEqualScriptPath), &ignoreErrors);
+  getIniValueFromSection(resBuffer, "inhalationPepScriptPath",   &(gameConfig->inhalationPepScriptPath), &ignoreErrors);
+  getIniValueFromSection(resBuffer, "inhalationScriptPath",      &(gameConfig->inhalationScriptPath), &ignoreErrors);
+  getIniValueFromSection(resBuffer, "trampolineScriptPath",      &(gameConfig->trampolineScriptPath), &ignoreErrors);
+  getIniValueFromSection(resBuffer, "progressionMenuScriptPath", &(gameConfig->progressionMenuScriptPath), &ignoreErrors);
 }
 
 void getIniSection(String iniPath, String section, char* resultBuffer, uint16_t len, String* errorMessage) {
@@ -322,21 +333,39 @@ void getIniSection(String iniPath, String section, char* resultBuffer, uint16_t 
 }
 
 bool isKeyInSection(char* sectionData, String key) {
+  String output;
   String errorMessage;
-  getIniValueFromSection(sectionData, key, &errorMessage);
+  getIniValueFromSection(sectionData, key, &output, &errorMessage);
   return errorMessage.isEmpty();
 }
 
-String getIniValue(String iniPath, String section, String key, String* errorMessage) {
+void getIniValue(String iniPath, String section, String key, String* output, String* errorMessage) {
   char resBuffer[INI_BUFFER_LEN];
   getIniSection(iniPath, section, resBuffer, INI_BUFFER_LEN, errorMessage);
   if (!errorMessage->isEmpty()) {
-    return String("");
+    output->clear();
+  } else {
+    getIniValueFromSection(resBuffer, key, output, errorMessage);
   }
-  return getIniValueFromSection(resBuffer, key, errorMessage);
 }
 
-String getIniValueFromSection(char* sectionData, String key, String* errorMessage) {
+int32_t getIntIniValueFromSection(char* sectionData, String key, String* errorMessage, int32_t def) {
+  String output;
+  getIniValueFromSection(sectionData, key, &output, errorMessage);
+  if (output.isEmpty()) {
+    return def;
+  } else {
+    return atoi(output.c_str());
+  }
+}
+
+bool getBoolIniValueFromSection(char* sectionData, String key, String* errorMessage, bool def) {
+  String output;
+  getIniValueFromSection(sectionData, key, &output, errorMessage);
+  return stringIsTrue(output, def);
+}
+
+void getIniValueFromSection(char* sectionData, String key, String* output, String* errorMessage) {
   int16_t lineStartMarker = 0;
   int16_t keyEndMarker = -1;
   int16_t valStartMarker = -1;
@@ -348,7 +377,9 @@ String getIniValueFromSection(char* sectionData, String key, String* errorMessag
         if (strncmp(key.c_str(), sectionData + lineStartMarker, keyEndMarker - lineStartMarker) == 0) {
           strncpy(buffer, sectionData + valStartMarker, i-valStartMarker);
           buffer[i-valStartMarker] = 0;
-          return String(buffer);
+          output->clear();
+          output->concat(buffer);
+          return;
         }
       }
       lineStartMarker = i+1;
@@ -371,7 +402,7 @@ String getIniValueFromSection(char* sectionData, String key, String* errorMessag
   errorMessage->concat("Key ");
   errorMessage->concat(key);
   errorMessage->concat(" not found in INI section.\n");
-  return String("");
+  output->clear();
 }
 
 void scanForWinScreens(String gamePath, String* errorMessage) {

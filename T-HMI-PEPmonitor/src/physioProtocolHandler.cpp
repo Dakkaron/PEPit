@@ -522,7 +522,7 @@ void handlePhysioTask() {
         case PROFILE_TASK_TYPE_INHALATION:
           Serial.print("Inhalation");break;
         case PROFILE_TASK_TYPE_INHALATIONPEP:
-          Serial.print("Inhalation blows");break;
+          Serial.print("Inhalation+PEP");break;
       }
       Serial.println();
       currentTask++;

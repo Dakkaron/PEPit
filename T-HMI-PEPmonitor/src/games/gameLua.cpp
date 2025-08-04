@@ -10,6 +10,7 @@ DISPLAY_T* luaDisplay;
 bool luaProgressionMenuRunning;
 bool luaStrictMode = false;
 bool luaCacheGameCode = false;
+static GameConfig gameConfig;
 
 #define SPRITE_COUNT_LIMIT 100
 
@@ -771,8 +772,11 @@ void initLua() {
   luaState = luaL_newstate();
   luaopen_base(luaState);
   luaopen_table(luaState);
+  lua_setglobal(luaState, "table");
   luaopen_string(luaState);
+  lua_setglobal(luaState, "string");
   luaopen_math(luaState);
+  lua_setglobal(luaState, "math");
 
   sprites = (TFT_eSprite*) heap_caps_malloc(sizeof(TFT_eSprite) * SPRITE_COUNT_LIMIT, MALLOC_CAP_SPIRAM);
   if (!sprites) {
@@ -841,17 +845,22 @@ void initLua() {
   bindingsInitiated = true;
 }
 
-void initGames_lua(String gamePath, GameConfig* gameConfig, String* errorMessage) {
+void initGames_lua(String gamePath, GameConfig* pGameConfig, String* errorMessage) {
   String ignoreErrorMessage;
+  readGameConfig(gamePath, &gameConfig, errorMessage);
   initLua();
   String msString = "Ms="+String(millis());
   lua_dostring(msString.c_str(), "initGames_lua()");
   luaGamePath = gamePath;
   String luaGameIniPath = gamePath + "gameconfig.ini";
-  luaStrictMode = getIniValue(luaGameIniPath, "[game]", "strictMode", &ignoreErrorMessage).equalsIgnoreCase("true");
-  luaCacheGameCode = !getIniValue(luaGameIniPath, "[game]", "caceGameCode", &ignoreErrorMessage).equalsIgnoreCase("false");
+  String output;
+  Serial.print("LUA GAME INI PATH: ");
+  Serial.println(luaGameIniPath);
+  getIniValue(luaGameIniPath, "[game]", "strictMode", &output, &ignoreErrorMessage);
+  luaStrictMode = output.equalsIgnoreCase("true");
+  luaCacheGameCode = true;
 
-  setGamePrefsNamespace(gameConfig->prefsNamespace.c_str());
+  setGamePrefsNamespace(gameConfig.prefsNamespace.c_str());
 
   lua_dofile(luaGamePath + "init.lua");
 }
@@ -921,44 +930,44 @@ void updateJumpData(JumpData* jumpData) {
 void drawShortBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
   luaDisplay = display;
   updateBlowData(blowData);
-  lua_dofile(luaGamePath + "shortBlow.lua");
+  lua_dofile(luaGamePath + gameConfig.pepShortScriptPath);
 }
 
 void drawLongBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
   luaDisplay = display;
   updateBlowData(blowData);
-  lua_dofile(luaGamePath + "longBlow.lua");
+  lua_dofile(luaGamePath + gameConfig.pepLongScriptPath);
 }
 
 void drawEqualBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
   luaDisplay = display;
   updateBlowData(blowData);
-  lua_dofile(luaGamePath + "equalBlow.lua");
+  lua_dofile(luaGamePath + gameConfig.pepEqualScriptPath);
 }
 
 void drawTrampolineGame_lua(DISPLAY_T* display, JumpData* jumpData, String* errorMessage) {
   luaDisplay = display;
   updateJumpData(jumpData);
-  lua_dofile(luaGamePath + "trampoline.lua");
+  lua_dofile(luaGamePath + gameConfig.trampolineScriptPath);
 }
 
 void drawInhalationGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
   luaDisplay = display;
   updateBlowData(blowData);
-  lua_dofile(luaGamePath + "inhalation.lua");
+  lua_dofile(luaGamePath + gameConfig.inhalationScriptPath);
 }
 
 void drawInhalationBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
   luaDisplay = display;
   updateBlowData(blowData);
-  lua_dofile(luaGamePath + "inhalationPep.lua");
+  lua_dofile(luaGamePath + gameConfig.inhalationPepScriptPath);
 }
 
 bool displayProgressionMenu_lua(DISPLAY_T *display, String *errorMessage) {
   luaProgressionMenuRunning = true;
   luaDisplay = display;
   lua_dostring(("Ms="+String(millis())).c_str(), "displayProgressionMenu_lua()");
-  String error = lua_dofile(luaGamePath + "progressionMenu.lua");
+  String error = lua_dofile(luaGamePath + gameConfig.progressionMenuScriptPath);
   if (!error.isEmpty()) {
     errorMessage->concat(error);
     return false;
