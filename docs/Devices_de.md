@@ -1,4 +1,4 @@
-# Physio-Geräte Variationen
+# Verbinden mit Physiotherapie-Geräten
 
 ## PEP S
 
