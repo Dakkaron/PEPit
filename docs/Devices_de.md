@@ -8,7 +8,7 @@ Die einfachste Konfiguration. Zur Verwendung mit dem "PEP S"-Profil.
 
 ## eFlow / LCSprint
 
-![PEPit mit PEP S](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/eflow.jpg)
+![PEPit mit eFlow](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/eflow.jpg)
 
 Zur Verwendung mit dem "Inhalation"-Profil.
 
@@ -18,7 +18,7 @@ Das Mittelstück des PEP S wird nur als Schlauchadapter verwendet und muss auf d
 
 ## eFlow + PEP S / LCSprint + PEP S
 
-![PEPit mit PEP S](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/eflow_peps.jpg)
+![PEPit mit eFlow und PEP S](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/eflow_peps.jpg)
 
 Zur Verwendung mit dem "Inhalation+PEP"-Profil.
 
@@ -28,13 +28,15 @@ Beim Einatmen wird inhaliert, beim Ausatmen wird das PEP S als Luftwiderstand ve
 
 ## RC Cornet / RC Cornet+
 
-![PEPit mit PEP S](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/peps.jpg)
+![PEPit mit RC Cornet+](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/peps.jpg)
 
 Zur Verwendung mit dem "RC Cornet"-Profil.
 
 In das Mundstück des RC Cornet/RC Cornet+ wird der ["RC-Cornet® Druck-Mess-Adapter"](https://www.cegla.de/produkte/zubehoer/) gesteckt, an den der Luftschlauch des PEP S angeschlossen wird.
 
-![PEPit mit PEP S](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/eflow_peps.jpg)
+## eFlow / LCSprint + RC Cornet / RC Cornet+
+
+![PEPit mit eFlow und RC Cornet+](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/eflow_peps.jpg)
 
 Zur Verwendung mit dem "Inhalation+PEP"-Profil.
 
