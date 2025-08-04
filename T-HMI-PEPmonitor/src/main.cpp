@@ -59,6 +59,11 @@ void setup() {
 
   esp_log_level_set("gpio", ESP_LOG_ERROR);
 
+  Serial.print("PEPit Version '");
+  Serial.print(VERSION);
+  Serial.println("'");
+  Serial.print("Initializing peripherals....");
+
   Serial.setRxBufferSize(10240);
   Serial.setTxBufferSize(1024);
   Serial.begin(115200);
@@ -66,6 +71,7 @@ void setup() {
   pinMode(PWR_EN_PIN, OUTPUT);
   digitalWrite(PWR_EN_PIN, HIGH);
 
+  getSystemUpdateAvailableStatus(); // Trigger connecting to Wifi
   tft.init();
   tft.setRotation(SCREEN_ROTATION);
   tft.setSwapBytes(true);
@@ -91,22 +97,17 @@ void setup() {
   
   initSD(&errorMessage);
   checkFailWithMessage(errorMessage);
+  drawBmp("/gfx/splash.bmp", 0, 0);
   checkForPrefsReset();
   initSystemConfig(&errorMessage);
   checkFailWithMessage(errorMessage);
+  delay(1000);
 
-  drawBmp("/gfx/splash.bmp", 0, 0);
   uint8_t defaultTextDatum = tft.getTextDatum();
   tft.setTextColor(TFT_BLACK);
   tft.setTextDatum(TR_DATUM);
   tft.drawString("Version "+String(VERSION), 320, 2);
   tft.setTextDatum(defaultTextDatum);
-  delay(1000);
-  Serial.print("PEPit Version '");
-  Serial.print(VERSION);
-  Serial.println("'");
-  Serial.print("Initializing peripherals....");
-  delay(1000);
 
   Serial.println(F("done"));
   
@@ -116,9 +117,6 @@ void setup() {
 
   checkForAndRunUpdateFromSD(&errorMessage);
   checkFailWithMessage(errorMessage);
-
-  tft.setTextSize(1);
-  tft.drawString("Warte auf WLAN-Verbindung...", 0, 230);
 
   uint32_t requiredTaskTypes = runProfileSelection();
   runGameSelection(requiredTaskTypes);
