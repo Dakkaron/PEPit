@@ -12,6 +12,7 @@
 #define PROFILE_DATA_INI_PATH "/profiles.ini"
 #define EXECUTION_LOG_PATH "/executionsLog.csv"
 #define INI_BUFFER_LEN 2048
+#define INI_LINE_BUFFER_LEN 512
 
 #define WIN_SCREEN_PATH "gfx/win"
 #define GAMES_ROOT_DIR "/games"

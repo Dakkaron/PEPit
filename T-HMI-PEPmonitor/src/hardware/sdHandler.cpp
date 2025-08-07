@@ -294,7 +294,7 @@ void readGameConfig(String gamePath, GameConfig* gameConfig, String* errorMessag
 }
 
 void getIniSection(String iniPath, String section, char* resultBuffer, uint16_t len, String* errorMessage) {
-  char lineBuffer[INI_BUFFER_LEN];
+  char lineBuffer[INI_LINE_BUFFER_LEN];
   if (section.c_str()[0] != '[') {
     section = "[" + section + "]";
   }
