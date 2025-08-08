@@ -147,12 +147,7 @@ void handleUploadFileMode() {
 
   uint8_t* fileBuffer = new uint8_t[fileLength+1];
 
-  if (SD_MMC.exists(path)) {
-    Serial.println("Deleting existing file");
-    SD_MMC.remove(path);
-  }
-
-  File file = SD_MMC.open(path, FILE_WRITE, true);
+  File file = SD_MMC.open(path + ".tmp", FILE_WRITE, true);
   Serial.println("Starting transmission");
   Serial.flush();
   for (uint32_t i=0;i<fileLength;i++) {
@@ -167,7 +162,15 @@ void handleUploadFileMode() {
   delete[] fileBuffer;
   file.close();
   Serial.println();
-  Serial.println("Done writing file");
+  Serial.println("Done writing tmp file");
+
+  if (SD_MMC.exists(path)) {
+    Serial.println("Deleting existing file");
+    SD_MMC.remove(path);
+  }
+
+  SD_MMC.rename(path + ".tmp", path);
+  Serial.println("Renamed tmp file to final file");
 }
 
 void handleUploadFileModeMedium() {
