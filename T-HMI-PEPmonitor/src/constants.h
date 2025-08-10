@@ -2,7 +2,7 @@
 #define __CONSTANTS_H__
 #include <Arduino.h>
 
-#define VERSION "5.2"
+#define VERSION "5.3"
 
 #define LAST_BLOW_SUCCEEDED 0B00000001
 #define LAST_BLOW_FAILED    0B00000010
