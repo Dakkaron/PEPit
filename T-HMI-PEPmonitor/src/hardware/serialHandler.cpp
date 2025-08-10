@@ -147,6 +147,11 @@ void handleUploadFileMode() {
 
   uint8_t* fileBuffer = new uint8_t[fileLength+1];
 
+  if (SD_MMC.exists(path + ".tmp")) {
+    Serial.println("Deleting existing tmp file");
+    SD_MMC.remove(path + ".tmp");
+  }
+
   File file = SD_MMC.open(path + ".tmp", FILE_WRITE, true);
   Serial.println("Starting transmission");
   Serial.flush();
