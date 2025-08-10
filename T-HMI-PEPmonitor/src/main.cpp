@@ -101,15 +101,14 @@ void setup() {
   checkForPrefsReset();
   initSystemConfig(&errorMessage);
   checkFailWithMessage(errorMessage);
-  delay(1000);
 
   uint8_t defaultTextDatum = tft.getTextDatum();
   tft.setTextColor(TFT_BLACK);
   tft.setTextDatum(TR_DATUM);
   tft.drawString("Version "+String(VERSION), 320, 2);
   tft.setTextDatum(defaultTextDatum);
-
   Serial.println(F("done"));
+  delay(1000);
   
   Serial.print("PEPit Version '");
   Serial.print(VERSION);
