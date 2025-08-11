@@ -1,6 +1,22 @@
-# Konfiguration
+# Option A: Konfiguration per Konfigurator
 
-Nachdem das PEPit betriebsbereit ist, muss es noch einmalig konfiguriert werden. Dafür muss das Gerät abgeschaltet und die SD-Karte mit einem Computer verbunden werden.
+Um das PEPit per Konfigurator zu konfigurieren muss sich die SD-Karte im PEPit befinden und das PEPit per USB-Kabel mit einem Computer verbunden werden.
+
+Dann muss man am Computer in einem kompatiblen Browser, der WebSerial unterstützt, geöffnet werden. Getestete Browser sind:
+
+- Chrome
+- Chromium
+- Vivaldi
+- Edge
+- Opera
+
+Nicht unterstützt wird Firefox, da diesem die benötigte Schnittstelle fehlt.
+
+In diesem Browser öffnet man dann [die Konfigurator-Website](https://dak.lima-city.at). Dort folgt man dann den Anweisungen und konfiguriert die Systemkonfiguration sowie die Profile.
+
+# Option B: Manuelle Konfiguration per Konfigurationsdatei
+
+Um das PEPit per Konfigurationsdatei zu konfigurieren muss das Gerät abgeschaltet und die SD-Karte mit einem Computer verbunden werden.
 
 Auf der SD-Karte befinden sich zwei Dateien, die angepasst werden müssen.
 
