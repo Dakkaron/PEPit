@@ -6,7 +6,7 @@
 uint32_t numberOfWinScreens;
 
 void initSD(String* errorMessage) {
-  Serial.println(F("Initializing SD..."));
+  Serial.println("Initializing SD...");
   SD_MMC.setPins(SD_SCLK_PIN, SD_MOSI_PIN, SD_MISO_PIN);
   bool rlst = SD_MMC.begin("/sdcard", true);
   if (!rlst) {
@@ -18,14 +18,14 @@ void initSD(String* errorMessage) {
     Serial.println("SD init success");
     Serial.printf("? Detected SdCard insert: %.2f GB\r\n", SD_MMC.cardSize() / 1024.0 / 1024.0 / 1024.0);
   }
-  Serial.println(F("done"));
+  Serial.println("done");
 }
 
 void checkForPrefsReset() {
   if (SD_MMC.exists("/resetSaves")) {
     Serial.println("Prefs reset requested!");
     SD_MMC.remove("/resetSaves");
-    clearPreferences();
+    clearPreferencesExceptSystem();
     Serial.println("Prefs reset done!");
   }
 }

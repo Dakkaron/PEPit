@@ -6,7 +6,7 @@ static Adafruit_HX711 hx711 = Adafruit_HX711(HX7711_DATA_PIN, HX7711_CLOCK_PIN);
 
 void initPressureSensor(String* errorMessage) {
   hx711.begin();
-  Serial.print(F("Tareing air pressure sensor...."));
+  Serial.print("Tareing air pressure sensor....");
   for (uint32_t i=0; i<=10000000; i++) {
     if (!hx711.isBusy()) {
       break;
@@ -20,7 +20,7 @@ void initPressureSensor(String* errorMessage) {
     hx711.tareA(hx711.readChannelRaw(CHAN_A_GAIN_64));
     hx711.tareA(hx711.readChannelRaw(CHAN_A_GAIN_64));
   }
-  Serial.print(F("done"));
+  Serial.print("done");
 
 }
 

@@ -200,6 +200,7 @@ def issueCommand(command, param):
     time.sleep(0.1)
     while ser.in_waiting > 0:
         res += ser.read(ser.in_waiting)
+        time.sleep(0.1)
     return res
 
 def mkdir(path):
@@ -352,6 +353,14 @@ def parseInput(inp, localRoot, pwd):
             print(pwd)
         else:
             print(f"Path not found: {newPwd}")
+    elif cmd == "printprefs":
+        res = issueCommand("dumpnamespaces", b"")
+        if res:
+            print(res.decode("utf-8"))
+    elif cmd == "clearprefs":
+        res = issueCommand("clearprefs", b"")
+        if res:
+            print(res.decode("utf-8"))
     elif inp == "exit":
         exit()
     elif inp == "reset":

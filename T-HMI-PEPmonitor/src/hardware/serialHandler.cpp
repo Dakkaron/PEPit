@@ -1,5 +1,5 @@
 #include "serialHandler.h"
-
+#include "prefsHandler.h"
 
 void readFileToSerialSlow(const char *path, bool readAsHex, bool printFileSize) {
   Serial.printf("Reading file: %s\n", path);
@@ -335,6 +335,12 @@ void handleSerial() {
       handleRmdir();
     } else if (strcasecmp(serialCommandBuffer, "rm ") == 0) {
       handleRm();
+    } else if (strcasecmp(serialCommandBuffer, "printnamespaces ") == 0) {
+      printNamespaces();
+    } else if (strcasecmp(serialCommandBuffer, "dumpnamespaces ") == 0) {
+      dumpNamespaceContents();
+    } else if (strcasecmp(serialCommandBuffer, "clearprefs ") == 0) {
+      clearPreferencesExceptSystem();
     }
 
     if (charRead == 32 || charRead == 0 || charRead == 10) { // Check for space, \n or \0
