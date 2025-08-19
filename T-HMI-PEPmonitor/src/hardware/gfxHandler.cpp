@@ -695,13 +695,13 @@ void doDrawMode7(DISPLAY_T* display,
       float sy = py / pz;
 
       float sYsin = -sy * sinYaw;
-      float sYcon = sy * cosYaw;
+      float sYcos = sy * cosYaw;
 
       for (int32_t px = -centerXi; px < centerXi; px++) {
         float sx = px / pz;
 
         float worldX = sx * cosYaw + sYsin;
-        float worldY = sx * sinYaw + sYcon;
+        float worldY = sx * sinYaw + sYcos;
 
         sx = worldX * scaling + cameraPos->x;
         sy = worldY * scaling + cameraPos->y;
@@ -782,10 +782,8 @@ void mode7WorldToScreen(
                 Vector3D* output) {
     float scaling = 1.0f/(10.0f*cameraHeight);
 
-    float dx = worldPos->x - cameraPos->x;
-    float dy = worldPos->y - cameraPos->y;
-    dx = dx * scaling;
-    dy = dy * scaling;
+    float dx = (worldPos->x - cameraPos->x) * scaling;
+    float dy = (worldPos->y - cameraPos->y) * scaling;
 
     float cosYaw = std::cos(yawAngle);
     float sinYaw = -std::sin(yawAngle);
