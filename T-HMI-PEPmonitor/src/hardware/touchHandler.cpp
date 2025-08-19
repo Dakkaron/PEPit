@@ -18,9 +18,9 @@ XPT2046 touch = XPT2046(SPI, TOUCHSCREEN_CS_PIN, TOUCHSCREEN_IRQ_PIN);
 
 static void writeTouchCalibration() {
   prefs.end();
-  prefs.begin("touch");
+  prefs.begin("system");
   uint8_t* calibBytes = reinterpret_cast<uint8_t*>(&calibration_data);
-  prefs.putBytes("calib", calibBytes, 16);
+  prefs.putBytes("touch", calibBytes, 16);
   prefs.end();
   applyGamePrefsNamespace();
 }
@@ -106,12 +106,22 @@ void runTouchCalibration() {
 
 static void readTouchCalibration() {
   prefs.end();
-  prefs.begin("touch");
-  if (prefs.isKey("calib")) {
-    uint8_t* calibBytes = reinterpret_cast<uint8_t*>(&calibration_data);
-    prefs.getBytes("calib", calibBytes, 16);
+  uint8_t* calibBytes = reinterpret_cast<uint8_t*>(&calibration_data);
+  prefs.begin("system");
+  if (prefs.isKey("touch")) {
+    prefs.getBytes("touch", calibBytes, 16);  
   } else {
-    runTouchCalibration();
+    prefs.end();
+    prefs.begin("touch");
+    if (prefs.isKey("calib")) {
+      prefs.getBytes("calib", calibBytes, 16);
+      writeTouchCalibration();
+      prefs.begin("touch");
+      prefs.remove("calib");
+      prefs.end();
+    } else {
+      runTouchCalibration();
+    }
   }
   prefs.end();
   Serial.println("## CALIBRATION");
