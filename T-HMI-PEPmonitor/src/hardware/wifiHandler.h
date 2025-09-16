@@ -13,9 +13,6 @@
 
 typedef std::function<void(size_t, size_t)> THandlerFunction_Progress;
 
-uint8_t connectToTrampoline();
-void getJumpData(JumpData* jumpData);
-
 bool startFetchingNTPTime();
 void getNTPTime(String* ntpDateString, String* ntpTimeString, String* errorMessage);
 

@@ -49,7 +49,6 @@ void readSystemConfig(SystemConfig* systemConfig, String* errorMessage) {
   getIniValueFromSection(resBuffer, "wifiPassword2", &(systemConfig->wifiPassword2),  &ignoreErrors);
   getIniValueFromSection(resBuffer, "wifiSSID3", &(systemConfig->wifiSsid3),  &ignoreErrors);
   getIniValueFromSection(resBuffer, "wifiPassword3", &(systemConfig->wifiPassword3),  &ignoreErrors);
-  getIniValueFromSection(resBuffer, "trampolineIp", &(systemConfig->trampolineIp),  &ignoreErrors);
   Serial.println("Loaded Wifi config:");
   Serial.println("1: "+systemConfig->wifiSsid + "/" + systemConfig->wifiPassword);
   Serial.println("2: "+systemConfig->wifiSsid2 + "/" + systemConfig->wifiPassword2);
@@ -64,11 +63,6 @@ void readSystemConfig(SystemConfig* systemConfig, String* errorMessage) {
   systemConfig->timezoneOffset = 60*getIntIniValueFromSection(resBuffer, "timezoneOffset", &ignoreErrors);
   Serial.println("Simulate blowing: "+String(systemConfig->simulateBlows));
   Serial.println("Simulate trampoline: "+String(systemConfig->simulateTrampoline));
-  if (systemConfig->trampolineIp.isEmpty() || systemConfig->wifiSsid.isEmpty() || systemConfig->wifiPassword.isEmpty()) {
-    Serial.println("No Wifi credentials or trampoline IP found in system config!");
-    Serial.println("Using trampoline in simulation mode.");
-    systemConfig->simulateTrampoline = true;
-  }
 }
 
 uint32_t getNumberOfProfiles(String* errorMessage) {
