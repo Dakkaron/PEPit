@@ -6,9 +6,10 @@ end
 CameraHeight = Constrain(CameraHeight, 0.1, TopFlightHeight)
 if (DrowningStartMs == 0) then
   if NewRepetition then
-    Speed = Speed + 100 + 15*UpgradeSpeed
+    Speed = Speed + 120 + 15*UpgradeSpeed
   end
-  speedDrop = 1 - (0.0001 * MsDelta)
+  speedDropUpgradeFactor = 1 + 0.15*UpgradeSpeed
+  speedDrop = (1 - (0.0001 * MsDelta)) ^ speedDropUpgradeFactor
   Speed = Speed * speedDrop
   CameraX = CameraX - math.sin(CameraAngle) * Speed * 0.0001 * MsDelta
   CameraY = CameraY + math.cos(CameraAngle) * Speed * 0.0001 * MsDelta
