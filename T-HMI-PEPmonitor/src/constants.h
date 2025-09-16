@@ -134,7 +134,7 @@ struct BlowData {
 
 
 struct JumpData {
-  unsigned long ms;
+  unsigned long ms = 0;
   unsigned long startMs = 0;
   int32_t msLeft = 0;
   uint8_t cycleNumber = 0;
@@ -142,6 +142,7 @@ struct JumpData {
   uint8_t taskNumber = 0;
   uint8_t totalTaskNumber = 0;
   uint16_t jumpCount = 0;
+  uint16_t bonusJumpCount = 0;
   bool currentlyJumping = false;
   int32_t totalTime = 0;
   uint16_t misses = 0;

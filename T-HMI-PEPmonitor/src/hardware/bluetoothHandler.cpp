@@ -49,7 +49,7 @@ bool connectToTrampoline(bool blocking) {
 unsigned long simulateStartMs = 0;
 static String btSerialIncoming = "";
 
-void getJumpData(JumpData* jumpData) {
+void getJumpData(JumpData* jumpData, ProfileData* profileData, uint32_t currentTask) {
   if (!systemConfig.simulateTrampoline && !NuSerial.isConnected()) {
     Serial.println("Trampoline not connected!");
     displayFullscreenMessage("Warte auf Verbindung...\nTrampolinsensor einschalten!");
@@ -79,11 +79,20 @@ void getJumpData(JumpData* jumpData) {
       Serial.print("BT received: ");
       Serial.println(btSerialIncoming);
       if (btSerialIncoming.startsWith("Jump Height: ")) {
+        uint32_t jumpHeight = btSerialIncoming.substring(13).toInt();
         Serial.println("Jump detected!");
-        jumpData->jumpCount++;
         jumpData->currentlyJumping = true;
-      } else if (btSerialIncoming.startsWith("Not high enough!") || btSerialIncoming.startsWith("Too high!")) {
-        Serial.println("Jump too low/high!");
+        if (jumpHeight > profileData->taskMinStrength[currentTask]) {
+          jumpData->jumpCount++;
+        } else {
+          Serial.println("Jump too low!");
+          jumpData->misses++;
+        }
+        if (jumpHeight > profileData->taskTargetStrength[currentTask]) {
+          jumpData->bonusJumpCount++;
+        }
+      } else if (btSerialIncoming.startsWith("Not high enough!")) {
+        Serial.println("Jump too low!");
         jumpData->misses++;
       }
       btSerialIncoming = "";

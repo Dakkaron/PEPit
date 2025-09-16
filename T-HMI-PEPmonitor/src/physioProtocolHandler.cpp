@@ -129,7 +129,7 @@ uint32_t runProfileSelection() {
         spr.fillSprite(TFT_BLACK);
         tft.fillScreen(TFT_BLACK);
         if (!connectToTrampoline(false)) {
-          displayFullscreenMessage("Verbinde mit Trampolin\nTrampolinsensor einschalten!");
+          displayFullscreenMessage("Verbinde mit Trampolin...\nTrampolinsensor einschalten!");
         }
         connectToTrampoline(true);
         break;
@@ -418,7 +418,7 @@ void handlePhysioTask() {
     jumpData.taskNumber = currentTask;
     jumpData.totalTime = profileData.taskTime[currentTask];
 
-    getJumpData(&jumpData);
+    getJumpData(&jumpData, &profileData, currentTask);
     drawTrampolineDisplay();
   } else {
     blowData.taskNumber = currentTask;
