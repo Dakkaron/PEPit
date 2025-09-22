@@ -4,7 +4,6 @@
 #include <Arduino.h>
 
 struct SystemConfig {
-  String trampolineIp;
   String wifiSsid;
   String wifiPassword;
   String wifiSsid2;

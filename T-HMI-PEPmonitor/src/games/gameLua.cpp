@@ -905,6 +905,7 @@ void updateBlowData(BlowData* blowData) {
 void updateJumpData(JumpData* jumpData) {
   static uint32_t lastMs = 0;
   static uint32_t lastRepetition = 0;
+  static uint32_t lastBonusRepetition = 0;
   static uint32_t lastJumpMs = 0;
   int32_t taskNumber = jumpData->taskNumber + jumpData->cycleNumber * jumpData->totalTaskNumber;
   if (jumpData->jumpCount > lastRepetition) {
@@ -916,10 +917,12 @@ void updateJumpData(JumpData* jumpData) {
                           "TotalCycleNumber="+String(jumpData->totalCycleNumber)+"\n"+\
                           "CumulatedTaskNumber="+String(jumpData->taskNumber + jumpData->cycleNumber * jumpData->totalTaskNumber)+"\n"+\
                           "TaskNumber="+String(taskNumber)+"\n"+\
-                          "TotalTaskNumber="+String(jumpData->totalTaskNumber)+"\n"+
+                          "TotalTaskNumber="+String(jumpData->totalTaskNumber)+"\n"+\
                           "CurrentRepetition="+String(jumpData->jumpCount)+"\n"+\
+                          "CurrentBonusRepetition="+String(jumpData->bonusJumpCount)+"\n"+\
                           "CurrentlyJumping="+String(jumpData->currentlyJumping ? "true" : "false")+"\n"+\
                           "NewRepetition="+String((jumpData->jumpCount>lastRepetition) ? "true" : "false")+"\n"+\
+                          "NewBonusRepetition="+String((jumpData->bonusJumpCount>lastBonusRepetition) ? "true" : "false")+"\n"+\
                           "MsLeft="+String(jumpData->msLeft)+"\n"+\
                           "LastJumpMs="+String(lastJumpMs);
   lua_dostring(jumpDataString.c_str(), "updateJumpData()");

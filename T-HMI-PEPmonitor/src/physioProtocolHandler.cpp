@@ -1,10 +1,10 @@
 #include "physioProtocolHandler.h"
 #include "hardware/sdHandler.h"
+#include "hardware/bluetoothHandler.h"
 #include "hardware/wifiHandler.h"
 #include "hardware/powerHandler.h"
 #include "hardware/touchHandler.h"
 #include "hardware/pressuresensor.h"
-#include "hardware/wifiHandler.h"
 #include "hardware/serialHandler.h"
 #include "games/games.h"
 #include "constants.h"
@@ -128,25 +128,10 @@ uint32_t runProfileSelection() {
         spr.pushSpriteFast(0,0);
         spr.fillSprite(TFT_BLACK);
         tft.fillScreen(TFT_BLACK);
-        spr.setTextSize(2);
-        spr.setTextColor(TFT_WHITE);
-        spr.setCursor(1, 16);
-        spr.print("Verbinde...");
-        spr.pushSpriteFast(0,0);
-        uint32_t trampolineConnectionStatus = connectToTrampoline();
-        Serial.print("-1> CONN STAT: ");
-        Serial.println(trampolineConnectionStatus);
-        if (trampolineConnectionStatus != CONNECTION_OK) {
-          Serial.println("Trampoline failed: no connection");
-          Serial.println("Not changing mode");
-          spr.fillSprite(TFT_BLACK);
-          spr.setTextSize(2);
-          spr.setTextColor(TFT_WHITE);
-          spr.drawString("Keine Verbindung zum Trampolin!", 1, 16);
-          spr.pushSpriteFast(0,0);
-          delay(5000);
-          profileSuccessfullyLoaded = false;
+        if (!connectToTrampoline(false)) {
+          displayFullscreenMessage("Verbinde mit Trampolin...\nTrampolinsensor einschalten!");
         }
+        connectToTrampoline(true);
         break;
       }
     }
@@ -433,7 +418,7 @@ void handlePhysioTask() {
     jumpData.taskNumber = currentTask;
     jumpData.totalTime = profileData.taskTime[currentTask];
 
-    getJumpData(&jumpData);
+    getJumpData(&jumpData, &profileData, currentTask);
     drawTrampolineDisplay();
   } else {
     blowData.taskNumber = currentTask;

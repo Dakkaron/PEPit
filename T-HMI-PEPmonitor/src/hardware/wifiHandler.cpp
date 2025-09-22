@@ -5,7 +5,6 @@
 #include "sdHandler.h"
 
 static HTTPClient http;
-static String trampolineIp = "";
 static uint8_t wifiStatus = CONNECTION_NOWIFI;
 
 uint8_t getWifiStatus() {
@@ -36,13 +35,11 @@ uint8_t startWifi() {
         password = systemConfig.wifiPassword3;
         break;
     }
-    trampolineIp = systemConfig.trampolineIp;
     Serial.print(wifiNumber+1);
     Serial.print("/");
     Serial.println(MAX_WIFI_NETWORKS);
     Serial.println(ssid);
     Serial.println(password);
-    Serial.println(trampolineIp);
     bool wifiFound = false;
     for (int32_t i=0;i<networksFound;i++) {
       if (WiFi.SSID(i) == ssid) {
@@ -70,98 +67,6 @@ uint8_t startWifi() {
   }
   Serial.println("ENDING WIFI CONNECT");
   return wifiStatus;
-}
-
-uint8_t connectToTrampoline() {
-  if (systemConfig.simulateTrampoline) {
-    return CONNECTION_OK;
-  } else {
-    startWifi();
-    Serial.println("done");
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
-    Serial.print("Trampoline URL: ");
-    Serial.println(("http://" + trampolineIp + "/resetCurrentSession"));
-
-    Serial.print("Connecting to trampoline ");
-    bool connectionFound = false;
-    for (uint8_t i=0; i<CONNECTION_NOTRAMPOLINE; i++) {
-      http.begin(("http://" + trampolineIp + "/resetCurrentSession").c_str());
-      int httpResponseCode = http.GET();
-      String result = http.getString();
-      if (httpResponseCode == 200 && result == "Done") {
-        Serial.println("done");
-        connectionFound = true;
-        break;
-      } else {
-        Serial.print(".");
-      }
-      if (!connectionFound) {
-        Serial.println("Failed to connect to trampoline");
-        Serial.println(httpResponseCode);
-        Serial.println(result);
-      }
-    }
-    if (connectionFound) {
-      Serial.println("Connected to trampoline successfully");
-    }
-    return connectionFound ? CONNECTION_OK : CONNECTION_NOTRAMPOLINE;
-  }
-}
-
-JsonDocument jsonDocument;
-unsigned long simulateStartMs = 0;
-void getJumpData(JumpData* jumpData) {
-  if (systemConfig.simulateTrampoline) {
-    if (simulateStartMs==0) {
-      simulateStartMs = millis();
-    }
-    jumpData->ms = millis();
-    jumpData->jumpCount = (jumpData->ms - simulateStartMs) / 1000;
-    jumpData->currentlyJumping = true;
-    jumpData->msLeft = simulateStartMs + jumpData->totalTime - jumpData->ms;
-    jumpData->misses = 0;
-    jumpData->highscore = 250;
-    jumpData->newHighscore = jumpData->jumpCount > 250;
-    jumpData->lastReadSuccessful = true;
-  } else {
-    http.begin(("http://" + trampolineIp + "/jumpReport").c_str());
-    int httpResponseCode = http.GET();
-    String result = http.getString();
-
-    if (httpResponseCode != 200) {
-      Serial.print("getJumpReport(): HTTP ERROR ");
-      Serial.println(httpResponseCode);
-      Serial.println(result);
-      jumpData->lastReadSuccessful = false;
-      return;
-    }
-    deserializeJson(jsonDocument, result);
-    jumpData->ms = millis();
-    jumpData->jumpCount = jsonDocument["jumpCount"];
-    jumpData->currentlyJumping = jsonDocument["currentlyJumping"];
-    jumpData->msLeft = jsonDocument["msLeft"];
-    jumpData->misses = jsonDocument["misses"];
-    jumpData->highscore = jsonDocument["highscore"];
-    jumpData->newHighscore = jsonDocument["newHighscore"];
-    jumpData->lastReadSuccessful = true;
-  }
-
-  if (systemConfig.debugLogTrampoline) {
-    Serial.println("New jump data:");
-    Serial.print("jumpCount: ");
-    Serial.println(jumpData->jumpCount);
-    Serial.print("currentlyJumping: ");
-    Serial.println(jumpData->currentlyJumping);
-    Serial.print("msLeft: ");
-    Serial.println(jumpData->msLeft);
-    Serial.print("misses: ");
-    Serial.println(jumpData->misses);
-    Serial.print("highscore: ");
-    Serial.println(jumpData->highscore);
-    Serial.print("newHighscore: ");
-    Serial.println(jumpData->newHighscore);
-  }
 }
 
 bool startFetchingNTPTime() {
