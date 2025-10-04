@@ -287,6 +287,11 @@ void readGameConfig(String gamePath, GameConfig* gameConfig, String* errorMessag
   getIniValueFromSection(resBuffer, "inhalationScriptPath",      &(gameConfig->inhalationScriptPath), &ignoreErrors);
   getIniValueFromSection(resBuffer, "trampolineScriptPath",      &(gameConfig->trampolineScriptPath), &ignoreErrors);
   getIniValueFromSection(resBuffer, "progressionMenuScriptPath", &(gameConfig->progressionMenuScriptPath), &ignoreErrors);
+  getIniValueFromSection(resBuffer, "winScreenScriptPath",       &(gameConfig->winScreenScriptPath), &ignoreErrors);
+
+  if (!SD_MMC.exists(gamePath+gameConfig->winScreenScriptPath)) {
+    gameConfig->winScreenScriptPath = "";
+  }
 }
 
 void getIniSection(String iniPath, String section, char* resultBuffer, uint16_t len, String* errorMessage) {

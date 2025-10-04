@@ -8,6 +8,7 @@ lua_State* luaState;
 
 DISPLAY_T* luaDisplay;
 bool luaProgressionMenuRunning;
+bool luaWinScreenRunning;
 bool luaStrictMode = false;
 bool luaCacheGameCode = false;
 static GameConfig gameConfig;
@@ -718,6 +719,11 @@ static int lua_wrapper_closeProgressionMenu(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_closeWinScreen(lua_State* luaState) {
+  luaWinScreenRunning = false;
+  return 0;
+}
+
 static int lua_wrapper_isTouchInZone(lua_State* luaState) {
   int16_t x = luaL_checknumber(luaState, 1);
   int16_t y = luaL_checknumber(luaState, 2);
@@ -842,6 +848,7 @@ void initLua() {
   lua_register(luaState, "GetFreePSRAM", (lua_CFunction) &lua_wrapper_getFreePSRAM);
   lua_register(luaState, "GetFreeSpriteSlots", (lua_CFunction) &lua_wrapper_getFreeSpriteSlots);
   lua_register(luaState, "DisableCaching", (lua_CFunction) &lua_wrapper_disableCaching);
+  lua_register(luaState, "ProjectRoadPointToScreen", (lua_CFunction) &lua_wrapper_projectRoadPointToScreen);
   bindingsInitiated = true;
 }
 
@@ -985,4 +992,21 @@ void endGame_lua(String *errorMessage) {
   lua_gc(luaState, LUA_GCCOLLECT, 0);
   Serial.print("Free RAM after: ");
   Serial.println(ESP.getFreeHeap());
+}
+
+bool displayWinScreen_lua(DISPLAY_T *display, String *errorMessage) {
+  if (gameConfig.winScreenScriptPath.isEmpty()) {
+    Serial.println("No win screen script defined, skipping...");
+    luaWinScreenRunning = false;
+    return false;
+  }
+  luaWinScreenRunning = true;
+  luaDisplay = display;
+  lua_dostring(("Ms="+String(millis())).c_str(), "displayWinScreen_lua()");
+  String error = lua_dofile(luaGamePath + gameConfig.winScreenScriptPath);
+  if (!error.isEmpty()) {
+    errorMessage->concat(error);
+    return false;
+  }
+  return luaWinScreenRunning;
 }

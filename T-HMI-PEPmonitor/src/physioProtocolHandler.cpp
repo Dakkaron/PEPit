@@ -76,6 +76,7 @@ uint32_t runProfileSelection() {
         handleSerial();
         vTaskDelay(1); // watchdog
       }
+      tft.fillScreen(TFT_BLACK);
       ESP.restart(); // Todo: don't restart, just go back to profile selection, but clear running game data
       
       profileSuccessfullyLoaded = false;
@@ -307,19 +308,27 @@ static void drawFinished() {
   static String winScreenPath = "";
   if (winscreenTimeout == 0) { // Only runs on first execution
     String errorMessage;
-    endGame(&errorMessage);
-    checkFailWithMessage(errorMessage);
-    winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
-    winScreenPath = getRandomWinScreenPathForCurrentGame(&errorMessage);
-    Serial.println("Win screen path: "+winScreenPath);
-    checkFailWithMessage(errorMessage);
-    spr.frameBuffer(1);
-    spr.fillSprite(TFT_BLACK);
-    spr.frameBuffer(2);
-    spr.fillSprite(TFT_BLACK);
     if (systemConfig.logExecutions) {
       handleLogExecutions();
     }
+    endGame(&errorMessage);
+    checkFailWithMessage(errorMessage);
+    winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
+    while (displayWinScreen(&spr, &errorMessage)) {
+      checkFailWithMessage(errorMessage);
+      spr.pushSpriteFast(0,0);
+      spr.fillSprite(TFT_BLACK);
+      handleSerial();
+      vTaskDelay(1); // watchdog
+      if (isTouchInZone(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)) {
+        winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
+      } else if (millis() > winscreenTimeout) {
+        power_off();
+      }
+    }
+    winScreenPath = getRandomWinScreenPathForCurrentGame(&errorMessage);
+    Serial.println("Win screen path: "+winScreenPath);
+    checkFailWithMessage(errorMessage);
     spr.frameBuffer(1);
     spr.fillSprite(TFT_BLACK);
     spr.frameBuffer(2);

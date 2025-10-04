@@ -15,6 +15,7 @@ void drawInhalationBlowGame(DISPLAY_T* display, BlowData* blowData, String* erro
 bool displayProgressionMenu(DISPLAY_T* display, String* errorMessage);
 bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *errorMessage);
 void endGame(String* errorMessage);
+bool displayWinScreen(DISPLAY_T *display, String *errorMessage);
 String getRandomWinScreenPathForCurrentGame(String* errorMessage);
 
 #endif /* __GAMES_H__ */

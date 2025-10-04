@@ -81,6 +81,7 @@ struct GameConfig {
   String inhalationScriptPath;
   String trampolineScriptPath;
   String progressionMenuScriptPath;
+  String winScreenScriptPath;
 };
 
 struct ProfileData {

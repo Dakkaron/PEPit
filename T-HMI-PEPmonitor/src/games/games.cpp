@@ -212,3 +212,11 @@ void endGame(String* errorMessage) {
     endGame_lua(errorMessage);
   }
 }
+
+
+bool displayWinScreen(DISPLAY_T *display, String *errorMessage) {
+  if (gameConfig.templateName == "lua") {
+    return displayWinScreen_lua(display, errorMessage);
+  }
+  return false;
+}
