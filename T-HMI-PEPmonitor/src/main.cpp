@@ -56,7 +56,7 @@ void setup() {
   pinMode(PWR_ON_PIN, OUTPUT);
   digitalWrite(PWR_ON_PIN, HIGH);
   pinMode(BK_LIGHT_PIN, OUTPUT);
-  digitalWrite(BK_LIGHT_PIN, HIGH);
+  digitalWrite(BK_LIGHT_PIN, LOW);
 
   esp_log_level_set("gpio", ESP_LOG_ERROR);
 
@@ -78,12 +78,14 @@ void setup() {
   tft.setSwapBytes(true);
   tft.fillScreen(TFT_BLACK);
 
-  setBrightness(16);
-
   initGfxHandler();
+  setBrightness(16);
+  esp_reset_reason_t reason = esp_reset_reason();
   tft.setTextSize(2);
-  tft.drawString("Nicht", 10, 10);
-  tft.drawString("blasen!", 10, 25);
+  if (reason != ESP_RST_SW && reason != ESP_RST_USB) {
+    tft.drawString("Nicht", 10, 10);
+    tft.drawString("blasen!", 10, 25);
+  }
   String errorMessage;
   initPressureSensor(&errorMessage);
   checkFailWithMessage(errorMessage);
@@ -98,7 +100,10 @@ void setup() {
   
   initSD(&errorMessage);
   checkFailWithMessage(errorMessage);
-  drawBmp("/gfx/splash.bmp", 0, 0);
+  
+  if (reason != ESP_RST_SW && reason != ESP_RST_USB) {
+    drawBmp("/gfx/splash.bmp", 0, 0);
+  }
   checkForPrefsReset();
   initSystemConfig(&errorMessage);
   checkFailWithMessage(errorMessage);
@@ -106,10 +111,12 @@ void setup() {
   uint8_t defaultTextDatum = tft.getTextDatum();
   tft.setTextColor(TFT_BLACK);
   tft.setTextDatum(TR_DATUM);
-  tft.drawString("Version "+String(VERSION), 320, 2);
-  tft.setTextDatum(defaultTextDatum);
-  Serial.println(F("done"));
-  delay(1000);
+  if (reason != ESP_RST_SW && reason != ESP_RST_USB) {
+    tft.drawString("Version "+String(VERSION), 320, 2);
+    tft.setTextDatum(defaultTextDatum);
+    Serial.println(F("done"));
+    delay(1000);
+  }
   
   Serial.print("PEPit Version '");
   Serial.print(VERSION);
