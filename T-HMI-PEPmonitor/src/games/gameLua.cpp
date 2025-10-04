@@ -1,6 +1,7 @@
 #include "gameLua.h"
 #include "hardware/sdHandler.h"
 #include "hardware/gfxHandler.hpp"
+#include "hardware/higherLevelGfxHandler.hpp"
 #include "hardware/prefsHandler.h"
 
 static String luaGamePath;
@@ -12,6 +13,10 @@ bool luaWinScreenRunning;
 bool luaStrictMode = false;
 bool luaCacheGameCode = false;
 static GameConfig gameConfig;
+
+RoadColors roadColors;
+RoadDrawFlags roadDrawFlags;
+RoadDimensions roadDimensions;
 
 #define SPRITE_COUNT_LIMIT 100
 
@@ -466,6 +471,39 @@ static int lua_wrapper_drawSpriteScaledRotated(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_drawAnimSpriteScaledRotated(lua_State* luaState) {
+  int16_t handle = luaL_checkinteger(luaState, 1);
+  if (!isHandleValid(handle)) {
+    return 0;
+  }
+  int16_t sw = spriteMetadata[handle].frameW;
+  int16_t sh = spriteMetadata[handle].frameH;
+  Vector2D position;
+  position.x = luaL_checknumber(luaState, 2);
+  position.y = luaL_checknumber(luaState, 3);
+  Vector2D scale;
+  scale.x = luaL_checknumber(luaState, 4);
+  scale.y = luaL_checknumber(luaState, 5);
+  float angle = luaL_checknumber(luaState, 6);
+  int16_t frame = luaL_checknumber(luaState, 7);
+  uint32_t flags = luaL_optinteger(luaState, 8, ALIGN_H_CENTER | ALIGN_V_CENTER);
+  flags |= TRANSP_MASK;
+  float s = sin(angle);
+  float c = cos(angle);
+  Matrix2D scaleMatrix = {
+    scale.x, 0,
+    0, scale.y
+  };
+  Matrix2D rotateMatrix = {
+    c, -s,
+    s, c
+  };
+  Matrix2D transformMatrix;
+  multMMF(&rotateMatrix, &scaleMatrix, &transformMatrix);
+  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transformMatrix, flags, spriteMetadata[handle].maskingColor, sw, sh, frame);
+  return 0;
+}
+
 static int lua_wrapper_spriteHeight(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
   if (!isHandleValid(handle)) {
@@ -770,6 +808,109 @@ static int lua_wrapper_getFreeSpriteSlots(lua_State* luaState) {
   return 1;
 }
 
+static int lua_wrapper_setRoadColors(lua_State* luaState) {
+  roadColors.pavementA = luaL_checknumber(luaState, 1);
+  roadColors.pavementB = luaL_checknumber(luaState, 2);
+  roadColors.embankmentA = luaL_checknumber(luaState, 3);
+  roadColors.embankmentB = luaL_checknumber(luaState, 4);
+  roadColors.grassA = luaL_checknumber(luaState, 5);
+  roadColors.grassB = luaL_checknumber(luaState, 6);
+  roadColors.wallA = luaL_checknumber(luaState, 7);
+  roadColors.wallB = luaL_checknumber(luaState, 8);
+  roadColors.railA = luaL_checknumber(luaState, 9);
+  roadColors.railB = luaL_checknumber(luaState, 10);
+  roadColors.lamp = luaL_checknumber(luaState, 11);
+  roadColors.mountain = luaL_checknumber(luaState, 12);
+  roadColors.centerLine = luaL_checknumber(luaState, 13);
+  return 0;
+}
+
+static int lua_wrapper_setRoadDrawFlags(lua_State* luaState) {
+  roadDrawFlags.drawMountain = lua_toboolean(luaState, 1);
+  roadDrawFlags.drawLamps = lua_toboolean(luaState, 2);
+  roadDrawFlags.drawRails = lua_toboolean(luaState, 3);
+  roadDrawFlags.drawCenterLine = lua_toboolean(luaState, 4);
+  roadDrawFlags.drawTunnelDoors = lua_toboolean(luaState, 5);
+  return 0;
+}
+
+static int lua_wrapper_setRoadDimensions(lua_State* luaState) {
+  roadDimensions.roadWidth = luaL_checknumber(luaState, 1);
+  roadDimensions.embankmentWidth = luaL_checknumber(luaState, 2);
+  roadDimensions.centerlineWidth = luaL_checknumber(luaState, 3);
+  roadDimensions.railingDistance = luaL_checknumber(luaState, 4);
+  roadDimensions.railingHeight = luaL_checknumber(luaState, 5);
+  roadDimensions.railingThickness = luaL_checknumber(luaState, 6);
+  roadDimensions.lampHeight = luaL_checknumber(luaState, 7);
+  return 0;
+}
+
+static int lua_wrapper_drawRaceOutdoor(lua_State* luaState) {
+  drawRaceOutdoor(luaDisplay,
+    (int32_t)luaL_checknumber(luaState, 1), // x
+    (int32_t)luaL_checknumber(luaState, 2), // y
+    luaL_checknumber(luaState, 3),          // w
+    (int32_t)luaL_checknumber(luaState, 4), // roadYOffset
+    luaL_checknumber(luaState, 5),          // lastX
+    luaL_checknumber(luaState, 6),          // lastW
+    &roadColors,
+    &roadDrawFlags,
+    &roadDimensions
+  );
+  return 0;
+}
+
+static int lua_wrapper_drawRaceTunnel(lua_State* luaState) {
+  drawRaceTunnel(luaDisplay,
+    (int32_t)luaL_checknumber(luaState, 1), // x
+    (int32_t)luaL_checknumber(luaState, 2), // y
+    luaL_checknumber(luaState, 3),          // w
+    (int32_t)luaL_checknumber(luaState, 4), // roadYOffset
+    luaL_checknumber(luaState, 5),          // lastX
+    luaL_checknumber(luaState, 6),          // lastW
+    &roadColors,
+    &roadDrawFlags,
+    &roadDimensions
+  );
+  return 0;
+}
+
+static int lua_wrapper_calculateRoadProperties(lua_State* luaState) {
+  float x;
+  float w;
+  int32_t roadYOffset;
+  calculateRoadProperties(
+    luaL_checknumber(luaState, 1), // y
+    luaL_checknumber(luaState, 2), // distance
+    luaL_checknumber(luaState, 3), // horizonY
+    luaL_checknumber(luaState, 4), // baselineY
+    luaL_checknumber(luaState, 5), // roadXOffset
+    &x, &w, &roadYOffset
+  );
+  lua_pushnumber(luaState, x);
+  lua_pushnumber(luaState, w);
+  lua_pushinteger(luaState, roadYOffset);
+  return 3;
+}
+
+static int lua_wrapper_projectRoadPointToScreen(lua_State* luaState) {
+  float x;
+  float y;
+  float scale;
+  projectRoadPointToScreen(
+    luaL_checknumber(luaState, 1), // roadX
+    luaL_checknumber(luaState, 2), // roadZ
+    luaL_checknumber(luaState, 3), // horizonY
+    luaL_checknumber(luaState, 4), // baselineY
+    luaL_checknumber(luaState, 5), // roadXOffset
+    &x, &y, &scale
+  );
+  lua_pushnumber(luaState, x);
+  lua_pushnumber(luaState, y);
+  lua_pushnumber(luaState, scale);
+  return 3;
+}
+
 void initLua() {
   static bool bindingsInitiated = false;
   if (bindingsInitiated) {
@@ -810,6 +951,7 @@ void initLua() {
   lua_register(luaState, "DrawSpriteScaled", (lua_CFunction) &lua_wrapper_drawSpriteScaled);
   lua_register(luaState, "DrawAnimSpriteScaled", (lua_CFunction) &lua_wrapper_drawAnimSpriteScaled);
   lua_register(luaState, "DrawSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawSpriteScaledRotated);
+  lua_register(luaState, "DrawAnimSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawAnimSpriteScaledRotated);
   lua_register(luaState, "DrawSpriteTransformed", (lua_CFunction) &lua_wrapper_drawSpriteTransformed);
   lua_register(luaState, "SpriteWidth", (lua_CFunction) &lua_wrapper_spriteWidth);
   lua_register(luaState, "SpriteHeight", (lua_CFunction) &lua_wrapper_spriteHeight);
@@ -839,6 +981,7 @@ void initLua() {
   lua_register(luaState, "PrefsSetNumber", (lua_CFunction) &lua_wrapper_prefsSetNumber);
   lua_register(luaState, "PrefsGetNumber", (lua_CFunction) &lua_wrapper_prefsGetNumber);
   lua_register(luaState, "CloseProgressionMenu", (lua_CFunction) &lua_wrapper_closeProgressionMenu);
+  lua_register(luaState, "CloseWinScreen", (lua_CFunction) &lua_wrapper_closeWinScreen);
   lua_register(luaState, "Constrain", (lua_CFunction) &lua_wrapper_constrain);
   lua_register(luaState, "IsTouchInZone", (lua_CFunction) &lua_wrapper_isTouchInZone);
   lua_register(luaState, "GetTouchX", (lua_CFunction) &lua_wrapper_getTouchX);
@@ -848,6 +991,12 @@ void initLua() {
   lua_register(luaState, "GetFreePSRAM", (lua_CFunction) &lua_wrapper_getFreePSRAM);
   lua_register(luaState, "GetFreeSpriteSlots", (lua_CFunction) &lua_wrapper_getFreeSpriteSlots);
   lua_register(luaState, "DisableCaching", (lua_CFunction) &lua_wrapper_disableCaching);
+  lua_register(luaState, "SetRoadColors", (lua_CFunction) &lua_wrapper_setRoadColors);
+  lua_register(luaState, "SetRoadDrawFlags", (lua_CFunction) &lua_wrapper_setRoadDrawFlags);
+  lua_register(luaState, "SetRoadDimensions", (lua_CFunction) &lua_wrapper_setRoadDimensions);
+  lua_register(luaState, "DrawRaceOutdoor", (lua_CFunction) &lua_wrapper_drawRaceOutdoor);
+  lua_register(luaState, "DrawRaceTunnel", (lua_CFunction) &lua_wrapper_drawRaceTunnel);
+  lua_register(luaState, "CalculateRoadProperties", (lua_CFunction) &lua_wrapper_calculateRoadProperties);
   lua_register(luaState, "ProjectRoadPointToScreen", (lua_CFunction) &lua_wrapper_projectRoadPointToScreen);
   bindingsInitiated = true;
 }
