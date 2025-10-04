@@ -31,7 +31,7 @@ def connectSerial():
     ser = None
     for i in range(10):
         try:
-            ser = serial.Serial(f"{PORT_NAME}{i}", 115200, timeout=10)
+            ser = serial.Serial(f"{PORT_NAME}{i}", 115200, timeout=2)
             detectedPortName = f"{PORT_NAME}{i}"
             print(f"Port {PORT_NAME}{i} connected")
             break
