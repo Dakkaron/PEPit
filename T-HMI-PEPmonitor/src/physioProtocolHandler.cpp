@@ -314,6 +314,11 @@ static void drawFinished() {
     endGame(&errorMessage);
     checkFailWithMessage(errorMessage);
     winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
+    spr.frameBuffer(1);
+    spr.fillSprite(TFT_BLACK);
+    spr.frameBuffer(2);
+    spr.fillSprite(TFT_BLACK);
+    tft.fillScreen(TFT_BLACK);
     while (displayWinScreen(&spr, &errorMessage)) {
       checkFailWithMessage(errorMessage);
       spr.pushSpriteFast(0,0);
@@ -333,7 +338,7 @@ static void drawFinished() {
     spr.fillSprite(TFT_BLACK);
     spr.frameBuffer(2);
     spr.fillSprite(TFT_BLACK);
-    tft.fillRect(32,0,38,20,TFT_BLACK);
+    tft.fillScreen(TFT_BLACK);
     drawBmp(winScreenPath, 0, 0);
   } else if (millis() > winscreenTimeout) {
     power_off();
