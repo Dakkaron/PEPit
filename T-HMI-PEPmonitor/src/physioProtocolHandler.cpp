@@ -163,7 +163,8 @@ static void drawInhalationDisplay() {
   spr.fillSprite(TFT_BLACK);
   String errorMessage;
   drawInhalationGame(&spr, &blowData, &errorMessage);
-  drawProgressBar(&spr, blowData.breathingScore, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
+  //drawProgressBar(&spr, blowData.breathingScore, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
+  drawProgressBar(&spr, blowData.currentlyBlowing ? (100 * (blowData.ms - blowData.blowStartMs) / blowData.targetDurationMs) : 0, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
   checkFailWithMessage(errorMessage);
   
   drawProgressBar(&spr, blowData.pressure, 10, PRESSURE_BAR_X, PRESSURE_BAR_Y, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
