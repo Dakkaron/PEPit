@@ -315,10 +315,15 @@ static void drawFinished() {
     endGame(&errorMessage);
     checkFailWithMessage(errorMessage);
     winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
+    spr.frameBuffer(1); // Clearing both frame buffers to get rid of old content
+    spr.fillSprite(TFT_GREEN);
+    spr.frameBuffer(2);
+    spr.fillSprite(TFT_GREEN);
     spr.frameBuffer(1);
     spr.fillSprite(TFT_BLACK);
     spr.frameBuffer(2);
     spr.fillSprite(TFT_BLACK);
+    spr.pushSpriteFast(0,0);
     tft.fillScreen(TFT_BLACK);
     while (displayWinScreen(&spr, &errorMessage)) {
       checkFailWithMessage(errorMessage);
