@@ -163,7 +163,8 @@ static void drawInhalationDisplay() {
   spr.fillSprite(TFT_BLACK);
   String errorMessage;
   drawInhalationGame(&spr, &blowData, &errorMessage);
-  drawProgressBar(&spr, blowData.breathingScore, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
+  //drawProgressBar(&spr, blowData.breathingScore, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
+  drawProgressBar(&spr, blowData.currentlyBlowing ? (100 * (blowData.ms - blowData.blowStartMs) / blowData.targetDurationMs) : 0, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
   checkFailWithMessage(errorMessage);
   
   drawProgressBar(&spr, blowData.pressure, 10, PRESSURE_BAR_X, PRESSURE_BAR_Y, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
@@ -314,10 +315,15 @@ static void drawFinished() {
     endGame(&errorMessage);
     checkFailWithMessage(errorMessage);
     winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
+    spr.frameBuffer(1); // Clearing both frame buffers to get rid of old content
+    spr.fillSprite(TFT_GREEN);
+    spr.frameBuffer(2);
+    spr.fillSprite(TFT_GREEN);
     spr.frameBuffer(1);
     spr.fillSprite(TFT_BLACK);
     spr.frameBuffer(2);
     spr.fillSprite(TFT_BLACK);
+    spr.pushSpriteFast(0,0);
     tft.fillScreen(TFT_BLACK);
     while (displayWinScreen(&spr, &errorMessage)) {
       checkFailWithMessage(errorMessage);
