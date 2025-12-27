@@ -2,7 +2,7 @@ DisableCaching()
 local speedDrop = (1 - (0.0001 * MsDelta))
 Speed = Speed * speedDrop
 if (NewRepetition) then
-  Speed = Speed + 0.015
+  Speed = Speed + 0.015 + 0.001*PlayerHorse.speed
 end
 
 if (Speed < 0.012) then
