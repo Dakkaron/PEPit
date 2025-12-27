@@ -13,7 +13,7 @@ if WinScreenPage == 0 then
 
   SetTextSize(2)
   SetTextDatum(2)
-  DrawString("Punkte", 315, 35)
+  --DrawString("Punkte", 315, 35)
   for i = 1, #(Competitors) do
     local cPos = 0
     if i>=position then
@@ -25,7 +25,7 @@ if WinScreenPage == 0 then
     DrawString(cPos .. ". ", 30, 50 + cPos*20)
     DrawString(CompetitorNames[Competitors[i].nr], 60, 50 + cPos*20)
     SetTextDatum(2)
-    DrawString(8-cPos, 315, 50 + cPos*20)
+    --DrawString(8-cPos, 315, 50 + cPos*20)
   end
 
   SetTextColor(0xffc0)
@@ -33,14 +33,22 @@ if WinScreenPage == 0 then
   DrawString(position .. ". ", 30, 50 + (position)*20)
   DrawString("Du", 60, 50 + (position)*20)
   SetTextDatum(2)
-  DrawString(8-position, 315, 50 + position*20)
+  --DrawString(8-position, 315, 50 + position*20)
   SetTextColor(0xffff)
 
+  SetTextDatum(0)
+  DrawString("Preisgeld:", 10, 200)
+  DrawString("$" .. (PrizeMoney[position]), 130, 200)
+  DrawString("Kontostand:", 10, 220)
+  DrawString("$" .. (Money), 130, 220)
+
+  SetTextDatum(2)
   SetTextSize(2)
   FillRect(240, 210, 80, 30, 0x001F)
-  DrawString("Weiter", 310, 220)
+  DrawString("Fertig", 308, 218)
   if (IsTouchInZone(260, 210, 60, 30)) then
     WinScreenPage = 1
+    CloseWinScreen()
   end
 else
 SetTextSize(2)
@@ -62,4 +70,3 @@ SetTextSize(2)
   end
 
 end
-FillRect(0,0,320,240,0xffff)

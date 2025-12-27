@@ -15,6 +15,48 @@ function DeserializeByteList(s)
   return out
 end
 
+COAT_R = 1
+COAT_B = 2
+COAT_Y = 3
+HELMET_R = 1
+HELMET_G = 2
+HELMET_B = 3
+HORSE_BAY = 1
+HORSE_BLACK = 2
+HORSE_SORREL = 3
+NUM_HORSE_COLORS = 2
+
+function CreateHorseSprite(colorHorse, colorCoat, colorHelmet)
+  local sprite, addSprite
+  if colorHorse == HORSE_BAY then
+	sprite = LoadAnimSprite("gfx/horse/bay.bmp", 23, 81, 0, 0xf81f)
+  elseif colorHorse == HORSE_BLACK then
+    sprite = LoadAnimSprite("gfx/horse/black.bmp", 23, 81, 0, 0xf81f)
+  end
+  if colorCoat == COAT_R then
+    addSprite = LoadAnimSprite("gfx/coat/red.bmp", 23, 81, 0, 0xf81f)
+  elseif colorCoat == COAT_B then
+    addSprite = LoadAnimSprite("gfx/coat/blue.bmp", 23, 81, 0, 0xf81f)
+  elseif colorCoat == COAT_Y then
+    addSprite = LoadAnimSprite("gfx/coat/yellow.bmp", 23, 81, 0, 0xf81f)
+  end
+  DrawSpriteToSprite(addSprite, sprite, 0, 0)
+  FreeSprite(addSprite)
+  if colorHelmet == HELMET_R then
+    addSprite = LoadAnimSprite("gfx/helmet/red.bmp", 23, 81, 0, 0xf81f)
+  elseif colorHelmet == HELMET_G then
+    addSprite = LoadAnimSprite("gfx/helmet/green.bmp", 23, 81, 0, 0xf81f)
+  elseif colorHelmet == HELMET_B then
+    addSprite = LoadAnimSprite("gfx/helmet/blue.bmp", 23, 81, 0, 0xf81f)
+  end
+  DrawSpriteToSprite(addSprite, sprite, 0, 0)
+  FreeSprite(addSprite)
+  addSprite = LoadAnimSprite("gfx/horse_extra.bmp", 23, 81, 0, 0xf81f)
+  DrawSpriteToSprite(addSprite, sprite, 0, 0)
+  FreeSprite(addSprite)
+  return sprite
+end
+
 ROAD_W = 140
 BANK_W = 50
 DRAW_HORIZON = 60
@@ -30,12 +72,23 @@ Speed = 0.01
 
 SSky = LoadSprite("gfx/sky.bmp")
 STree = LoadSprite("gfx/tree.bmp", 0, 0xf81f)
-SHorse = LoadAnimSprite("gfx/horse.bmp", 23, 81, 0, 0xf81f)
+SHorseSide = {LoadSprite("gfx/horse_side/bay.bmp", 0, 0xf81f), LoadSprite("gfx/horse_side/black.bmp", 0, 0xf81f), LoadSprite("gfx/horse_side/sorrel.bmp", 0, 0xf81f)}
+SHorse = {CreateHorseSprite(math.random(1,2), math.random(1,3), math.random(1,3)), CreateHorseSprite(math.random(1,2), math.random(1,3), math.random(1,3)), CreateHorseSprite(math.random(1,2), math.random(1,3), math.random(1,3)), CreateHorseSprite(math.random(1,2), math.random(1,3), math.random(1,3)), CreateHorseSprite(math.random(1,2), math.random(1,3), math.random(1,3))}
 SHorseAngledLeft = LoadAnimSprite("gfx/horse_angled_right.bmp", 42, 80, 1, 0xf81f)
 SHorseAngledRight = LoadAnimSprite("gfx/horse_angled_right.bmp", 42, 80, 0, 0xf81f)
 
 CurrentLeague = PrefsGetInt("league", 5)
 OwnPoints = PrefsGetInt("points", 0)
+
+Money = PrefsGetInt("money", 0)
+PrizeMoney = {100, 72, 60, 48, 40, 32}
+
+PlayerHorse = {
+  name = PrefsGetString("hname", "Free Spirit"),
+  speed = PrefsGetInt("hspeed", 1),
+  color = PrefsGetInt("hcolor", 2),
+  sprite = CreateHorseSprite(PrefsGetInt("hcolor", 2), PrefsGetInt("hcoat", 1), PrefsGetInt("hhelmet", 2))
+}
 
 if CurrentLeague == 5 then
   CompetitorNames = {
@@ -124,3 +177,104 @@ end
 -- Winscreen
 
 WinScreenPage = 0
+
+
+-- Progression Menu
+
+ShopHorses = nil
+SButtonUp = LoadSprite("gfx/buttonUp.bmp", 0, 0xf81f)
+SButtonDown = LoadSprite("gfx/buttonDown.bmp", 0, 0xf81f)
+
+function GenerateHorseName()
+  local l1 = {'Sierra', 'Smooth', 'Free', 'Snow', 'Stern', 'Cool', 'Neat', 'Chasing', 'Pretty', 'Grand', 'Mystic' }
+  local l2 = {'Leone', 'Serrano', 'Guard', 'Ride', 'Down', 'Time', 'Spring', 'Starr', 'Peace', 'Show', 'Candy', 'Pride', 'Sea', 'Run', 'Front', 'Looks'}
+  return l1[math.random(#l1)] .. " " .. l2[math.random(#l2)]
+end
+
+function GetShopHorses()
+  if ShopHorses == nil then
+    ShopHorses = {}
+    for i = 1, 3 do
+      local speed = math.random(1,10)
+	  ShopHorses[i] = {
+	    name = GenerateHorseName(),
+	    speed = speed,
+	    color = math.random(1,NUM_HORSE_COLORS),
+	    cost = 1000*speed + math.random(0,2000)
+	  }
+    end
+  end
+  return ShopHorses
+end
+
+function SavePlayerHorse()
+  PrefsSetString("hname", PlayerHorse.name)
+  PrefsSetInt("hspeed", PlayerHorse.speed)
+  PrefsSetInt("hcolor", PlayerHorse.color)
+end
+
+ShopMenuOffset = 0
+TouchBlocked = false
+function DisplayHorseShop(offset)
+  if TouchBlocked and not IsTouchInZone(0, 0, 320, 240) then
+    TouchBlocked = false
+  end
+  local shopHorses = GetShopHorses()
+  if #shopHorses >= 2 and ShopMenuOffset>#shopHorses-2 then
+    ShopMenuOffset = #shopHorses-3
+  end
+  if ShopMenuOffset>0 then
+    DrawSprite(SButtonUp, 275, 35)
+    if IsTouchInZone(275, 35, 32, 32) and not TouchBlocked then
+      ShopMenuOffset = ShopMenuOffset - 1
+      TouchBlocked = true
+    end
+  end
+  if ShopMenuOffset<#shopHorses-2 then
+    DrawSprite(SButtonDown, 275, 150)
+    if IsTouchInZone(275, 150, 32, 32) and not TouchBlocked then
+      ShopMenuOffset = ShopMenuOffset + 1
+      TouchBlocked = true
+    end
+  end
+  local yPos = 35
+  FillRect(10, yPos, 220, 60, 0xfea0)
+  DrawSprite(SHorseSide[PlayerHorse.color], 12, yPos)
+  SetTextSize(2)
+  DrawString(PlayerHorse.name, 85, yPos+2)
+  DrawString("Tempo: " .. PlayerHorse.speed, 85, yPos+20)
+  SetTextDatum(2)
+  DrawString("Im Besitz", 225, yPos+40)
+  SetTextDatum(0)
+  for i = 1, #shopHorses - ShopMenuOffset do
+    local shopHorse = shopHorses[i + ShopMenuOffset]
+    yPos = 35 + (i)*64
+    if (Money < shopHorse.cost) then
+      FillRect(10, yPos, 220, 60, 0xF800)
+    else
+      FillRect(10, yPos, 220, 60, 0x001F)
+    end
+    DrawSprite(SHorseSide[shopHorse.color], 12, yPos)
+    DrawString(shopHorse.name, 85, yPos+2)
+    DrawString("Tempo: " .. shopHorse.speed, 85, yPos+20)
+    SetTextDatum(2)
+    DrawString("$"..shopHorse.cost, 225, yPos+40)
+    SetTextDatum(0)
+  end
+  for i = 1, #shopHorses - ShopMenuOffset do
+    local shopHorse = shopHorses[i + ShopMenuOffset]
+    yPos = 35 + (i)*64
+    if Money > shopHorse.cost and  IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
+      TouchBlocked = true
+      Money = Money - shopHorse.cost
+      PrefsSetInt("money", Money)
+      PlayerHorse = shopHorse
+      SavePlayerHorse()
+      for j = i + ShopMenuOffset, #shopHorses do
+        ShopHorses[j] = ShopHorses[j+1]
+      end
+      break
+    end
+  end
+  SetTextSize(1)
+end

@@ -54,7 +54,7 @@ end
 
 local angle = RoadXOffset * 0.0015
 for d = Distance%10 - 10, 50, 10 do
-  if (50-d > 0) then
+  if 48-d > 0 then
     DrawSpriteToRoad(STree, ROAD_W+100, 50-d, 4)
     DrawSpriteToRoad(STree, -ROAD_W-100, 50-d, 4)
   end
@@ -67,30 +67,27 @@ for i = 1, #(Competitors) do
   if (Competitors[i].distance > Distance) then
     Position = Position + 1
   end
-  DrawHorse(SHorse, Competitors[i].xpos, (2.5+Competitors[i].distance-Distance), 0, 1, 1, angle, (Ms/150)%4, CompetitorNames[Competitors[i].nr])
+  DrawHorse(SHorse[i], Competitors[i].xpos, (2.5+Competitors[i].distance-Distance), 0, 1, 1, angle, (Ms/150)%4, CompetitorNames[Competitors[i].nr])
 end
 
 if (PlayerX <= ROAD_W*0.5 and PlayerX >= -ROAD_W*0.5) then
-  DrawHorse(SHorse, PlayerX, 2.5, 0, 1, 1, angle, (Ms/150)%4)
+  DrawHorse(PlayerHorse.sprite, PlayerX, 2.5, 0, 1, 1, angle, (Ms/150)%4)
 elseif (PlayerX <= ROAD_W*0.5 + BANK_W and PlayerX >= -ROAD_W*0.5 - BANK_W) then
   Speed = Speed * speedDrop
   if (Speed>0.008) then
     Speed = 0.008
   end
-  DrawHorse(SHorse, PlayerX, 2.5, 2.5-(Ms%2)*5, 1, 1, angle, (Ms/150)%4)
+  DrawHorse(PlayerHorse.sprite, PlayerX, 2.5, 2.5-(Ms%2)*5, 1, 1, angle, (Ms/150)%4)
 else
   Speed = Speed * speedDrop * speedDrop
   if (Speed>0.006) then
     Speed = 0.006
   end
-  DrawHorse(SHorse, PlayerX, 2.5, 4-(Ms%2)*8, 1, 1, angle, (Ms/150)%4)
+  DrawHorse(PlayerHorse.sprite, PlayerX, 2.5, 4-(Ms%2)*8, 1, 1, angle, (Ms/150)%4)
 end
 
 FillRect(0, BASELINE_Y, 320, 240-BASELINE_Y, 0x0000)
 
-DrawString("Distance: " .. Distance, 100, 10)
-DrawString("PlayerX:  " .. PlayerX, 100, 20)
-DrawString("Speed:    " .. Speed, 100, 30)
 SetTextSize(2)
 SetTextDatum(2)
 DrawString(Position .. " / " .. (#Competitors + 1), 310, 220)
