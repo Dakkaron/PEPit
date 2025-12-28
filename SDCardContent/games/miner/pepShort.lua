@@ -1,4 +1,3 @@
-DisableCaching()
 if IsNewTask then
   if (RockImageLoaded>=0) then
     FreeSprite((SRock))

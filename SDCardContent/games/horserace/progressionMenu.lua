@@ -1,4 +1,3 @@
-DisableCaching()
 SetTextSize(3)
 DrawString("Shop", 70, 5)
 SetTextSize(2)
