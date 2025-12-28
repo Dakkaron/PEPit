@@ -2,6 +2,7 @@
 #include "gameMonsterCatcher.h"
 #include "gameRacing.h"
 #include "gameLua.h"
+#include "systemStateHandler.h"
 
 #define EXECUTION_LOG_MAX_LINES 24
 
@@ -208,6 +209,7 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
 }
 
 void endGame(String* errorMessage) {
+  setSystemState(STATE_GAME_ENDING);
   if (gameConfig.templateName == "lua") {
     endGame_lua(errorMessage);
   }
@@ -215,6 +217,7 @@ void endGame(String* errorMessage) {
 
 
 bool displayWinScreen(DISPLAY_T *display, String *errorMessage) {
+  setSystemState(STATE_WIN_SCREEN);
   if (gameConfig.templateName == "lua") {
     return displayWinScreen_lua(display, errorMessage);
   }

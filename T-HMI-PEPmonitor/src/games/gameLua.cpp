@@ -382,11 +382,14 @@ static int lua_wrapper_drawSpriteToSprite(lua_State* luaState) {
   int32_t maskingColor = spriteMetadata[srcHandle].maskingColor;
   Serial.print("PSTS: Masking color: ");
   Serial.println(maskingColor);
+  bool oldSwapBytes = sprites[srcHandle].getSwapBytes();
+  sprites[srcHandle].setSwapBytes(false);
   if (maskingColor != -1) {
     sprites[srcHandle].pushToSprite(&sprites[dstHandle], x, y, maskingColor);
   } else {
     sprites[srcHandle].pushToSprite(&sprites[dstHandle], x, y);
   }
+  sprites[srcHandle].setSwapBytes(oldSwapBytes);
   //Serial.println("Draw sprite done");
   return 0;
 }
