@@ -22,7 +22,7 @@ static void fetchReleaseUrl() {
   if (systemUpdateWasChecked) {
     return;
   }
-  if (getSystemState()<=STATE_GAME_SELECTION) {
+  if (getSystemState()>STATE_GAME_SELECTION) {
     Serial.println("Abandoning firmware update check because game is already running.");
     systemUpdateWasChecked = true;
     return;
