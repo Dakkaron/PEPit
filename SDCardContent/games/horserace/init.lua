@@ -264,7 +264,7 @@ function DisplayHorseShop(offset)
   for i = 1, #shopHorses - ShopMenuOffset do
     local shopHorse = shopHorses[i + ShopMenuOffset]
     yPos = 35 + (i)*64
-    if Money > shopHorse.cost and  IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
+    if Money > shopHorse.cost and IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
       TouchBlocked = true
       Money = Money - shopHorse.cost
       PrefsSetInt("money", Money)
