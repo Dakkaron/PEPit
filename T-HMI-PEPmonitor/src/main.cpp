@@ -22,6 +22,7 @@
 #include "physioProtocolHandler.h"
 #include "updateHandler.h"
 #include "hardware/bluetoothHandler.h"
+#include "systemStateHandler.h"
 
 void setBrightness(uint8_t value) {
   static uint8_t _brightness = 0;
@@ -128,13 +129,16 @@ void setup() {
   Serial.println("Connecting to trampoline...");
   connectToTrampoline(false);
   Serial.println("MARKER DONE");
+  setSystemState(STATE_PROFILE_SELECTION);
   uint32_t requiredTaskTypes = runProfileSelection();
   if ((requiredTaskTypes & REQUIRED_TASK_TYPE_TRAMPOLINE) == 0) {
     Serial.print("Disabling Bluetooth...");
     disableBluetooth();
     Serial.println("done");
   }
+  setSystemState(STATE_GAME_SELECTION);
   runGameSelection(requiredTaskTypes);
+  setSystemState(STATE_GAME_RUNNING);
   displayPhysioRotateScreen();
 }
 
