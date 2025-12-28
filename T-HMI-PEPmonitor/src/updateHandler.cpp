@@ -4,6 +4,7 @@
 #include "hardware/sdHandler.h"
 #include "hardware/gfxHandler.hpp"
 #include "SD_MMC.h"
+#include "systemStateHandler.h"
 
 #define DEST_FS_USES_SD_MMC
 #include <ESP32-targz.h>
@@ -19,6 +20,11 @@ static void fetchReleaseUrl() {
     delay(10);
   }
   if (systemUpdateWasChecked) {
+    return;
+  }
+  if (getSystemState()<=STATE_GAME_SELECTION) {
+    Serial.println("Abandoning firmware update check because game is already running.");
+    systemUpdateWasChecked = true;
     return;
   }
   Serial.println("Checking for firmware update");
@@ -38,6 +44,7 @@ static void fetchReleaseUrl() {
 
 void firmwareCheckTask(void* parameter) {
   Serial.println("Checking for firmware update in task");
+  startWifi();
   fetchReleaseUrl();
   vTaskDelete(NULL);
 }

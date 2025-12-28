@@ -11,9 +11,10 @@ function DrawSpriteToSprite(srcHandle, dstHandle, x, y) end
 function DrawSpriteScaled(handle, x, y, scaleX, scaleY, flags) end
 function DrawAnimSpriteScaled(handle, x, y, scaleX, scaleY, frame, flags) end
 function DrawSpriteScaledRotated(handle, x, y, scaleX, scaleY, angle, flags) end
+function DrawAnimSpriteScaledRotated(handle, x, y, scaleX, scaleY, angle, frame, flags) end
 function DrawSpriteTransformed(handle, x, y, matrixA, matrixB, matrixC, matrixD, flags) end
-function SpriteWidth(handle) end
-function SpriteHeight(handle) end
+function SpriteWidth(handle) return 0; end
+function SpriteHeight(handle) return 0; end
 function Log(s) end
 function DrawString(s, x, y) end
 function DrawRect(x, y, w, h, color) end
@@ -32,19 +33,28 @@ function Print(s) end
 function Println(s) end
 function Cls() end
 function PrefsSetString(name, value) end
-function PrefsGetString(name, default) end
+function PrefsGetString(name, default) return ""; end
 function PrefsSetInt(name, value) end
-function PrefsGetInt(name, default) end
+function PrefsGetInt(name, default) return 0; end
 function PrefsSetNumber(name, value) end
-function PrefsGetNumber(name, default) end
+function PrefsGetNumber(name, default) return 0.0; end
 function CloseProgressionMenu() end
-function Constrain(min, max) end
-function IsTouchInZone(x, y, w, h) end
-function GetTouchX() end
-function GetTouchY() end
-function GetTouchPressure() end
-function GetFreeRAM() end
+function Constrain(val, min, max) return 0.0; end
+function IsTouchInZone(x, y, w, h) return false; end
+function GetTouchX() return 0; end
+function GetTouchY() return 0; end
+function GetTouchPressure() return 0; end
+function GetFreeRAM() return 0; end
 function DisableCaching() end
+function Mode7WorldToScreen(worldX, worldY, camX, camY, camH, yawAngle, zoom, horizonHeight, startY, endY) return 0,0,0.0; end
+function DrawMode7(groundTextureHandle, camX,  camY, camH, yawAngle, zoom, horizonHeight, startY, endY) end
+function SetRoadColors(pavementA, pavementB, embankmentA, embankmentB, grassA, grassB, wallA, wallB, railA, railB, lamp, mountain, centerline) end
+function SetRoadDrawFlags(drawMountain, drawLamps, drawRails, drawCenterline, drawTunnelDoors) end
+function SetRoadDimensions(roadWidth, embankmentWidth, centerlineWidth, railingDistance, railingHeight, railingThickness, lampHeight) end
+function DrawRaceOutdoor(x, y, w, roadXOffset, lastX, lastW) end
+function DrawRaceTunnel(x, y, w, roadXOffset, lastX, lastW) end
+function CalculateRoadProperties(y, distance, horizonY, baselineY, roadXOffset) return 0.0,0.0,0; end
+function ProjectRoadPointToScreen(roadX, roadY, horizonY, baselineY, roadXOffset) return 0.0,0.0,0.0; end
 
 CurrentlyBlowing = false
 Ms = 0

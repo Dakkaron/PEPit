@@ -8,8 +8,8 @@ if (DrowningStartMs == 0) then
   if NewRepetition then
     Speed = Speed + 120 + 15*UpgradeSpeed
   end
-  speedDropUpgradeFactor = 1 + 0.15*UpgradeSpeed
-  speedDrop = (1 - (0.0001 * MsDelta)) ^ speedDropUpgradeFactor
+  local speedDropUpgradeFactor = 1 + 0.15*UpgradeSpeed
+  local speedDrop = (1 - (0.0001 * MsDelta)) ^ speedDropUpgradeFactor
   Speed = Speed * speedDrop
   CameraX = CameraX - math.sin(CameraAngle) * Speed * 0.0001 * MsDelta
   CameraY = CameraY + math.cos(CameraAngle) * Speed * 0.0001 * MsDelta
@@ -27,7 +27,7 @@ end
 DrawMode7(SBackground, CameraX, CameraY, CameraHeight, CameraAngle, 1, realHorizonHeight, 20, 180)
 
 for i = 1, #Objects do
-  Objects[i].d = calcDistance2D(CameraX, CameraY, Objects[i].x, Objects[i].y)
+  Objects[i].d = CalcDistance2D(CameraX, CameraY, Objects[i].x, Objects[i].y)
 end
 
 table.sort(Objects, function (left, right)
@@ -40,19 +40,19 @@ for i = 1, #Objects do
   local object = Objects[i]
   local objectType = object.type
   if (objectType == OBJECT_TYPE_SHIP) then
-    drawShip(SShip[object.shipType], object.x, object.y)
+    DrawShip(SShip[object.shipType], object.x, object.y)
     if object.id == TargetShip then
       targetShipData = object
     end
     totalShipCount = totalShipCount + 1
   elseif (objectType == OBJECT_TYPE_STORM and object.d < 200) then
-    drawBillboard(SStorm, object.x, object.y, 7, 10)
+    DrawBillboard(SStorm, object.x, object.y, 7, 10)
   elseif (objectType == OBJECT_TYPE_BIRD and object.d < 1000) then
-    mx,my = getObjectMotionVector(object)
+    local mx,my = GetObjectMotionVector(object)
     object.x = object.x + mx * BIRD_SPEED * 0.001 * MsDelta
     object.y = object.y + mx * BIRD_SPEED * 0.001 * MsDelta
-    local dir = getObjectRelativeDirection(mx, my)
-    drawBillboard(SBird, object.x, object.y, TopFlightHeight, 0.5, dir < 0 and true or false)
+    local dir = GetObjectRelativeDirection(mx, my)
+    DrawBillboard(SBird, object.x, object.y, TopFlightHeight, 0.5, dir < 0 and true or false)
     local dx = object.targetX-object.x
     local dy = object.targetY-object.y
     local targetDistance = math.sqrt(dx*dx + dy*dy)
@@ -63,7 +63,7 @@ for i = 1, #Objects do
   end
 end
 
-drawTarget(targetShipData.x, targetShipData.y)
+DrawTarget(targetShipData.x, targetShipData.y)
 
 for i = 1, #Objects do
   local object = Objects[i]
@@ -80,7 +80,7 @@ for i = 1, #Objects do
   end
 end
 
-if (calcDistance2D(CameraX, CameraY, targetShipData.x, targetShipData.y) < 3 and (TopFlightHeight - CameraHeight) < (TopFlightHeight/10.0)) then
+if (CalcDistance2D(CameraX, CameraY, targetShipData.x, targetShipData.y) < 3 and (TopFlightHeight - CameraHeight) < (TopFlightHeight/10.0)) then
   TargetShip = TargetShip + 1
   AddEarnings(3 + targetShipData.shipType * 2)
   if (TargetShip > totalShipCount) then

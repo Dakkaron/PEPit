@@ -122,7 +122,7 @@ void downloadFile(String url, String filename, String* errorMessage, THandlerFun
   // Download data and write into SD card
   size_t downloadedDataSize = 0;
   const size_t FILE_SIZE = httpClient.getSize();
-  uint8_t* fileBuffer = new uint8_t[FILE_DOWNLOAD_CHUNK_SIZE+1];
+  uint8_t* fileBuffer = (uint8_t*)heap_caps_malloc(FILE_DOWNLOAD_CHUNK_SIZE+1, MALLOC_CAP_SPIRAM);
   File file = SD_MMC.open(filename, FILE_WRITE, true);
   Serial.println("Starting download");
   while (downloadedDataSize < FILE_SIZE) {
@@ -146,7 +146,7 @@ void downloadFile(String url, String filename, String* errorMessage, THandlerFun
 String downloadFileToString(String url, String* errorMessage) {
   uint32_t connectionStatus = startWifi();
   if (connectionStatus == CONNECTION_NOWIFI) {
-    errorMessage->concat("Failed to start NTP because of missing WIFI connection");
+    errorMessage->concat("Failed to start downloadFileToString because of missing WIFI connection");
     return "";
   }
 
@@ -164,13 +164,13 @@ String downloadFileToString(String url, String* errorMessage) {
   // Download data and write into SD card
   size_t downloadedDataSize = 0;
   const size_t FILE_SIZE = httpClient.getSize();
-  uint8_t* fileBuffer = new uint8_t[FILE_DOWNLOAD_TO_STRING_MAX_SIZE+1];
+  uint8_t* fileBuffer = (uint8_t*)heap_caps_malloc(FILE_DOWNLOAD_TO_STRING_MAX_SIZE+1, MALLOC_CAP_SPIRAM);
   String output = "";
   Serial.println("Starting download to string");
   while (downloadedDataSize < _min(FILE_SIZE, FILE_DOWNLOAD_TO_STRING_MAX_SIZE)) {
     size_t availableDataSize = stream->available();
     if (availableDataSize > 0) {
-      uint32_t bytesToRead = _min(availableDataSize, FILE_DOWNLOAD_CHUNK_SIZE);
+      uint32_t bytesToRead = _min(availableDataSize, FILE_DOWNLOAD_TO_STRING_MAX_SIZE);
       bytesToRead = _min(bytesToRead, FILE_DOWNLOAD_TO_STRING_MAX_SIZE-downloadedDataSize);
       Serial.println("Reading "+String(bytesToRead)+" bytes");
       stream->readBytes(fileBuffer, bytesToRead);
