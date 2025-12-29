@@ -914,12 +914,71 @@ static int lua_wrapper_projectRoadPointToScreen(lua_State* luaState) {
   return 3;
 }
 
+static void *l_alloc_psram (void *ud, void *ptr, size_t osize, size_t nsize) {
+  (void)ud; (void)osize;  /* not used */
+  if (nsize == 0) {
+    free(ptr);
+    return NULL;
+  }
+  else
+    return heap_caps_realloc(ptr, nsize, MALLOC_CAP_SPIRAM);
+}
+
+static int panic (lua_State *L) {
+  const char *msg = (lua_type(L, -1) == LUA_TSTRING)
+                  ? lua_tostring(L, -1)
+                  : "error object is not a string";
+  lua_writestringerror("PANIC: unprotected error in call to Lua API (%s)\n",
+                        msg);
+  return 0;  /* return to Lua to abort */
+}
+
+static void warnfoff (void *ud, const char *message, int tocont);
+static void warnfon (void *ud, const char *message, int tocont);
+static void warnfcont (void *ud, const char *message, int tocont);
+
+static int checkcontrol (lua_State *L, const char *message, int tocont) {
+  if (tocont || *(message++) != '@')  /* not a control message? */
+    return 0;
+  else {
+    if (strcmp(message, "off") == 0)
+      lua_setwarnf(L, warnfoff, L);  /* turn warnings off */
+    else if (strcmp(message, "on") == 0)
+      lua_setwarnf(L, warnfon, L);   /* turn warnings on */
+    return 1;  /* it was a control message */
+  }
+}
+
+static void warnfcont (void *ud, const char *message, int tocont) {
+  lua_State *L = (lua_State *)ud;
+  lua_writestringerror("%s", message);  /* write message */
+  if (tocont)  /* not the last part? */
+    lua_setwarnf(L, warnfcont, L);  /* to be continued */
+  else {  /* last part */
+    lua_writestringerror("%s", "\n");  /* finish message with end-of-line */
+    lua_setwarnf(L, warnfon, L);  /* next call is a new message */
+  }
+}
+
+static void warnfon (void *ud, const char *message, int tocont) {
+  if (checkcontrol((lua_State *)ud, message, tocont))  /* control message? */
+    return;  /* nothing else to be done */
+  lua_writestringerror("%s", "Lua warning: ");  /* start a new warning */
+  warnfcont(ud, message, tocont);  /* finish processing */
+}
+
+static void warnfoff (void *ud, const char *message, int tocont) {
+  checkcontrol((lua_State *)ud, message, tocont);
+}
+
 void initLua() {
   static bool bindingsInitiated = false;
   if (bindingsInitiated) {
     return;
   }
-  luaState = luaL_newstate();
+  luaState = lua_newstate(l_alloc_psram, NULL);
+  lua_atpanic(luaState, &panic);
+  lua_setwarnf(luaState, warnfoff, luaState);
   luaopen_base(luaState);
   luaopen_table(luaState);
   lua_setglobal(luaState, "table");
