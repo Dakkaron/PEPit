@@ -13,8 +13,3 @@ DrawString("Fertig", 255, 215)
 if (IsTouchInZone(240, 200, 80, 40)) then
   CloseProgressionMenu()
 end
-
-
-SetTextSize(1)
-DrawString("F_RAM: " .. GetFreeRAM(), 240, 50)
-DrawString("F_PSRAM: " .. (GetFreePSRAM()//1024) .. "k", 240, 70)
