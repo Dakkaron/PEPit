@@ -140,7 +140,7 @@ void downloadFile(String url, String filename, String* errorMessage, THandlerFun
     }
   }
   Serial.println("Downloaded file");
-  delete[] (fileBuffer);
+  free(fileBuffer);
 }
 
 String downloadFileToString(String url, String* errorMessage) {
@@ -181,6 +181,6 @@ String downloadFileToString(String url, String* errorMessage) {
     }
   }
   Serial.println("Downloaded file to string");
-  delete[] (fileBuffer);
+  free(fileBuffer);
   return output;
 }

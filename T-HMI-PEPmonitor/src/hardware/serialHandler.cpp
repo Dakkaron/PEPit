@@ -64,7 +64,7 @@ void readFileToSerial(const char *path, bool readAsHex, bool printFileSize) {
   } else {
     Serial.write(fileBuffer, fileSize);
   }
-  delete[] fileBuffer;
+  free(fileBuffer);
   Serial.println();
 }
 
@@ -164,7 +164,7 @@ void handleUploadFileMode() {
   fileBuffer[fileLength] = 0;
   file.write(fileBuffer, fileLength);
 
-  delete[] fileBuffer;
+  free(fileBuffer);
   file.close();
   Serial.println();
   Serial.println("Done writing tmp file");
@@ -222,7 +222,7 @@ void handleUploadFileModeMedium() {
   
   file.write(fileBuffer, fileLength);
 
-  delete[] fileBuffer;
+  free(fileBuffer);
   file.close();
   Serial.println();
   Serial.println("Done writing file");
