@@ -575,10 +575,19 @@ static int lua_wrapper_log(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawString(lua_State* luaState) {
-  String s = luaL_checkstring(luaState, 1);
-  int16_t x = luaL_checknumber(luaState, 2);
-  int16_t y = luaL_checknumber(luaState, 3);
-  luaDisplay->drawString(s, x, y);
+  const char* cs = luaL_checkstring(luaState, 1);
+  char* s = (char*)malloc(strlen(cs)+1);
+  strcpy(s, cs);
+  int32_t x = luaL_checknumber(luaState, 2);
+  int32_t y = luaL_checknumber(luaState, 3);
+  char* token = strtok(s, "\n");
+  int32_t fontHeight = luaDisplay->fontHeight();
+  while (token != NULL) {
+    luaDisplay->drawString(token, x, y);
+    y += fontHeight;
+    token = strtok(NULL, "\n");
+  }
+  free(s);
   return 0;
 }
 
