@@ -92,3 +92,6 @@ SetTextDatum(2)
 DrawString(Position .. " / " .. (#Competitors + 1), 310, 220)
 SetTextDatum(0)
 SetTextSize(1)
+
+DrawString("Free Sprite slots: " .. GetFreeSpriteSlots(), 50, 50)
+DrawString("Player color " .. PlayerHorse.color, 50, 70)

@@ -24,7 +24,9 @@ HELMET_B = 1 << 10
 HORSE_BAY = 1
 HORSE_BLACK = 2
 HORSE_SORREL = 3
-NUM_HORSE_COLORS = 2
+HORSE_GREY = 4
+HORSE_DUN = 5
+NUM_HORSE_COLORS = 5
 
 function CreateHorseSprite(colorHorse, colorCoat, colorHelmet)
   local sprite, addSprite
@@ -32,6 +34,12 @@ function CreateHorseSprite(colorHorse, colorCoat, colorHelmet)
 	sprite = LoadAnimSprite("gfx/horse/bay.bmp", 23, 81, 0, 0xf81f)
   elseif colorHorse == HORSE_BLACK then
     sprite = LoadAnimSprite("gfx/horse/black.bmp", 23, 81, 0, 0xf81f)
+  elseif colorHorse == HORSE_SORREL then
+    sprite = LoadAnimSprite("gfx/horse/sorrel.bmp", 23, 81, 0, 0xf81f)
+  elseif colorHorse == HORSE_GREY then
+    sprite = LoadAnimSprite("gfx/horse/grey.bmp", 23, 81, 0, 0xf81f)
+  elseif colorHorse == HORSE_DUN then
+    sprite = LoadAnimSprite("gfx/horse/dun.bmp", 23, 81, 0, 0xf81f)
   end
   if colorCoat == COAT_R then
     addSprite = LoadAnimSprite("gfx/coat/red.bmp", 23, 81, 0, 0xf81f)
@@ -76,10 +84,7 @@ Speed = 0.01
 
 SSky = LoadSprite("gfx/sky.bmp")
 STree = LoadSprite("gfx/tree.bmp", 0, 0xf81f)
-SHorseSide = {LoadSprite("gfx/horse_side/bay.bmp", 0, 0xf81f), LoadSprite("gfx/horse_side/black.bmp", 0, 0xf81f), LoadSprite("gfx/horse_side/sorrel.bmp", 0, 0xf81f)}
 SHorse = {CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite()}
-SHorseAngledLeft = LoadAnimSprite("gfx/horse_angled_right.bmp", 42, 80, 1, 0xf81f)
-SHorseAngledRight = LoadAnimSprite("gfx/horse_angled_right.bmp", 42, 80, 0, 0xf81f)
 
 CurrentLeague = PrefsGetInt("league", 5)
 OwnPoints = PrefsGetInt("points", 0)
@@ -210,8 +215,11 @@ function GenerateHorseName()
   return l1[math.random(#l1)] .. " " .. l2[math.random(#l2)]
 end
 
+SHorseSide = nil
+
 function PopulateShopHorses()
   if ShopHorses == nil then
+    SHorseSide = {LoadSprite("gfx/horse_side/bay.bmp", 0, 0xf81f), LoadSprite("gfx/horse_side/black.bmp", 0, 0xf81f), LoadSprite("gfx/horse_side/sorrel.bmp", 0, 0xf81f), LoadSprite("gfx/horse_side/grey.bmp", 0, 0xf81f), LoadSprite("gfx/horse_side/dun.bmp", 0, 0xf81f)}
     ShopHorses = {}
     for i = 1, 3 do
       local speed = math.random(1,10)
