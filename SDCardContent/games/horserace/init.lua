@@ -16,11 +16,11 @@ function DeserializeByteList(s)
 end
 
 COAT_R = 1
-COAT_B = 2
-COAT_Y = 3
-HELMET_R = 1
-HELMET_G = 2
-HELMET_B = 3
+COAT_B = 1 << 1
+COAT_Y = 1 << 2
+HELMET_R = 1 << 8
+HELMET_G = 1 << 9
+HELMET_B = 1 << 10
 HORSE_BAY = 1
 HORSE_BLACK = 2
 HORSE_SORREL = 3
@@ -57,6 +57,10 @@ function CreateHorseSprite(colorHorse, colorCoat, colorHelmet)
   return sprite
 end
 
+function CreateRandomHorseSprite()
+  return CreateHorseSprite(math.random(1, NUM_HORSE_COLORS), 1 << math.random(0,2), 1 << math.random(8,10))
+end
+
 ROAD_W = 140
 BANK_W = 50
 DRAW_HORIZON = 60
@@ -73,7 +77,7 @@ Speed = 0.01
 SSky = LoadSprite("gfx/sky.bmp")
 STree = LoadSprite("gfx/tree.bmp", 0, 0xf81f)
 SHorseSide = {LoadSprite("gfx/horse_side/bay.bmp", 0, 0xf81f), LoadSprite("gfx/horse_side/black.bmp", 0, 0xf81f), LoadSprite("gfx/horse_side/sorrel.bmp", 0, 0xf81f)}
-SHorse = {CreateHorseSprite(math.random(1,2), math.random(1,3), math.random(1,3)), CreateHorseSprite(math.random(1,2), math.random(1,3), math.random(1,3)), CreateHorseSprite(math.random(1,2), math.random(1,3), math.random(1,3)), CreateHorseSprite(math.random(1,2), math.random(1,3), math.random(1,3)), CreateHorseSprite(math.random(1,2), math.random(1,3), math.random(1,3))}
+SHorse = {CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite()}
 SHorseAngledLeft = LoadAnimSprite("gfx/horse_angled_right.bmp", 42, 80, 1, 0xf81f)
 SHorseAngledRight = LoadAnimSprite("gfx/horse_angled_right.bmp", 42, 80, 0, 0xf81f)
 
@@ -87,7 +91,9 @@ PlayerHorse = {
   name = PrefsGetString("hname", "Free Spirit"),
   speed = PrefsGetInt("hspeed", 1),
   color = PrefsGetInt("hcolor", 2),
-  sprite = CreateHorseSprite(PrefsGetInt("hcolor", 2), PrefsGetInt("hcoat", 1), PrefsGetInt("hhelmet", 2))
+  sprite = CreateHorseSprite(PrefsGetInt("hcolor", 2), PrefsGetInt("hcoat", COAT_R), PrefsGetInt("hhelmet", HELMET_B)),
+  helmet = PrefsGetInt("hhelmet", HELMET_B),
+  coat = PrefsGetInt("hcoat", COAT_R)
 }
 
 if CurrentLeague == 5 then
@@ -185,13 +191,26 @@ ShopHorses = nil
 SButtonUp = LoadSprite("gfx/buttonUp.bmp", 0, 0xf81f)
 SButtonDown = LoadSprite("gfx/buttonDown.bmp", 0, 0xf81f)
 
+ShopItems = nil
+OwnedItems = PrefsGetInt("ownedItems", COAT_R + HELMET_B)
+
+ITEM_TYPE_COAT = 1
+ITEM_TYPE_HELMET = 2
+
+
+ShopTab = 0
+ConfirmDialogOpen = false
+ConfirmDialogText = ""
+ConfirmDialogItemNr = 0
+
+
 function GenerateHorseName()
   local l1 = {'Sierra', 'Smooth', 'Free', 'Snow', 'Stern', 'Cool', 'Neat', 'Chasing', 'Pretty', 'Grand', 'Mystic' }
   local l2 = {'Leone', 'Serrano', 'Guard', 'Ride', 'Down', 'Time', 'Spring', 'Starr', 'Peace', 'Show', 'Candy', 'Pride', 'Sea', 'Run', 'Front', 'Looks'}
   return l1[math.random(#l1)] .. " " .. l2[math.random(#l2)]
 end
 
-function GetShopHorses()
+function PopulateShopHorses()
   if ShopHorses == nil then
     ShopHorses = {}
     for i = 1, 3 do
@@ -204,7 +223,6 @@ function GetShopHorses()
 	  }
     end
   end
-  return ShopHorses
 end
 
 function SavePlayerHorse()
@@ -219,18 +237,18 @@ function DisplayHorseShop(offset)
   if TouchBlocked and not IsTouchInZone(0, 0, 320, 240) then
     TouchBlocked = false
   end
-  local shopHorses = GetShopHorses()
-  if #shopHorses >= 2 and ShopMenuOffset>#shopHorses-2 then
-    ShopMenuOffset = #shopHorses-3
+  PopulateShopHorses()
+  if #ShopHorses >= 2 and ShopMenuOffset>#ShopHorses-2 then
+    ShopMenuOffset = #ShopHorses-3
   end
   if ShopMenuOffset>0 then
-    DrawSprite(SButtonUp, 275, 35)
-    if IsTouchInZone(275, 35, 32, 32) and not TouchBlocked then
+    DrawSprite(SButtonUp, 275, 100)
+    if IsTouchInZone(275, 100, 32, 32) and not TouchBlocked then
       ShopMenuOffset = ShopMenuOffset - 1
       TouchBlocked = true
     end
   end
-  if ShopMenuOffset<#shopHorses-2 then
+  if ShopMenuOffset<#ShopHorses-2 then
     DrawSprite(SButtonDown, 275, 150)
     if IsTouchInZone(275, 150, 32, 32) and not TouchBlocked then
       ShopMenuOffset = ShopMenuOffset + 1
@@ -246,8 +264,8 @@ function DisplayHorseShop(offset)
   SetTextDatum(2)
   DrawString("Im Besitz", 225, yPos+40)
   SetTextDatum(0)
-  for i = 1, #shopHorses - ShopMenuOffset do
-    local shopHorse = shopHorses[i + ShopMenuOffset]
+  for i = 1, #ShopHorses - ShopMenuOffset do
+    local shopHorse = ShopHorses[i + ShopMenuOffset]
     yPos = 35 + (i)*64
     if (Money < shopHorse.cost) then
       FillRect(10, yPos, 220, 60, 0xF800)
@@ -261,20 +279,188 @@ function DisplayHorseShop(offset)
     DrawString("$"..shopHorse.cost, 225, yPos+40)
     SetTextDatum(0)
   end
-  for i = 1, #shopHorses - ShopMenuOffset do
-    local shopHorse = shopHorses[i + ShopMenuOffset]
+  for i = 1, #ShopHorses - ShopMenuOffset do
+    local shopHorse = ShopHorses[i + ShopMenuOffset]
     yPos = 35 + (i)*64
     if Money > shopHorse.cost and IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
       TouchBlocked = true
+      ConfirmDialogOpen = true
+      ConfirmDialogText = "Willst du " .. shopHorse.name .. "\n\nfür $" .. shopHorse.cost .." kaufen?\n \nDein Kontostand beträgt\n$" .. Money  
+      ConfirmDialogItemNr = i + ShopMenuOffset
+      break
+    end
+  end
+end
+
+
+function PopulateShopItems()
+  if ShopItems == nil then
+    ShopItems = {
+      {
+        sprite = LoadSprite("gfx/items/shop_coat_red.bmp"),
+        cost = 1200,
+        name = "Rote Jacke",
+        color = COAT_R,
+        itemType = ITEM_TYPE_COAT
+      },
+      {
+        sprite = LoadSprite("gfx/items/shop_coat_blue.bmp"),
+        cost = 1200,
+        name = "Blaue Jacke",
+        color = COAT_B,
+        itemType = ITEM_TYPE_COAT
+      },
+      {
+        sprite = LoadSprite("gfx/items/shop_coat_yellow.bmp"),
+        cost = 1200,
+        name = "Gelbe Jacke",
+        color = COAT_Y,
+        itemType = ITEM_TYPE_COAT
+      },
+      {
+        sprite = LoadSprite("gfx/items/shop_helmet_blue.bmp"),
+        cost = 1200,
+        name = "Blauer Helm",
+        color = HELMET_B,
+        itemType = ITEM_TYPE_HELMET
+      },
+      {
+        sprite = LoadSprite("gfx/items/shop_helmet_red.bmp"),
+        cost = 1200,
+        name = "Roter Helm",
+        color = HELMET_R,
+        itemType = ITEM_TYPE_HELMET
+      },
+      {
+        sprite = LoadSprite("gfx/items/shop_helmet_green.bmp"),
+        cost = 1200,
+        name = "Grüner Helm",
+        color = HELMET_G,
+        itemType = ITEM_TYPE_HELMET
+      },
+    }
+  end
+end
+
+function DisplayItemShop()
+  if TouchBlocked and not IsTouchInZone(0, 0, 320, 240) then
+    TouchBlocked = false
+  end
+  PopulateShopItems()
+  if #ShopItems >= 2 and ShopMenuOffset>#ShopItems-2 then
+    ShopMenuOffset = #ShopItems-3
+  end
+  if ShopMenuOffset>0 then
+    DrawSprite(SButtonUp, 275, 100)
+    if IsTouchInZone(275, 100, 32, 32) and not TouchBlocked then
+      ShopMenuOffset = ShopMenuOffset - 1
+      TouchBlocked = true
+    end
+  end
+  if ShopMenuOffset<#ShopItems-2 then
+    DrawSprite(SButtonDown, 275, 150)
+    if IsTouchInZone(275, 150, 32, 32) and not TouchBlocked then
+      ShopMenuOffset = ShopMenuOffset + 1
+      TouchBlocked = true
+    end
+  end
+  for i = 1, #ShopItems - ShopMenuOffset do
+    local shopItem = ShopItems[i + ShopMenuOffset]
+    local yPos = 35 + (i-1)*64
+    local isOwned = (OwnedItems & shopItem.color) ~= 0
+    local isEquipped = PlayerHorse.coat == shopItem.color or PlayerHorse.helmet == shopItem.color
+    if isEquipped then
+      FillRect(10, yPos, 220, 60, 0xffe0)
+    elseif isOwned then
+      FillRect(10, yPos, 220, 60, 0x7bef)
+    elseif Money < shopItem.cost then
+      FillRect(10, yPos, 220, 60, 0xF800)
+    else
+      FillRect(10, yPos, 220, 60, 0x001F)
+    end
+    DrawSprite(shopItem.sprite, 12, yPos)
+    DrawString(shopItem.name, 85, yPos+2)
+    SetTextDatum(2)
+    if isEquipped then
+      DrawString("Aktiv", 225, yPos+40)
+    elseif isOwned then
+      DrawString("Im Besitz", 225, yPos+40)
+    else
+      DrawString("$"..shopItem.cost, 225, yPos+40)
+    end
+    SetTextDatum(0)
+  end
+  for i = 1, #ShopItems - ShopMenuOffset do
+    local shopItem = ShopItems[i + ShopMenuOffset]
+    yPos = 35 + (i-1)*64
+    local isOwned = (OwnedItems & shopItem.color) ~= 0
+    local isEquipped = PlayerHorse.coat == shopItem.color or PlayerHorse.helmet == shopItem.color
+    if IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
+      if isOwned and not isEquipped then
+        if shopItem.itemType == ITEM_TYPE_COAT then
+          PlayerHorse.coat = shopItem.color
+          PrefsSetInt("hcoat", shopItem.color)
+        elseif shopItem.itemType == ITEM_TYPE_HELMET then
+          PlayerHorse.helmet = shopItem.color
+          PrefsSetInt("hhelmet", shopItem.color)
+        end
+        TouchBlocked = true
+        break
+      elseif not isOwned and Money > shopItem.cost then
+        TouchBlocked = true
+        ConfirmDialogOpen = true
+        ConfirmDialogText = "Willst du " .. shopItem.name .. "\n\nfür $" .. shopItem.cost .." kaufen?\n \nDein Kontostand beträgt\n$" .. Money  
+        ConfirmDialogItemNr = i + ShopMenuOffset
+        break
+      end
+    end
+  end
+end
+
+function DisplayConfirmDialog()
+  if TouchBlocked and not IsTouchInZone(0, 0, 320, 240) then
+    TouchBlocked = false
+  end
+  FillRect(30, 30, 260, 160, 0x94b2)
+  DrawString(ConfirmDialogItemNr, 40, 200)
+  SetTextSize(2)
+  SetTextDatum(0)
+  DrawString(ConfirmDialogText, 40, 40)
+  FillRect(40, 145, 100, 40, 0x001F)
+  DrawString("Ja", 80, 157)
+  FillRect(180, 145, 100, 40, 0x001F)
+  DrawString("Nein", 215, 157)
+  if not TouchBlocked and IsTouchInZone(40, 145, 100, 40) then
+    if ShopTab == 0 then -- Horse shop
+      shopHorse = ShopHorses[ConfirmDialogItemNr]
       Money = Money - shopHorse.cost
       PrefsSetInt("money", Money)
       PlayerHorse = shopHorse
       SavePlayerHorse()
-      for j = i + ShopMenuOffset, #shopHorses do
-        ShopHorses[j] = ShopHorses[j+1]
+      for i = ConfirmDialogItemNr, #ShopHorses do
+        ShopHorses[i] = ShopHorses[i+1]
       end
-      break
+    elseif ShopTab == 1 then -- Item shop
+      shopItem = ShopItems[ConfirmDialogItemNr]
+      Money = Money - shopItem.cost
+      PrefsSetInt("money", Money)
+      if shopItem.itemType == ITEM_TYPE_COAT then
+        PlayerHorse.coat = shopItem.color
+        PrefsSetInt("hcoat", shopItem.color)
+      elseif shopItem.itemType == ITEM_TYPE_HELMET then
+        PlayerHorse.helmet = shopItem.color
+        PrefsSetInt("hhelmet", shopItem.color)
+      end
+      OwnedItems = OwnedItems | shopItem.color
+      PrefsSetInt("ownedItems", OwnedItems)
+      for i = ConfirmDialogItemNr, #ShopHorses do
+        ShopHorses[i] = ShopHorses[i+1]
+      end
     end
+    ConfirmDialogOpen = false
+    TouchBlocked = true
+  elseif not TouchBlocked and IsTouchInZone(180, 145, 100, 40) then
+    ConfirmDialogOpen = false
+    TouchBlocked = true
   end
-  SetTextSize(1)
 end
