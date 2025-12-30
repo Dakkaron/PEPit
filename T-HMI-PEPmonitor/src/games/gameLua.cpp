@@ -18,7 +18,7 @@ RoadColors roadColors;
 RoadDrawFlags roadDrawFlags;
 RoadDimensions roadDimensions;
 
-#define SPRITE_COUNT_LIMIT 100
+#define SPRITE_COUNT_LIMIT 200
 
 struct SpriteMetadata {
   uint32_t frameW;
@@ -816,7 +816,7 @@ static int lua_wrapper_getFreeSpriteSlots(lua_State* luaState) {
       count++;
     }
   }
-  lua_pushinteger(luaState, count);
+  lua_pushinteger(luaState, SPRITE_COUNT_LIMIT-count);
   return 1;
 }
 
