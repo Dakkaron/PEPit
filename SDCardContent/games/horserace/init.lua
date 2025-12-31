@@ -85,6 +85,8 @@ Speed = 0.01
 SSky = LoadSprite("gfx/sky.bmp")
 STree = LoadSprite("gfx/tree.bmp", 0, 0xf81f)
 SHorse = {CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite()}
+STurnLeft = LoadSprite("gfx/turnLeft.bmp")
+STurnRight = LoadSprite("gfx/turnRight.bmp")
 
 CurrentLeague = PrefsGetInt("league", 5)
 OwnPoints = PrefsGetInt("points", 0)
@@ -128,6 +130,7 @@ for i=1, 5 do
   CompPos = (OwnPos-1)-((OwnPos-1)%6)+i
   Competitors[i] = {}
   Competitors[i].nr = LeagueCompetitors[i].n
+  Competitors[i].targetSpeed = 0.010-(CompPos)*0.00045
   Competitors[i].speed = 0.010-(CompPos)*0.00045
   Competitors[i].distance = 0
   Competitors[i].xpos = (i-1)*26-65

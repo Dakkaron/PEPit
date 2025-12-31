@@ -1,22 +1,29 @@
+DisableCaching()
 local speedDrop = (1 - (0.0001 * MsDelta))
 Speed = Speed * speedDrop
 if (NewRepetition) then
   Speed = Speed + 0.015 + 0.001*PlayerHorse.speed
 end
 
-if (Speed < 0.012) then
-  Distance = Distance + MsDelta * Speed
-  PlayerX = PlayerX - MsDelta * RoadXOffset * 0.0003
-else
-  Distance = Distance + MsDelta * 0.012
-  PlayerX = PlayerX - MsDelta * RoadXOffset * 0.0003
-end
+local distanceDelta = 0.0
+local speedLimit = (10 + PlayerHorse.speed) * 0.001
+distanceDelta = MsDelta * math.min(Speed, speedLimit)
+Distance = Distance + distanceDelta
+PlayerX = PlayerX - distanceDelta * RoadXOffset * 0.03
 PlayerX = PlayerX * speedDrop
 
-if (IsTouchInZone(0, 0, 100, 200)) then
-  PlayerX = PlayerX - MsDelta * 0.07
-elseif (IsTouchInZone(220, 0, 100, 200)) then
-  PlayerX = PlayerX + MsDelta * 0.07
+if LeftHandedMode then
+  if IsTouchInZone(0, 50, 50, 44) then
+    PlayerX = PlayerX - MsDelta * 0.07
+  elseif IsTouchInZone(0, 120, 50, 44) then
+    PlayerX = PlayerX + MsDelta * 0.07
+  end
+else
+  if IsTouchInZone(270, 50, 50, 44) then
+    PlayerX = PlayerX - MsDelta * 0.07
+  elseif IsTouchInZone(270, 120, 50, 44) then
+    PlayerX = PlayerX + MsDelta * 0.07
+  end
 end
 
 PlayerX = Constrain(PlayerX, -160, 160)
@@ -61,22 +68,29 @@ end
 
 Position = 1
 for i = 1, #(Competitors) do
-  Competitors[i].distance = Competitors[i].distance + MsDelta * Competitors[i].speed
-  Competitors[i].distance = Constrain(Competitors[i].distance, Distance - 20, Distance + 55)
-  if (Competitors[i].distance > Distance) then
+  local c = Competitors[i]
+  c.speed = c.speed * speedDrop + c.targetSpeed * (1-speedDrop)
+  c.distance = c.distance + MsDelta * c.speed
+  c.distance = Constrain(c.distance, Distance - 20, Distance + 55)
+  if c.distance > Distance then
     Position = Position + 1
   end
-  DrawHorse(SHorse[i], Competitors[i].xpos, (2.5+Competitors[i].distance-Distance), 0, 1, 1, angle, (Ms/150)%4, CompetitorNames[Competitors[i].nr])
+  if c.distance <= Distance and c.distance > Distance - 0.5 and math.abs(c.xpos - PlayerX) < 20 then
+    c.speed = Speed * 0.75
+  elseif c.distance > Distance and c.distance < Distance + 0.5 and math.abs(c.xpos - PlayerX) < 20 then
+    Speed = c.speed * 0.75
+  end
+  DrawHorse(SHorse[i], c.xpos, (2.5+c.distance-Distance), 0, 1, 1, angle, Distance%4, CompetitorNames[c.nr])
 end
 
 if (PlayerX <= ROAD_W*0.5 and PlayerX >= -ROAD_W*0.5) then
-  DrawHorse(PlayerHorse.sprite, PlayerX, 2.5, 0, 1, 1, angle, (Ms/150)%4)
+  DrawHorse(PlayerHorse.sprite, PlayerX, 2.5, 0, 1, 1, angle, Distance%4)
 elseif (PlayerX <= ROAD_W*0.5 + BANK_W and PlayerX >= -ROAD_W*0.5 - BANK_W) then
   Speed = Speed * speedDrop
   if (Speed>0.008) then
     Speed = 0.008
   end
-  DrawHorse(PlayerHorse.sprite, PlayerX, 2.5, 2.5-(Ms%2)*5, 1, 1, angle, (Ms/150)%4)
+  DrawHorse(PlayerHorse.sprite, PlayerX, 2.5, 2.5-(Ms%2)*5, 1, 1, angle, Distance%4)
 else
   Speed = Speed * speedDrop * speedDrop
   if (Speed>0.006) then
@@ -93,5 +107,28 @@ DrawString(Position .. " / " .. (#Competitors + 1), 310, 220)
 SetTextDatum(0)
 SetTextSize(1)
 
-DrawString("Free Sprite slots: " .. GetFreeSpriteSlots(), 50, 50)
-DrawString("Player color " .. PlayerHorse.color, 50, 70)
+if LeftHandedMode then
+  if IsTouchInZone(0, 50, 50, 44) then
+    DrawSpriteScaledRotated(STurnLeft, 27, 71, 1, 1, -0.5, 0x05)
+  else
+    DrawSprite(STurnLeft, 5, 50)
+  end
+
+  if IsTouchInZone(0, 120, 50, 44) then
+    DrawSpriteScaledRotated(STurnRight, 27, 141, 1, 1, 0.5, 0x05)
+  else
+    DrawSprite(STurnRight, 5, 120)
+  end
+else
+  if IsTouchInZone(270, 50, 50, 44) then
+    DrawSpriteScaledRotated(STurnLeft, 293, 71, 1, 1, -0.5, 0x05)
+  else
+    DrawSprite(STurnLeft, 271, 50)
+  end
+
+  if IsTouchInZone(270, 120, 50, 44) then
+    DrawSpriteScaledRotated(STurnRight, 293, 141, 1, 1, 0.5, 0x05)
+  else
+    DrawSprite(STurnRight, 271, 120)
+  end
+end
