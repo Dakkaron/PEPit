@@ -1076,8 +1076,9 @@ void initGames_lua(String gamePath, GameConfig* pGameConfig, String* errorMessag
   String ignoreErrorMessage;
   readGameConfig(gamePath, &gameConfig, errorMessage);
   initLua();
-  String msString = "Ms="+String(millis());
-  lua_dostring(msString.c_str(), "initGames_lua()");
+  String variablesString = "Ms="+String(millis())+"\n"+\
+                    "LeftHandedMode="+String(systemConfig.leftHandMode ? "true\n" : "false\n");
+  lua_dostring(variablesString.c_str(), "initGames_lua()");
   luaGamePath = gamePath;
   String luaGameIniPath = gamePath + "gameconfig.ini";
   String output;
@@ -1098,7 +1099,7 @@ void updateBlowData(BlowData* blowData) {
   static uint32_t lastRepetition = 0;
   int32_t taskNumber = blowData->taskNumber + blowData->cycleNumber * blowData->totalTaskNumber;
   bool isNewTask = taskNumber != lastKnownTaskNumber;
-  String blowDataString = "CurrentlyBlowing="+String(blowData->currentlyBlowing ? "true" : "false")+"\n"+\
+  String blowDataString = "CurrentlyBlowing="+String(blowData->currentlyBlowing ? "true\n" : "false\n")+\
                           "Ms="+String(blowData->ms)+"\n"+\
                           "MsDelta="+String(isNewTask ? 1 : blowData->ms - lastMs)+"\n"+\
                           "BlowStartMs="+String(blowData->blowStartMs)+"\n"+\
@@ -1120,9 +1121,10 @@ void updateBlowData(BlowData* blowData) {
                           "TaskStartMs="+String(blowData->taskStartMs)+"\n"+\
                           "CumulatedTaskNumber="+String(blowData->taskNumber + blowData->cycleNumber * blowData->totalTaskNumber)+"\n"+\
                           "TaskNumber="+String(taskNumber)+"\n"+\
-                          "TotalTaskNumber="+String(blowData->totalTaskNumber)+"\n"+
-                          "IsNewTask="+String(isNewTask ? "true" : "false")+"\n"+
-                          "BreathingScore="+String(blowData->breathingScore);
+                          "TotalTaskNumber="+String(blowData->totalTaskNumber)+"\n"+\
+                          "IsNewTask="+String(isNewTask ? "true\n" : "false\n")+\
+                          "BreathingScore="+String(blowData->breathingScore)+"\n"+\
+                          "LeftHandedMode="+String(systemConfig.leftHandMode ? "true\n" : "false\n");
   lastKnownTaskNumber = taskNumber;
   lua_dostring(blowDataString.c_str(), "updateBlowData()");
   lastMs = blowData->ms;
@@ -1151,7 +1153,8 @@ void updateJumpData(JumpData* jumpData) {
                           "NewRepetition="+String((jumpData->jumpCount>lastRepetition) ? "true" : "false")+"\n"+\
                           "NewBonusRepetition="+String((jumpData->bonusJumpCount>lastBonusRepetition) ? "true" : "false")+"\n"+\
                           "MsLeft="+String(jumpData->msLeft)+"\n"+\
-                          "LastJumpMs="+String(lastJumpMs);
+                          "LastJumpMs="+String(lastJumpMs)+"\n"+\
+                          "LeftHandedMode="+String(systemConfig.leftHandMode ? "true\n" : "false\n");
   lua_dostring(jumpDataString.c_str(), "updateJumpData()");
   lastMs = jumpData->ms;
   lastRepetition = jumpData->jumpCount;

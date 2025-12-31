@@ -60,7 +60,8 @@ void readSystemConfig(SystemConfig* systemConfig, String* errorMessage) {
   systemConfig->debugLogBlowPressure  = getBoolIniValueFromSection(resBuffer, "debugLogBlowPressure", &ignoreErrors, false);
   systemConfig->debugLogTrampoline    = getBoolIniValueFromSection(resBuffer, "debugLogTrampoline", &ignoreErrors, false);
   systemConfig->logExecutions         = getBoolIniValueFromSection(resBuffer, "logExecutions", errorMessage, false);
-  systemConfig->timezoneOffset = 60*getIntIniValueFromSection(resBuffer, "timezoneOffset", &ignoreErrors);
+  systemConfig->timezoneOffset        = 60*getIntIniValueFromSection(resBuffer, "timezoneOffset", &ignoreErrors, 0);
+  systemConfig->leftHandMode          = getBoolIniValueFromSection(resBuffer, "leftHandMode", &ignoreErrors, false);
   Serial.println("Simulate blowing: "+String(systemConfig->simulateBlows));
   Serial.println("Simulate trampoline: "+String(systemConfig->simulateTrampoline));
 }

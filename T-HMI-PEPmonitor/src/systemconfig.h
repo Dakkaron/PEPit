@@ -18,6 +18,7 @@ struct SystemConfig {
   bool debugLogTrampoline;
   bool logExecutions;
   int32_t timezoneOffset;
+  bool leftHandMode;
 };
 
 extern SystemConfig systemConfig;
