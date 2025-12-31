@@ -145,13 +145,13 @@ void initTouch() {
   touch.setZThreshold(systemConfig.touchScreenZThreshold);
 }
 
-bool isTouchInZone(int16_t x, int16_t y, int16_t w, int16_t h) {
+bool isTouchInZone(int32_t x, int32_t y, int32_t w, int32_t h) {
   //Serial.println("## Touch in zone");
   if (!touch.pressed()) {
     return false;
   }
-  int16_t tx = touch.X();
-  int16_t ty = touch.Y();
+  int32_t tx = touch.X();
+  int32_t ty = touch.Y();
   //int16_t tz = touch.RawZ();
   /*Serial.print("Touch: ");
   Serial.print(x);
