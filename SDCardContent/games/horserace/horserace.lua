@@ -1,4 +1,3 @@
-DisableCaching()
 local speedDrop = (1 - (0.0001 * MsDelta))
 Speed = Speed * speedDrop
 if (NewRepetition) then
