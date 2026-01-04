@@ -84,9 +84,12 @@ Speed = 0.01
 
 SSky = LoadSprite("gfx/sky.bmp")
 STree = LoadSprite("gfx/tree.bmp", 0, 0xf81f)
+SObstacle = LoadSprite("gfx/obstacle.bmp", 0, 0xf81f)
+SObstacleBroken = LoadSprite("gfx/obstacle_broken.bmp", 0, 0xf81f)
 SHorse = {CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite(), CreateRandomHorseSprite()}
 STurnLeft = LoadSprite("gfx/turnLeft.bmp")
 STurnRight = LoadSprite("gfx/turnRight.bmp")
+SJump = LoadSprite("gfx/jump.bmp")
 
 CurrentLeague = PrefsGetInt("league", 5)
 OwnPoints = PrefsGetInt("points", 0)
@@ -100,7 +103,16 @@ PlayerHorse = {
   color = PrefsGetInt("hcolor", 2),
   sprite = CreateHorseSprite(PrefsGetInt("hcolor", 2), PrefsGetInt("hcoat", COAT_R), PrefsGetInt("hhelmet", HELMET_B)),
   helmet = PrefsGetInt("hhelmet", HELMET_B),
-  coat = PrefsGetInt("hcoat", COAT_R)
+  coat = PrefsGetInt("hcoat", COAT_R),
+  jumpEnd = -10000
+}
+
+OBSTACLE_REWARD = 10
+Obstacle = {
+  xpos = math.random(-39,39),
+  distance = math.random(100,500),
+  used = false,
+  succeeded = false
 }
 
 if CurrentLeague == 5 then
@@ -130,8 +142,8 @@ for i=1, 5 do
   CompPos = (OwnPos-1)-((OwnPos-1)%6)+i
   Competitors[i] = {}
   Competitors[i].nr = LeagueCompetitors[i].n
-  Competitors[i].targetSpeed = 0.010-(CompPos)*0.00045
-  Competitors[i].speed = 0.010-(CompPos)*0.00045
+  Competitors[i].targetSpeed = 0.005-(CompPos)*0.000225
+  Competitors[i].speed = 0.005-(CompPos)*0.000225
   Competitors[i].distance = 0
   Competitors[i].xpos = (i-1)*26-65
 end
@@ -153,7 +165,43 @@ for i = 1, 10 do
 	SwitchRandomPair(Competitors)
 end
 
+
+SQ_DRAW_HORSE = 1
+SQ_DRAW_SPRITE_TO_ROAD = 2
+SQ_DRAW_ANIMSPRITE_TO_ROAD = 3
+SpriteDrawQueue = {}
+function SpriteDrawQueueComparator(a, b)
+  return a[1] > b[1]
+end
+
+function DrawSpriteQueue()
+  table.sort(SpriteDrawQueue, SpriteDrawQueueComparator)
+  for i = 1, #(SpriteDrawQueue) do
+    local q = SpriteDrawQueue[i]
+    if q[2] == SQ_DRAW_HORSE then
+      DoDrawHorse(q[3],q[4],q[5],q[6],q[7],q[8],q[9],q[10],q[11])
+    elseif q[2] == SQ_DRAW_SPRITE_TO_ROAD then
+      DoDrawSpriteToRoad(q[3],q[4],q[5],q[6],q[7])
+    elseif q[2] == SQ_DRAW_ANIMSPRITE_TO_ROAD then
+      DoDrawAnimSpriteToRoad(q[3],q[4],q[5],q[6],q[7],q[8])
+    end
+  end
+  SpriteDrawQueue = {}
+end
+
+function DrawHorse(handle, roadX, roadY, height, scaleX, scaleY, angle, frame, name)
+  SpriteDrawQueue[#SpriteDrawQueue+1] = {roadY, SQ_DRAW_HORSE, handle, roadX, roadY, height, scaleX, scaleY, angle, frame, name}
+end
+
 function DrawSpriteToRoad(handle, roadX, roadY, scaleX, scaleY)
+  SpriteDrawQueue[#SpriteDrawQueue+1] = {roadY, SQ_DRAW_SPRITE_TO_ROAD, handle, roadX, roadY, scaleX, scaleY}
+end
+
+function DrawAnimSpriteToRoad(handle, roadX, roadY, scaleX, scaleY, frame)
+  SpriteDrawQueue[#SpriteDrawQueue+1] = {roadY, SQ_DRAW_ANIMSPRITE_TO_ROAD, handle, roadX, roadY, scaleX, scaleY, frame}
+end
+
+function DoDrawSpriteToRoad(handle, roadX, roadY, scaleX, scaleY)
   if (scaleY == nil) then
     scaleY = scaleX
   end
@@ -165,7 +213,7 @@ function DrawSpriteToRoad(handle, roadX, roadY, scaleX, scaleY)
   end
 end
 
-function DrawAnimSpriteToRoad(handle, roadX, roadY, scaleX, scaleY, frame)
+function DoDrawAnimSpriteToRoad(handle, roadX, roadY, scaleX, scaleY, frame)
   local x, y, scaleFactor = ProjectRoadPointToScreen(roadX, roadY, HORIZON_Y, BASELINE_Y, RoadXOffset)
   if (y~=-1000 and y>=DRAW_HORIZON) then
     scaleX = scaleX*scaleFactor
@@ -174,7 +222,7 @@ function DrawAnimSpriteToRoad(handle, roadX, roadY, scaleX, scaleY, frame)
   end
 end
 
-function DrawHorse(handle, roadX, roadY, height, scaleX, scaleY, angle, frame, name)
+function DoDrawHorse(handle, roadX, roadY, height, scaleX, scaleY, angle, frame, name)
   local x, y, scaleFactor = ProjectRoadPointToScreen(roadX, roadY, HORIZON_Y, BASELINE_Y, RoadXOffset)
   if (y~=-1000 and y>=DRAW_HORIZON) then
     scaleX = scaleX*scaleFactor
@@ -185,6 +233,29 @@ function DrawHorse(handle, roadX, roadY, height, scaleX, scaleY, angle, frame, n
       SetTextDatum(0)
     end
     DrawAnimSpriteScaledRotated(handle, x, y + height, scaleX, scaleY, angle, frame, 1+8)
+  end
+end
+
+
+EarnValue = 0
+EarnTime = 0
+
+function AddEarnings(value)
+  EarnValue = EarnValue + value
+  EarnTime = Ms + 2000
+  Money = Money + value
+end
+
+function DisplayEarnings(x, y)
+  if (EarnTime > Ms) then
+    SetTextSize(2)
+    if (EarnValue > 0) then
+      DrawString("+" .. EarnValue, x, y + (EarnTime - Ms) * 0.01)
+    else
+      DrawString("" .. EarnValue, x, y + (EarnTime - Ms) * 0.01)
+    end
+  else
+    EarnValue = 0
   end
 end
 
@@ -210,7 +281,6 @@ ShopTab = 0
 ConfirmDialogOpen = false
 ConfirmDialogText = ""
 ConfirmDialogItemNr = 0
-
 
 function GenerateHorseName()
   local l1 = {'Sierra', 'Smooth', 'Free', 'Snow', 'Stern', 'Cool', 'Neat', 'Chasing', 'Pretty', 'Grand', 'Mystic' }
