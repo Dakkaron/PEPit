@@ -9,8 +9,9 @@ static bool joystickPresent = false;
 
 bool isJoystickPresent() {
   if (!joystickInitialized) {
-    joystick2.begin(&Wire, JOYSTICK2_ADDR, 15, 16);
+    joystickPresent = joystick2.begin(&Wire, JOYSTICK2_ADDR, 15, 16);
     joystick2.set_rgb_color(0x00ff00);
+    joystickInitialized = true;
   }
   return joystickPresent;
 }
