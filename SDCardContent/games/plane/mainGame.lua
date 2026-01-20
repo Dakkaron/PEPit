@@ -8,7 +8,7 @@ if (DrowningStartMs == 0) then
   if NewRepetition then
     Speed = Speed + 120 + 15*UpgradeSpeed
   end
-  local speedDropUpgradeFactor = 1 + 0.15*UpgradeSpeed
+  local speedDropUpgradeFactor = 1 + 0.12*UpgradeSpeed
   local speedDrop = (1 - (0.0001 * MsDelta)) ^ speedDropUpgradeFactor
   Speed = Speed * speedDrop
   CameraX = CameraX - math.sin(CameraAngle) * Speed * 0.0001 * MsDelta
@@ -90,14 +90,28 @@ end
 
 local planeScale = 0.85+CameraHeight/8
 if (DrowningStartMs == 0) then
-  if (IsTouchInZone(0, 0, 100, 200)) then
-    PlaneAngle = Constrain(PlaneAngle - 40 * 0.0001 * MsDelta, -1, 1)
-  elseif (IsTouchInZone(220, 0, 100, 200)) then
-    PlaneAngle = Constrain(PlaneAngle + 40 * 0.0001 * MsDelta, -1, 1)
+  local joystickX = GetJoystickX()
+  local planeAngleChange = 40 * 0.0001 * MsDelta * joystickX * 1.4 -- 1.4 is a temporary correction for not enough stick range of motion
+  if LeftHandedMode then
+    if IsTouchInZone(0, 50, 50, 44) then
+      planeAngleChange = -40 * 0.0001 * MsDelta
+    elseif IsTouchInZone(0, 125, 50, 44) then
+      planeAngleChange = 40 * 0.0001 * MsDelta
+    elseif math.abs(joystickX)<0.1 then
+      local angleReturn = -(0.005 * MsDelta)
+      planeAngleChange = PlaneAngle * angleReturn
+    end
   else
-    local angleReturn = 1 - (0.005 * MsDelta)
-    PlaneAngle = PlaneAngle * angleReturn
+    if IsTouchInZone(270, 50, 50, 44) then
+      planeAngleChange = -40 * 0.0001 * MsDelta
+    elseif IsTouchInZone(270, 125, 50, 44) then
+      planeAngleChange = 40 * 0.0001 * MsDelta
+    elseif math.abs(joystickX)<0.1 then
+      local angleReturn = -(0.005 * MsDelta)
+      planeAngleChange = PlaneAngle * angleReturn
+    end
   end
+  PlaneAngle = Constrain(PlaneAngle + planeAngleChange, -1, 1)
   CameraAngle = CameraAngle - (0.001 + 0.0002*UpgradeTurn) * MsDelta * PlaneAngle * 1.0
   CameraAngle = math.fmod(CameraAngle, math.pi*2)
   if (math.abs(PlaneAngle)<0.05) then
@@ -138,7 +152,35 @@ DrawSpriteScaledRotated(SSpeedDialNeedle, 288, 148, 1, 1, speedDialAngle, 0x05)
 
 --DrawString("Free " .. (GetFreeRAM()//1024) .. "k - " .. (GetFreePSRAM()//1024) .. "k - " .. GetFreeSpriteSlots(), 30, 40)
 
+if LeftHandedMode then
+  if IsTouchInZone(0, 50, 50, 44) then
+    DrawSpriteScaledRotated(STurnLeft, 27, 71, 1, 1, -0.5, 0x05)
+  else
+    DrawSprite(STurnLeft, 5, 50)
+  end
+
+  if IsTouchInZone(0, 125, 50, 44) then
+    DrawSpriteScaledRotated(STurnRight, 27, 146, 1, 1, 0.5, 0x05)
+  else
+    DrawSprite(STurnRight, 5, 125)
+  end
+else
+  if IsTouchInZone(270, 50, 50, 44) then
+    DrawSpriteScaledRotated(STurnLeft, 293, 71, 1, 1, -0.5, 0x05)
+  else
+    DrawSprite(STurnLeft, 271, 50)
+  end
+
+  if IsTouchInZone(270, 125, 50, 44) then
+    DrawSpriteScaledRotated(STurnRight, 293, 146, 1, 1, 0.5, 0x05)
+  else
+    DrawSprite(STurnRight, 271, 125)
+  end
+end
+
 SetTextSize(2)
 DisplayEarnings(180, 80)
 DrawString("$" .. Money, 190, 188)
 SetTextSize(1)
+
+DrawString("JX " .. GetJoystickX(), 100, 100)

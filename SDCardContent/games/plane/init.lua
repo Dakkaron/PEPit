@@ -7,7 +7,9 @@ SPlane = {
 }
 SShip = {
   LoadSprite("gfx/ship1.bmp", 0, 0xf81f),
-  LoadSprite("gfx/ship2.bmp", 0, 0xf81f)
+  LoadSprite("gfx/ship2.bmp", 0, 0xf81f),
+  LoadSprite("gfx/ship3.bmp", 0, 0xf81f),
+  LoadSprite("gfx/ship4.bmp", 0, 0xf81f)
 }
 SDownArrow = LoadSprite("gfx/downArrow.bmp", 0, 0xf81f)
 SRing = LoadSprite("gfx/ring.bmp", 0, 0xf81f)
@@ -27,12 +29,15 @@ SUpgradeControl = LoadSprite("gfx/control.bmp", 0, 0xf81f)
 SButtonUp = LoadSprite("gfx/buttonUp.bmp", 0, 0xf81f)
 SButtonDown = LoadSprite("gfx/buttonDown.bmp", 0, 0xf81f)
 
+STurnLeft = LoadSprite("gfx/turnLeft.bmp")
+STurnRight = LoadSprite("gfx/turnRight.bmp")
+
 PlaneAngle = 0
 CameraAngle = 0
 CameraX = 0
 CameraY = 0
 CameraHeight = 1
-Speed = 100
+Speed = 200
 TopFlightHeight = 2
 
 DrowningStartMs = 0
@@ -175,7 +180,7 @@ AllUpgrades = {
     id = 2,
     text = "Motor",
     img = SUpgradeEngine,
-    cost = 500,
+    cost = {500, 750},
     prop = "uengine",
     upto = 2,
     req = {}
@@ -184,7 +189,7 @@ AllUpgrades = {
     id = 3,
     text = "Klappen",
     img = SUpgradeControl,
-    cost = 550,
+    cost = {550, 850},
     prop = "usurf",
     upto = 2,
     req = {}
@@ -213,7 +218,7 @@ AllUpgrades = {
     id = 6,
     text = "Motor",
     img = SUpgradeEngine,
-    cost = 900,
+    cost = {0, 0, 900, 1200},
     prop = "uengine",
     upto = 4,
     req = {{4,1}}
@@ -222,22 +227,13 @@ AllUpgrades = {
     id = 7,
     text = "Klappen",
     img = SUpgradeControl,
-    cost = 950,
+    cost = {0, 0, 950, 1300},
     prop = "usurf",
     upto = 4,
     req = {{4,1}}
   },
   {
     id = 8,
-    text = "Schiffe",
-    img = SShip[ShipType+1],
-    cost = 800,
-    prop = "uship",
-    upto = 1,
-    req = {}
-  },
-  {
-    id = 9,
     text = "Flugzeug",
     img = SPlane[PlaneType+1],
     cost = 3500,
@@ -246,6 +242,15 @@ AllUpgrades = {
     req = {
       {5,2}, {6,4}, {7,4}
     }
+  },
+  {
+    id = 9,
+    text = "Schiffe",
+    img = SShip[ShipType+1],
+    cost = {1000, 2000, 4000},
+    prop = "uship",
+    upto = 3,
+    req = {}
   },
 }
 
@@ -304,13 +309,15 @@ function DisplayValidUpgrades()
   for i = 1, math.min(3,#upgrades) do
     local upgrade = upgrades[i + UpgradeMenuOffset]
     local yPos = 30 + (i-1)*64
-    if (Money < upgrade.cost) then
+    local upgradeLevel = PrefsGetInt(upgrade.prop, 0)+1
+    local upgradeCost = type(upgrade.cost) == "table" and upgrade.cost[upgradeLevel] or upgrade.cost
+    if (Money < upgradeCost) then
       FillRect(10, yPos, 220, 60, 0xF800)
     else
       FillRect(10, yPos, 220, 60, 0x001F)
       if IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
         TouchBlocked = true
-        Money = Money - upgrade.cost
+        Money = Money - upgradeCost
         PrefsSetInt("money", Money)
         PrefsSetInt(upgrade.prop, PrefsGetInt(upgrade.prop, 0) + 1)
         CachedValidUpdates = nil
@@ -323,8 +330,8 @@ function DisplayValidUpgrades()
     DrawSpriteScaled(upgrade.img, 42, yPos+30, scale, scale, 0x05)
     SetTextSize(2)
     DrawString(upgrade.text, 78, yPos+2)
-    DrawString("Stufe " .. (PrefsGetInt(upgrade.prop, 0)+1), 78, yPos+20)
-    DrawString("$"..upgrade.cost, 230 - #("$"..upgrade.cost)*12, yPos+40)
+    DrawString("Stufe " .. upgradeLevel, 78, yPos+20)
+    DrawString("$"..upgradeCost, 230 - #("$"..upgradeCost)*12, yPos+40)
     SetTextSize(1)
   end
 end
