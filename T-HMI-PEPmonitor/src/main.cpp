@@ -90,13 +90,12 @@ void setup() {
   }
   String errorMessage;
   initPressureSensor(&errorMessage);
-  checkFailWithMessage(errorMessage);
-
-  initTouch();
-
   buttonPwr.attachClick(power_off);
   buttonPwr.attachLongPressStop(power_off);
   buttonUsr.attachLongPressStop(runTouchCalibration);
+  initTouch();
+
+  checkFailWithMessage(errorMessage);
 
   randomSeed(analogRead(0));
   
