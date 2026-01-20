@@ -1,4 +1,3 @@
-DisableCaching()
 local speedDrop = (1 - (0.0001 * MsDelta))
 Speed = Speed * speedDrop
 if (NewRepetition) then
@@ -12,23 +11,28 @@ Distance = Distance + distanceDelta
 PlayerX = PlayerX - distanceDelta * RoadXOffset * 0.03
 PlayerX = PlayerX * speedDrop
 
+local xShift = MsDelta * 0.07 * GetJoystickX() * 1.4 -- 1.4 is a temporary correction for not enough stick range of motion
+if GetJoystickButton() and PlayerHorse.jumpEnd<Ms then
+  PlayerHorse.jumpEnd = Ms + 750
+end
 if LeftHandedMode then
   if IsTouchInZone(0, 0, 50, 69) and PlayerHorse.jumpEnd<Ms then
     PlayerHorse.jumpEnd = Ms + 750
   elseif IsTouchInZone(0, 80, 50, 44) then
-    PlayerX = PlayerX - MsDelta * 0.07
+    xShift = -MsDelta * 0.07
   elseif IsTouchInZone(0, 135, 50, 44) then
-    PlayerX = PlayerX + MsDelta * 0.07
+    xShift = MsDelta * 0.07
   end
 else
   if IsTouchInZone(0, 0, 50, 69) and PlayerHorse.jumpEnd<Ms then
     PlayerHorse.jumpEnd = Ms + 750
   elseif IsTouchInZone(270, 80, 50, 44) then
-    PlayerX = PlayerX - MsDelta * 0.07
+    xShift = -MsDelta * 0.07
   elseif IsTouchInZone(270, 135, 50, 44) then
-    PlayerX = PlayerX + MsDelta * 0.07
+    xShift = MsDelta * 0.07
   end
 end
+PlayerX = PlayerX + xShift
 
 PlayerX = Constrain(PlayerX, -160, 160)
 

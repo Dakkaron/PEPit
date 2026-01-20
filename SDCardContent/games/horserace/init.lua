@@ -518,9 +518,10 @@ function DisplayConfirmDialog()
       PrefsSetInt("money", Money)
       PlayerHorse = shopHorse
       SavePlayerHorse()
-      for i = ConfirmDialogItemNr, #ShopHorses do
+      for i = ConfirmDialogItemNr, #ShopHorses-1 do
         ShopHorses[i] = ShopHorses[i+1]
       end
+      table.remove(ShopHorses, #ShopHorses)
     elseif ShopTab == 1 then -- Item shop
       shopItem = ShopItems[ConfirmDialogItemNr]
       Money = Money - shopItem.cost
@@ -534,12 +535,16 @@ function DisplayConfirmDialog()
       end
       OwnedItems = OwnedItems | shopItem.color
       PrefsSetInt("ownedItems", OwnedItems)
-      for i = ConfirmDialogItemNr, #ShopHorses do
+      for i = ConfirmDialogItemNr, #ShopHorses-1 do
         ShopHorses[i] = ShopHorses[i+1]
       end
+      table.remove(ShopHorses, #ShopHorses)
     end
     ConfirmDialogOpen = false
     TouchBlocked = true
+    if ShopMenuOffset > 0 then
+      ShopMenuOffset = ShopMenuOffset - 1
+    end
   elseif not TouchBlocked and IsTouchInZone(180, 145, 100, 40) then
     ConfirmDialogOpen = false
     TouchBlocked = true
