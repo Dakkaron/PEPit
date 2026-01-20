@@ -3,6 +3,7 @@
 #include "hardware/gfxHandler.hpp"
 #include "hardware/higherLevelGfxHandler.hpp"
 #include "hardware/prefsHandler.h"
+#include "hardware/joystickHandler.h"
 
 static String luaGamePath;
 lua_State* luaState;
@@ -923,6 +924,41 @@ static int lua_wrapper_projectRoadPointToScreen(lua_State* luaState) {
   return 3;
 }
 
+static int lua_wrapper_isJoystickPresent(lua_State* luaState) {
+  lua_pushnumber(luaState, isJoystickPresent());
+  return 1;
+}
+
+static int lua_wrapper_getJoystickXY(lua_State* luaState) {
+  float x;
+  float y;
+  getJoystickXY(&x, &y);
+  lua_pushnumber(luaState, x);
+  lua_pushnumber(luaState, y);
+  return 2;
+}
+
+static int lua_wrapper_getJoystickX(lua_State* luaState) {
+  float x;
+  float y;
+  getJoystickXY(&x, &y);
+  lua_pushnumber(luaState, x);
+  return 1;
+}
+
+static int lua_wrapper_getJoystickY(lua_State* luaState) {
+  float x;
+  float y;
+  getJoystickXY(&x, &y);
+  lua_pushnumber(luaState, y);
+  return 1;
+}
+
+static int lua_wrapper_getJoystickButton(lua_State* luaState) {
+  lua_pushboolean(luaState, getJoystickButton());
+  return 1;
+}
+
 static void *l_alloc_psram (void *ud, void *ptr, size_t osize, size_t nsize) {
   (void)ud; (void)osize;  /* not used */
   if (nsize == 0) {
@@ -1069,6 +1105,11 @@ void initLua() {
   lua_register(luaState, "DrawRaceTunnel", (lua_CFunction) &lua_wrapper_drawRaceTunnel);
   lua_register(luaState, "CalculateRoadProperties", (lua_CFunction) &lua_wrapper_calculateRoadProperties);
   lua_register(luaState, "ProjectRoadPointToScreen", (lua_CFunction) &lua_wrapper_projectRoadPointToScreen);
+  lua_register(luaState, "IsJoystickPresent", (lua_CFunction) &lua_wrapper_isJoystickPresent);
+  lua_register(luaState, "GetJoystickXY", (lua_CFunction) &lua_wrapper_getJoystickXY);
+  lua_register(luaState, "GetJoystickX", (lua_CFunction) &lua_wrapper_getJoystickX);
+  lua_register(luaState, "GetJoystickY", (lua_CFunction) &lua_wrapper_getJoystickY);
+  lua_register(luaState, "GetJoystickButton", (lua_CFunction) &lua_wrapper_getJoystickButton);
   bindingsInitiated = true;
 }
 
