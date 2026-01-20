@@ -22,11 +22,6 @@ static void fetchReleaseUrl() {
   if (systemUpdateWasChecked) {
     return;
   }
-  if (getSystemState()>STATE_GAME_SELECTION) {
-    Serial.println("Abandoning firmware update check because game is already running.");
-    systemUpdateWasChecked = true;
-    return;
-  }
   Serial.println("Checking for firmware update");
   String ignoreMessage;
   String url = downloadFileToString(FIRMWARE_RELEASE_PATH_URL, &ignoreMessage);
