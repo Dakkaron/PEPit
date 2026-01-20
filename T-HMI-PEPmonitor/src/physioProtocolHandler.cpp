@@ -9,6 +9,7 @@
 #include "games/games.h"
 #include "constants.h"
 #include "updateHandler.h"
+#include "systemStateHandler.h"
 
 #define INHALE_ICON_PATH "/gfx/inhale.bmp"
 #define EXHALE_ICON_PATH "/gfx/exhale.bmp"
@@ -70,7 +71,7 @@ uint32_t runProfileSelection() {
         checkFailWithMessage(errorMessage);
         lastMs = ms;
         ms = millis();
-        drawSystemStats(ms, lastMs);
+        doSystemTasks();
         spr.pushSpriteFast(0,0);
         spr.fillSprite(TFT_BLACK);
         handleSerial();
@@ -94,7 +95,7 @@ uint32_t runProfileSelection() {
         checkFailWithMessage(errorMessage);
         lastMs = ms;
         ms = millis();
-        drawSystemStats(ms, lastMs);
+        doSystemTasks();
         spr.pushSpriteFast(0,0);
         spr.fillSprite(TFT_BLACK);
         handleSerial();
@@ -163,7 +164,6 @@ static void drawInhalationDisplay() {
   spr.fillSprite(TFT_BLACK);
   String errorMessage;
   drawInhalationGame(&spr, &blowData, &errorMessage);
-  //drawProgressBar(&spr, blowData.breathingScore, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
   drawProgressBar(&spr, blowData.currentlyBlowing ? (100 * (blowData.ms - blowData.blowStartMs) / blowData.targetDurationMs) : 0, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
   checkFailWithMessage(errorMessage);
   
@@ -186,7 +186,7 @@ static void drawInhalationDisplay() {
     spr.drawString("Fertig", 255, 220);
   }
 
-  drawSystemStats(blowData.ms, lastMs);
+  doSystemTasks();
   spr.pushSpriteFast(0, 0);
 }
 
@@ -240,7 +240,7 @@ static void drawPEPDisplay() {
     }
   }
 
-  drawSystemStats(blowData.ms, lastMs);
+  doSystemTasks();
   spr.pushSpriteFast(0, 0);
 }
 
@@ -263,7 +263,7 @@ static void drawTrampolineDisplay() {
     }
     spr.print(secondsLeft % 60);
   }
-  drawSystemStats(blowData.ms, lastMs);
+  doSystemTasks();
   spr.pushSpriteFast(0, 0);
 }
 
@@ -350,7 +350,7 @@ static void drawFinished() {
     power_off();
   }
   spr.fillRect(32,0,38,20,TFT_BLACK);
-  drawSystemStats(blowData.ms, lastMs);
+  doSystemTasks();
   spr.pushSpriteFast(0,0);
 }
 

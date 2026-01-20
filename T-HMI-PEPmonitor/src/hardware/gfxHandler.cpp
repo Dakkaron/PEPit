@@ -10,6 +10,7 @@
 #include "hardware/powerHandler.h"
 #include "hardware/MyFont.h"
 #include "updateHandler.h"
+#include "systemStateHandler.h"
 
 #define GFXFF 1
 #define MYFONT5x7 &Font5x7Fixed
@@ -542,10 +543,10 @@ void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* po
   invertM(transform, &inv);
 
   Vector2D corners[4] = {
-    { xOffset, yOffset },
-    { xOffset + spriteWidth, yOffset },
-    { xOffset + spriteWidth, yOffset + spriteHeight },
-    { xOffset,  yOffset + spriteHeight }
+    { (float)xOffset, (float)yOffset },
+    { (float)(xOffset + spriteWidth), (float)yOffset },
+    { (float)(xOffset + spriteWidth), (float)(yOffset + spriteHeight) },
+    { (float)xOffset,  (float)(yOffset + spriteHeight) }
   };
 
   Vector2D screenCorners[4];
@@ -800,8 +801,6 @@ int16_t displayGameSelection(DISPLAY_T* display, uint16_t nr, uint32_t requiredT
   }
 
   while (true) {
-    buttonPwr.tick();
-    buttonUsr.tick();
     lastMs = ms;
     ms = millis();
     handleSerial();
@@ -810,7 +809,7 @@ int16_t displayGameSelection(DISPLAY_T* display, uint16_t nr, uint32_t requiredT
       return selection;
     }
     display->fillRect(0,0,70,20,TFT_BLACK);
-    drawSystemStats(ms, lastMs);
+    doSystemTasks();
     display->pushSpriteFast(0,0);
     if (millis()>GAME_SELECTION_POWEROFF_TIMEOUT) {
       power_off();
@@ -831,8 +830,6 @@ int16_t displayProfileSelection(DISPLAY_T* display, uint16_t nr, String* errorMe
   }
 
   while (true) {
-    buttonPwr.tick();
-    buttonUsr.tick();
     lastMs = ms;
     ms = millis();
     handleSerial();
@@ -871,7 +868,7 @@ int16_t displayProfileSelection(DISPLAY_T* display, uint16_t nr, String* errorMe
       return selection;
     }
     display->fillRect(0,0,70,20,TFT_BLACK);
-    drawSystemStats(ms, lastMs);
+    doSystemTasks();
     display->pushSpriteFast(0,0);
     if (millis()>GAME_SELECTION_POWEROFF_TIMEOUT) {
       power_off();
@@ -887,9 +884,11 @@ static String leftPad(String s, uint16_t len, String c) {
 }
 
 // Draws battery icon, battery voltage, FPS
-void drawSystemStats(uint32_t ms, uint32_t lastMs) {
+void drawSystemStats() {
   static int32_t lowBatteryCount = -1;
   static uint32_t lowBatteryWarningCount = 0;
+  static uint32_t lastMs = millis();
+  uint32_t ms = millis();
   uint32_t batteryVoltage = readBatteryVoltage();
   if (lowBatteryCount == -1) { //check to run only once
     lowBatteryCount = 0;
@@ -930,6 +929,7 @@ void drawSystemStats(uint32_t ms, uint32_t lastMs) {
   spr.setTextSize(1);
   spr.drawString(String(1000L/_max(1,ms-lastMs)), 34, 1); //FPS counter
   spr.drawString(String(batteryVoltage/1000) + "." + leftPad(String(batteryVoltage%1000), 3, "0") + "V", 34, 11); // Battery voltage
+  lastMs = ms;
 }
 
 void drawImageButton(DISPLAY_T* display, String path, int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color, uint16_t textColor) {

@@ -23,6 +23,7 @@
 #include "updateHandler.h"
 #include "hardware/bluetoothHandler.h"
 #include "systemStateHandler.h"
+#include "hardware/joystickHandler.h"
 
 void setBrightness(uint8_t value) {
   static uint8_t _brightness = 0;
@@ -126,6 +127,9 @@ void setup() {
   checkForAndRunUpdateFromSD(&errorMessage);
   checkFailWithMessage(errorMessage);
 
+  Serial.print("Joystick present: ");
+  Serial.println(isJoystickPresent());
+
   Serial.println("Connecting to trampoline...");
   connectToTrampoline(false);
   Serial.println("MARKER DONE");
@@ -143,8 +147,6 @@ void setup() {
 }
 
 void loop() {
-  buttonPwr.tick();
-  buttonUsr.tick();
   handleSerial();
   handlePhysioTask();
   /*Serial.print("Free heap: ");

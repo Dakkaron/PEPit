@@ -1,6 +1,7 @@
 #include "powerHandler.h"
 #include "gfxHandler.hpp"
 #include "serialHandler.h"
+#include "systemStateHandler.h"
 
 OneButton buttonPwr = OneButton(BUTTON2_PIN, false, false);
 OneButton buttonUsr = OneButton(BUTTON1_PIN, false, false);
@@ -15,10 +16,16 @@ void power_off() {
     
     uint32_t lastMs = millis();
     uint32_t ms = millis();
+    tft.fillScreen(TFT_BLACK);
+    spr.frameBuffer(1);
+    spr.fillSprite(TFT_GREEN);
+    spr.frameBuffer(2);
+    spr.fillSprite(TFT_BLACK);
+
     while (true) {
         digitalWrite(PWR_ON_PIN, LOW);
         spr.fillSprite(TFT_BLACK);
-        drawSystemStats(ms, lastMs);
+        doSystemTasks();
         lastMs = ms;
         ms = millis();
         spr.pushSpriteFast(0,0);

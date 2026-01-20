@@ -13,5 +13,6 @@
 void setSystemState(uint32_t state);
 uint32_t getSystemState();
 
+void doSystemTasks();
 
 #endif // SYSTEM_STATE_HANDLER_H
