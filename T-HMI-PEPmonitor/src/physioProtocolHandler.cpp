@@ -346,6 +346,55 @@ static void drawFinished() {
     spr.fillSprite(TFT_BLACK);
     tft.fillScreen(TFT_BLACK);
     drawBmp(winScreenPath, 0, 0);
+    uint32_t showUpdateTimeout = millis() + SHOW_SYSTEM_UPDATE_ON_WINSCREEN_TIMEOUT;
+    Serial.print("Starting update timeout: ");
+    Serial.print(showUpdateTimeout);
+    Serial.print(" . ");
+    Serial.println(millis());
+    while (millis() < showUpdateTimeout) {
+      spr.fillRect(32,0,38,20,TFT_BLACK);
+      doSystemTasks();
+      spr.pushSpriteFast(0,0);
+      vTaskDelay(1); // watchdog
+    }
+    Serial.println("Ending update timeout.");
+    if (getSystemUpdateAvailableStatus() == FIRMWARE_UPDATE_AVAILABLE) {
+      tft.fillRect(25, 25, 270, 190, 0x001F);
+      tft.fillRect(30, 30, 260, 180, 0x94b2);
+      drawBmp("/gfx/systemupdate.bmp", 144, 35, false);
+      tft.setTextColor(0xFFFF);
+      tft.setTextSize(2);
+      tft.setTextDatum(1);
+      tft.drawString("Update verfügbar", 160, 80);
+      tft.fillRect(60, 160, 200, 45, 0x001F);
+      tft.drawString("Update jetzt starten", 160, 175);
+      bool isUpdateStarted = false;
+      winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
+      Serial.print("Starting winscreen timeout: ");
+      Serial.print(winscreenTimeout);
+      Serial.print(" . ");
+      Serial.println(millis());
+      while (millis() < winscreenTimeout && !isUpdateStarted) {
+        isUpdateStarted = isTouchInZone(60, 160, 200, 45);
+        Serial.print(winscreenTimeout);
+        Serial.print(" . ");
+        Serial.print(millis());
+        Serial.print(" - ");
+        Serial.println(isUpdateStarted);
+      }
+      Serial.print("Ending winscreen timeout: ");
+      Serial.println(isUpdateStarted);
+      if (isUpdateStarted) {
+        Serial.println("Starting update.");
+        String errorMessage;
+        tft.fillScreen(TFT_BLACK);
+        downloadAndRunSystemUpdate(&errorMessage);
+        checkFailWithMessage(errorMessage);
+      } else {
+        Serial.println("Power off.");
+        power_off();
+      }
+    }
   } else if (millis() > winscreenTimeout) {
     power_off();
   }
