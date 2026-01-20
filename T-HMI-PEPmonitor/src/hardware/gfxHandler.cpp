@@ -1034,13 +1034,14 @@ void checkKeyboard(DISPLAY_T* display, String* output, uint32_t maxCharacters, u
 void checkFailWithMessage(String message) {
   if (!message.isEmpty()) {
     tft.fillScreen(TFT_BLACK);
-    spr.fillSprite(TFT_BLACK);
-    spr.setCursor(1, 16);
-    spr.setTextSize(1);
-    spr.println("FEHLER:");
-    spr.println(message);
-    spr.pushSprite(0, 0);
     while (true) {
+      spr.fillSprite(TFT_BLACK);
+      spr.setCursor(1, 32);
+      spr.setTextSize(1);
+      spr.println("FEHLER:");
+      spr.println(message);
+      doSystemTasks();
+      spr.pushSprite(0, 0);
       handleSerial();
     };
   }
