@@ -182,5 +182,3 @@ SetTextSize(2)
 DisplayEarnings(180, 80)
 DrawString("$" .. Money, 190, 188)
 SetTextSize(1)
-
-DrawString("JX " .. GetJoystickX(), 100, 100)
