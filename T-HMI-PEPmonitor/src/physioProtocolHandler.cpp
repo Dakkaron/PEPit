@@ -160,6 +160,21 @@ inline static unsigned long getTaskDurationUntilLastAction() {
   return _max(1, (blowData.blowEndMs!=0 ? blowData.blowEndMs : blowData.taskStartMs) - blowData.taskStartMs);
 }
 
+static void drawManometerModeDisplay() {
+  spr.fillSprite(TFT_BLACK);
+  spr.drawCircle(SCREEN_WIDTH/2-110, SCREEN_HEIGHT-110, 110, 0xffff);
+  spr.setTextDatum(CC_DATUM);
+  for (uint32_t i=0; i<100; i+=10) {
+    float angleInRadians = (i-50)*0.02*PI;
+    float cosI = cos(angleInRadians);
+    float sinI = sin(angleInRadians);
+    spr.drawLine(SCREEN_WIDTH/2 + cosI*100, SCREEN_HEIGHT/2 + sinI*100, SCREEN_WIDTH/2 + cosI*80, SCREEN_HEIGHT/2 + sinI*80, 0xffff);
+    if (i % 20 == 0) {
+      spr.drawString(String(i), SCREEN_WIDTH/2 + cosI*70, SCREEN_HEIGHT/2 + sinI*70);
+    }
+  }
+}
+
 static void drawInhalationDisplay() {
   spr.fillSprite(TFT_BLACK);
   String errorMessage;
