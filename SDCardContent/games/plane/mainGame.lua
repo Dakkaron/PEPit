@@ -91,7 +91,7 @@ end
 local planeScale = 0.85+CameraHeight/8
 if (DrowningStartMs == 0) then
   local joystickX = GetJoystickX()
-  local planeAngleChange = 40 * 0.0001 * MsDelta * joystickX * 1.4 -- 1.4 is a temporary correction for not enough stick range of motion
+  local planeAngleChange = 40 * 0.0001 * MsDelta * joystickX
   if LeftHandedMode then
     if IsTouchInZone(0, 50, 50, 44) then
       planeAngleChange = -40 * 0.0001 * MsDelta

@@ -11,7 +11,7 @@ Distance = Distance + distanceDelta
 PlayerX = PlayerX - distanceDelta * RoadXOffset * 0.03
 PlayerX = PlayerX * speedDrop
 
-local xShift = MsDelta * 0.07 * GetJoystickX() * 1.4 -- 1.4 is a temporary correction for not enough stick range of motion
+local xShift = MsDelta * 0.07 * GetJoystickX()
 if GetJoystickButton() and PlayerHorse.jumpEnd<Ms then
   PlayerHorse.jumpEnd = Ms + 750
 end
