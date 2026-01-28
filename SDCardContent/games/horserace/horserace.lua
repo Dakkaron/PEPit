@@ -42,10 +42,12 @@ local roadYOffset = 0.0
 local x = 0.0
 local w = 0.0
 if Obstacle.distance-Distance < 35 then
-	if (RoadXOffset<0) then
+	if (RoadXOffset<-1) then
     RoadXOffsetDirection = 1
-  elseif (RoadXOffset>0) then
+  elseif (RoadXOffset>1) then
     RoadXOffsetDirection = -1
+  else
+    RoadXOffsetDirection = 0
   end
 else
   if (RoadXOffset<-160) then
