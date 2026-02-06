@@ -46,6 +46,6 @@ void writeIntToFile(const char *path, int32_t val);
 int32_t readIntFromFile(const char *path);
 int32_t readIntFromFile(const char *path, uint32_t lineNr);
 
-void logExecutionToSD(ProfileData* profileData, String ntpDateString, String ntpTimeString, String* errorMessage);
+void logExecutionToSD(ProfileData* profileData, String ntpDateString, String ntpTimeString, uint32_t successes, uint32_t fails, uint32_t time, String* errorMessage);
 
 #endif /* __SDHANDLER_H__*/

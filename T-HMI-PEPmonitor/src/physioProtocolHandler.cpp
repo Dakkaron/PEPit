@@ -315,7 +315,7 @@ static void handleLogExecutions() {
     ntpTimeString = "N/A";
   }
   Serial.println("NTP Time: " + ntpDateString + " " + ntpTimeString);
-  logExecutionToSD(&profileData, ntpDateString, ntpTimeString, &errorMessage);
+  logExecutionToSD(&profileData, ntpDateString, ntpTimeString, blowData.successes, blowData.fails, blowData.totalTimeSpentBreathing, &errorMessage);
   checkFailWithMessage(errorMessage);
 }
 
@@ -544,6 +544,7 @@ void handlePhysioTask() {
       if (blowData.ms-blowData.blowStartMs > blowData.targetDurationMs) {
         blowData.blowCount++;
         blowData.lastBlowStatus = LAST_BLOW_SUCCEEDED;
+        blowData.successes++;
         Serial.println(F(" successfully"));
         Serial.print(F(" Blowstart:       "));
         Serial.println(blowData.blowStartMs);

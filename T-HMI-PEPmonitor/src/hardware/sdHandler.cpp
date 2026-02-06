@@ -578,7 +578,7 @@ int32_t readIntFromFile(const char *path, uint32_t lineNr) {
   return data.toInt();
 }
 
-void logExecutionToSD(ProfileData* profileData, String ntpDateString, String ntpTimeString, String* errorMessage) {
+void logExecutionToSD(ProfileData* profileData, String ntpDateString, String ntpTimeString, uint32_t successes, uint32_t fails, uint32_t time, String* errorMessage) {
   bool writeHeader = !SD_MMC.exists(EXECUTION_LOG_PATH);
   File file = SD_MMC.open(EXECUTION_LOG_PATH, FILE_APPEND);
   if (!file) {
@@ -586,13 +586,19 @@ void logExecutionToSD(ProfileData* profileData, String ntpDateString, String ntp
     return;
   }
   if (writeHeader) {
-    file.println("profileName;executionDate;executionTime");
+    file.println("profileName;executionDate;executionTime;successes;fails;time");
   }
   file.print(profileData->name);
   file.print(";");
   file.print(ntpDateString);
   file.print(";");
   file.print(ntpTimeString);
+  file.print(";");
+  file.print(successes);
+  file.print(";");
+  file.print(fails);
+  file.print(";");
+  file.print(time);
   file.print("\n");
   file.close();
 }

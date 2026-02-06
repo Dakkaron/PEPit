@@ -126,7 +126,8 @@ struct BlowData {
   int32_t minPressure = 0;
   int32_t targetPressure = 0;
   uint32_t cumulativeError = 0;
-  uint8_t fails = 0;
+  uint32_t successes = 0;
+  uint32_t fails = 0;
   uint32_t taskType;
   uint8_t lastBlowStatus = 0;
   uint32_t totalLongBlowRepetitions = 0;
