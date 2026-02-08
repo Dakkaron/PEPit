@@ -14,9 +14,10 @@
 #define PRESSURE_BAR_Y 190
 
 #define PRESSURE_SENSOR_DIVISOR 65L
-#define PRESSURE_SENSOR_CUTOFF_LIMIT 500
+#define PRESSURE_SENSOR_CUTOFF_LIMIT 200
 #define PRESSURE_SENSOR_SMOOTHING_NUM_READINGS 10
-#define PRESSURE_SENSOR_MAX_SKIPS 10;
+#define PRESSURE_SENSOR_MAX_SKIPS 10
+#define PRESSURE_TARE_TOLERANCE 1
 
 #define PRESSURE_SENSOR_CUMULATIVE_ERROR_FACTOR 16
 
@@ -120,7 +121,7 @@ struct BlowData {
   uint8_t totalTaskNumber = 0;
   uint8_t blowCount = 0;
   uint8_t totalBlowCount = 0;
-  int32_t pressure = 0;
+  float pressure = 0;
   bool negativePressure = false;
   int32_t peakPressure = 0;
   int32_t minPressure = 0;

@@ -25,10 +25,11 @@ void initPressureSensor(String* errorMessage) {
 }
 
 void readPressure(BlowData* blowData) {
-  static uint32_t readings[PRESSURE_SENSOR_SMOOTHING_NUM_READINGS];
+  static float readings[PRESSURE_SENSOR_SMOOTHING_NUM_READINGS];
   static uint8_t readIndex = 0;
-  static uint32_t total = 0;
+  static float total = 0;
   static uint8_t skips = 0;
+  static float tare = 0;
   if (blowData->ms + 4999 < millis()) {
     for (int i=0;i<PRESSURE_SENSOR_SMOOTHING_NUM_READINGS;i++) {
       readings[i] = 0;
@@ -43,23 +44,31 @@ void readPressure(BlowData* blowData) {
     if (hx711.isBusy()) {
       return;
     }
-    int32_t sensorValue = (hx711.readChannel(CHAN_A_GAIN_64) / (PRESSURE_SENSOR_DIVISOR * blowData->targetPressure));
+    float sensorValue = (hx711.readChannel(CHAN_A_GAIN_64) / (PRESSURE_SENSOR_DIVISOR * blowData->targetPressure));
     if (systemConfig.debugLogBlowPressure) {
       Serial.print(F("Channel A (Gain 64): "));
       Serial.print(sensorValue);
       Serial.print(F(" / "));
     }
+    if (blowData->negativePressure) {
+      sensorValue = -sensorValue;
+    }
     if (sensorValue >= -PRESSURE_SENSOR_CUTOFF_LIMIT && sensorValue <= PRESSURE_SENSOR_CUTOFF_LIMIT) {
-      if (blowData->negativePressure) {
-        sensorValue = -sensorValue;
-      }
-      sensorValue = _max(0, sensorValue);
       skips = 0;
       total = total - readings[readIndex];
       readings[readIndex] = sensorValue;
       total = total + readings[readIndex];
       readIndex = (readIndex + 1) % PRESSURE_SENSOR_SMOOTHING_NUM_READINGS;
       blowData->pressure = total / PRESSURE_SENSOR_SMOOTHING_NUM_READINGS;
+      if (blowData->pressure < tare) {
+        tare -= 0.001;
+      } else if (blowData->pressure > tare && blowData->pressure <= tare + PRESSURE_TARE_TOLERANCE) {
+        tare += 0.001;
+      } else if (blowData->pressure > tare + PRESSURE_TARE_TOLERANCE) {
+        float diff = blowData->pressure - tare;
+        tare += 0.001 / (diff * diff);
+      }
+      blowData->pressure = _max(0, blowData->pressure-tare);
       if ((blowData->ms - blowData->blowStartMs) < blowData->targetDurationMs) {
         blowData->cumulativeError = abs(((int32_t)blowData->pressure - 100)) + ((blowData->cumulativeError * (PRESSURE_SENSOR_CUMULATIVE_ERROR_FACTOR-1)) / PRESSURE_SENSOR_CUMULATIVE_ERROR_FACTOR);
       }
