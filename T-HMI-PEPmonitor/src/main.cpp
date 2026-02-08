@@ -140,7 +140,9 @@ void setup() {
     Serial.println("done");
   }
   setSystemState(STATE_GAME_SELECTION);
-  runGameSelection(requiredTaskTypes);
+  if (!systemConfig.manometerMode) {
+    runGameSelection(requiredTaskTypes);
+  }
   setSystemState(STATE_GAME_RUNNING);
   displayPhysioRotateScreen();
 }

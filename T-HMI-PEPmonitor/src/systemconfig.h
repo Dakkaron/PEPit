@@ -19,6 +19,7 @@ struct SystemConfig {
   bool logExecutions;
   int32_t timezoneOffset;
   bool leftHandMode;
+  bool manometerMode;
 };
 
 extern SystemConfig systemConfig;

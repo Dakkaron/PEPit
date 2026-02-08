@@ -160,19 +160,75 @@ inline static unsigned long getTaskDurationUntilLastAction() {
   return _max(1, (blowData.blowEndMs!=0 ? blowData.blowEndMs : blowData.taskStartMs) - blowData.taskStartMs);
 }
 
+inline static bool isTrampolineTask() {
+  return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_TRAMPOLINE;
+}
+
+inline static bool isInhalationPEPTask() {
+  return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_INHALATIONPEP;
+}
+
+inline static bool isInhalationPEPTaskActingLikePEP(BlowData* blowData) {
+  return blowData->blowCount & 0x01;
+}
+
+inline static bool isInhalationTask() {
+  return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_INHALATION;
+}
+
 static void drawManometerModeDisplay() {
   spr.fillSprite(TFT_BLACK);
-  spr.drawCircle(SCREEN_WIDTH/2-110, SCREEN_HEIGHT-110, 110, 0xffff);
-  spr.setTextDatum(CC_DATUM);
-  for (uint32_t i=0; i<100; i+=10) {
-    float angleInRadians = (i-50)*0.02*PI;
+  if (isTrampolineTask()) {
+    if (jumpData.msLeft > 0) {
+
+      spr.setCursor(45, 100);
+      spr.setTextSize(3);
+      spr.print("Übrige Zeit: ");
+      int32_t secondsLeft = _max(0, jumpData.msLeft/1000);
+      spr.print(secondsLeft / 60);
+      spr.print(":");
+      if ((secondsLeft % 60) < 10) {
+        spr.print("0");
+      }
+      spr.print(secondsLeft % 60);
+    }
+  } else {
+    spr.drawCircle(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, 100, 0xffff);
+    spr.setTextDatum(CC_DATUM);
+    spr.setTextSize(2);
+    for (int32_t i=-30; i<=30; i+=1) {
+      float angleInRadians = i*0.025*PI - PI*0.5;
+      float cosI = cos(angleInRadians);
+      float sinI = sin(angleInRadians);
+      if (i % 10 == 0) {
+        spr.drawString(String(i), SCREEN_WIDTH/2 + cosI*60, SCREEN_HEIGHT/2 + sinI*60);
+        spr.drawLine(SCREEN_WIDTH/2 + cosI*100, SCREEN_HEIGHT/2 + sinI*100, SCREEN_WIDTH/2 + cosI*80, SCREEN_HEIGHT/2 + sinI*80, 0xffff);
+      } else if (i % 5 == 0) {
+        spr.drawLine(SCREEN_WIDTH/2 + cosI*100, SCREEN_HEIGHT/2 + sinI*100, SCREEN_WIDTH/2 + cosI*80, SCREEN_HEIGHT/2 + sinI*80, 0xffff);
+      } else {
+        spr.drawLine(SCREEN_WIDTH/2 + cosI*100, SCREEN_HEIGHT/2 + sinI*100, SCREEN_WIDTH/2 + cosI*90, SCREEN_HEIGHT/2 + sinI*90, 0xffff);
+      }
+    }
+    spr.setTextSize(1);
+    spr.setTextDatum(TL_DATUM);
+    float angleInRadians = (float)(blowData.pressure)*0.025*PI - PI*0.5;
     float cosI = cos(angleInRadians);
     float sinI = sin(angleInRadians);
-    spr.drawLine(SCREEN_WIDTH/2 + cosI*100, SCREEN_HEIGHT/2 + sinI*100, SCREEN_WIDTH/2 + cosI*80, SCREEN_HEIGHT/2 + sinI*80, 0xffff);
-    if (i % 20 == 0) {
-      spr.drawString(String(i), SCREEN_WIDTH/2 + cosI*70, SCREEN_HEIGHT/2 + sinI*70);
+    if (cosI>-0.01 && cosI<0.01) {
+      cosI = 0.0;
+    }
+    spr.drawLine(SCREEN_WIDTH*0.5, SCREEN_HEIGHT*0.5, SCREEN_WIDTH*0.5 + cosI*60.0, SCREEN_HEIGHT*0.5 + sinI*60.0, 0xffff);
+
+    spr.fillRect(240, 210, 80, 30, TFT_BLUE);
+    spr.setTextSize(2);
+    if (blowData.cycleNumber >= blowData.totalCycleNumber-1 && blowData.taskNumber >= blowData.totalTaskNumber-1) {
+      spr.drawString("Fertig", 255, 220);
+    } else {
+      spr.drawString("Weiter", 255, 220);
     }
   }
+  doSystemTasks();
+  spr.pushSpriteFast(0, 0);
 }
 
 static void drawInhalationDisplay() {
@@ -284,12 +340,14 @@ static void drawTrampolineDisplay() {
 
 static void handleLogExecutions() {
   uint32_t textDatumBak = tft.getTextDatum();
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextDatum(TC_DATUM);
-  tft.setTextSize(2);
-  tft.drawString("Schreibe Log auf SD-Karte", 160, 120);
-  tft.drawString("NICHT AUSSCHALTEN!", 160, 140);
-  tft.setTextDatum(textDatumBak);
+
+  spr.fillSprite(TFT_BLACK);
+  spr.setTextSize(2);
+  spr.setTextDatum(TL_DATUM);
+  spr.drawString("Datum und Uhrzeit", 20, 100);
+  spr.drawString("werden abgerufen.", 20, 120);
+  spr.drawString("Bitte warten...", 20, 140);
+  spr.pushSpriteFast(0,0);
 
   bool wifiExists = false;
   for (uint32_t i=0;i<3;i++) {
@@ -352,9 +410,15 @@ static void drawFinished() {
         power_off();
       }
     }
-    winScreenPath = getRandomWinScreenPathForCurrentGame(&errorMessage);
-    Serial.println("Win screen path: "+winScreenPath);
-    checkFailWithMessage(errorMessage);
+    Serial.print("##### Display winscreen done: ");
+    Serial.println(millis());
+    if (systemConfig.manometerMode) {
+      winScreenPath = MANOMETER_WINSCREEN_PATH;
+    } else {
+      winScreenPath = getRandomWinScreenPathForCurrentGame(&errorMessage);
+      Serial.println("Win screen path: "+winScreenPath);
+      checkFailWithMessage(errorMessage);
+    }
     spr.frameBuffer(1);
     spr.fillSprite(TFT_BLACK);
     spr.frameBuffer(2);
@@ -456,6 +520,10 @@ void displayPhysioRotateScreen() {
   delay(200);
 }
 
+inline static unsigned long getLastBlowEvent() {
+  return blowData.currentlyBlowing ? blowData.blowStartMs : blowData.blowEndMs;
+}
+
 inline static bool isPepTask() {
   switch (profileData.taskType[currentTask]) {
     case PROFILE_TASK_TYPE_LONGBLOWS:
@@ -467,31 +535,16 @@ inline static bool isPepTask() {
     }
 }
 
-inline static bool isInhalationPEPTask() {
-  return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_INHALATIONPEP;
-}
-
-inline static bool isInhalationPEPTaskActingLikePEP(BlowData* blowData) {
-  return blowData->blowCount & 0x01;
-}
-
-inline static bool isInhalationTask() {
-  return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_INHALATION;
-}
-
-inline static unsigned long getLastBlowEvent() {
-  return blowData.currentlyBlowing ? blowData.blowStartMs : blowData.blowEndMs;
-}
-
 void handlePhysioTask() {
   static uint32_t taskFinishedTimeout = 0;
+  static bool touchBlocked = false;
   lastMs = blowData.ms;
   blowData.ms = millis();
   jumpData.ms = blowData.ms;
   if (blowData.taskStartMs == 0) {
     blowData.taskStartMs = blowData.ms;
   }
-  if (profileData.taskType[currentTask] == PROFILE_TASK_TYPE_TRAMPOLINE) {
+  if (isTrampolineTask()) {
     if (jumpData.msLeft < -5000) {
       currentCycle++;
       drawFinished(); //Todo: Make jump task compatible with multi-task configs
@@ -503,7 +556,6 @@ void handlePhysioTask() {
     jumpData.totalTime = profileData.taskTime[currentTask];
 
     getJumpData(&jumpData, &profileData, currentTask);
-    drawTrampolineDisplay();
   } else {
     blowData.taskNumber = currentTask;
     blowData.cycleNumber = currentCycle;
@@ -553,7 +605,7 @@ void handlePhysioTask() {
         Serial.print(F(" Target Duration: "));
         Serial.println(blowData.targetDurationMs);
         // Check for task end on PEP tasks
-        if (isPepTask() && taskFinishedTimeout==0 && blowData.blowCount >= blowData.totalBlowCount) {
+        if (!systemConfig.manometerMode && isPepTask() && taskFinishedTimeout==0 && blowData.blowCount >= blowData.totalBlowCount) {
           taskFinishedTimeout = blowData.ms + 2000;
         }
       } else {
@@ -572,6 +624,12 @@ void handlePhysioTask() {
       } else if ((isInhalationTask() || isInhalationPEPTask()) && !blowData.currentlyBlowing && blowData.ms-getLastBlowEvent() > INHALATION_TASK_WARN_TIMEOUT) {
         tft.invertDisplay((blowData.ms/500) % 2);
       } else {
+        tft.invertDisplay(0);
+      }
+    }
+    if (systemConfig.manometerMode && !touchBlocked && isTouchInZone(240, 210, 80, 30)) {
+      if (isTouchInZone(240, 210, 80, 30)) {
+        taskFinishedTimeout = blowData.ms;
         tft.invertDisplay(0);
       }
     }
@@ -608,10 +666,18 @@ void handlePhysioTask() {
         displayPhysioRotateScreen();
       }
     }
-    if (isPepTask() || isInhalationPEPTask()) {
-      drawPEPDisplay();
-    } else if (isInhalationTask()) {
-      drawInhalationDisplay();
-    }
+  }
+
+  if (systemConfig.manometerMode) {
+    drawManometerModeDisplay();
+  } else if (isPepTask() || isInhalationPEPTask()) {
+    drawPEPDisplay();
+  } else if (isInhalationTask()) {
+    drawInhalationDisplay();
+  } else if (isTrampolineTask()) {
+    drawTrampolineDisplay();
+  }
+  if (!isTouchInZone(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)) {
+    touchBlocked = false;
   }
 }
