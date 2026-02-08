@@ -373,6 +373,15 @@ static void handleLogExecutions() {
     ntpTimeString = "N/A";
   }
   Serial.println("NTP Time: " + ntpDateString + " " + ntpTimeString);
+
+  spr.fillSprite(TFT_BLACK);
+  spr.setTextDatum(TC_DATUM);
+  spr.setTextSize(2);
+  spr.drawString("Schreibe Log auf SD-Karte", 160, 120);
+  spr.drawString("NICHT AUSSCHALTEN!", 160, 140);
+  spr.setTextDatum(textDatumBak);
+  spr.pushSpriteFast(0,0);
+
   logExecutionToSD(&profileData, ntpDateString, ntpTimeString, blowData.successes, blowData.fails, blowData.totalTimeSpentBreathing, &errorMessage);
   checkFailWithMessage(errorMessage);
 }
@@ -381,10 +390,16 @@ static void drawFinished() {
   static uint32_t winscreenTimeout = 0;
   static String winScreenPath = "";
   if (winscreenTimeout == 0) { // Only runs on first execution
+    Serial.print("##### Start drawFinished(): ");
+    Serial.println(millis());
     String errorMessage;
+    Serial.print("##### Start handleLogExecutions(): ");
+    Serial.println(millis());
     if (systemConfig.logExecutions) {
       handleLogExecutions();
     }
+    Serial.print("##### initializing win screen: ");
+    Serial.println(millis());
     endGame(&errorMessage);
     checkFailWithMessage(errorMessage);
     winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
@@ -398,6 +413,8 @@ static void drawFinished() {
     spr.fillSprite(TFT_BLACK);
     spr.pushSpriteFast(0,0);
     tft.fillScreen(TFT_BLACK);
+    Serial.print("##### start displaying win screen: ");
+    Serial.println(millis());
     while (displayWinScreen(&spr, &errorMessage)) {
       checkFailWithMessage(errorMessage);
       spr.pushSpriteFast(0,0);
