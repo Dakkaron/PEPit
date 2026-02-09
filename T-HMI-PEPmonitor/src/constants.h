@@ -2,7 +2,7 @@
 #define __CONSTANTS_H__
 #include <Arduino.h>
 
-#define VERSION "8.3"
+#define VERSION "8.4"
 
 #define LAST_BLOW_SUCCEEDED 0B00000001
 #define LAST_BLOW_FAILED    0B00000010
