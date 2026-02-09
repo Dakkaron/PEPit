@@ -123,12 +123,13 @@ String getCsvToken(String* input, uint32_t index) {
   int32_t startIndex = 0;
   int32_t endIndex = input->indexOf(';');
   for (int32_t i = 0; i<index; i++) {
+    if (endIndex == -1) {
+      return "";
+    }
     startIndex = endIndex + 1;
     endIndex = input->indexOf(';', endIndex + 1);
   }
-  if (startIndex == -1) {
-    return "";
-  } else if (endIndex == -1) {
+  if (endIndex == -1) {
     return input->substring(startIndex, input->length());
   } else {
     return input->substring(startIndex, endIndex);
