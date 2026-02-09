@@ -112,11 +112,27 @@ bool displayProgressionMenu(DISPLAY_T *display, String *errorMessage) {
   }
 }
 
-static String leftPadString(String str, int len) {
+static String leftPadString(String str, int len, String chr = " ") {
   for (uint32_t i = str.length(); i < len; i++) {
-    str = " " + str;
+    str = chr + str;
   }
   return str;
+}
+
+String getCsvToken(String* input, uint32_t index) {
+  int32_t startIndex = 0;
+  int32_t endIndex = input->indexOf(';');
+  for (int32_t i = 0; i<index; i++) {
+    startIndex = endIndex + 1;
+    endIndex = input->indexOf(';', endIndex + 1);
+  }
+  if (startIndex == -1) {
+    return "";
+  } else if (endIndex == -1) {
+    return input->substring(startIndex, input->length());
+  } else {
+    return input->substring(startIndex, endIndex);
+  }
 }
 
 bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *errorMessage) {
@@ -153,6 +169,14 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
     }
   }
 
+  spr.drawString("Datum", 0, 32);
+  spr.drawString("Zeit", 58, 32);
+  spr.drawString("Profil", 90, 32);
+  spr.drawString("OK", 160, 32);
+  spr.drawString("NOK", 180, 32);
+  spr.drawString("Dauer", 210, 32);
+  spr.drawFastHLine(0, 39, 320, 0xffff);
+
   lineStart = 0;
   uint32_t lineCount = 0;
   String lastDate = "";
@@ -167,10 +191,8 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
       continue;
     }
     String line = executionLog->substring(lineStart, lineEnd);
-    uint32_t sepIndex = line.indexOf(';');
-    String profile = line.substring(0, sepIndex);
-    sepIndex = line.indexOf(';', sepIndex + 1);
-    String date = line.substring(profile.length() + 1, sepIndex);
+    String profile = getCsvToken(&line, 0);
+    String date = getCsvToken(&line, 1);
     if (date.equals(lastDate)) {
       date = "";
     } else {
@@ -179,11 +201,18 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
       }      
       lastDate = date;
     }
-    String time = line.substring(sepIndex + 1, line.length());
+    String time = getCsvToken(&line, 2);
     time = leftPadString(time, 5);
+    String successes = getCsvToken(&line, 3);
+    String fails = getCsvToken(&line, 4);
+    int32_t durationSeconds = getCsvToken(&line, 5).toInt() / 1000;
+    String duration = leftPadString(String(durationSeconds/60), 2, "0") + ":" + leftPadString(String(durationSeconds%60), 2, "0");
     spr.drawString(date, 0, yPos);
-    spr.drawString(time, 80, yPos);
-    spr.drawString(profile, 150, yPos);
+    spr.drawString(time, 58, yPos);
+    spr.drawString(profile, 90, yPos);
+    spr.drawString(successes, 160, yPos);
+    spr.drawString(fails, 180, yPos);
+    spr.drawString(duration, 210, yPos);
     yPos += 8;
     lineStart = lineEnd + 1;
   }
