@@ -191,28 +191,30 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
       continue;
     }
     String line = executionLog->substring(lineStart, lineEnd);
-    String profile = getCsvToken(&line, 0);
-    String date = getCsvToken(&line, 1);
-    if (date.equals(lastDate)) {
-      date = "";
-    } else {
-      if (yPos > 40) {
-        spr.drawFastHLine(0, yPos-1, 320, 0x528a);
-      }      
-      lastDate = date;
+    if (!line.startsWith("profileName;executionDate;executionTime")) {
+      String profile = getCsvToken(&line, 0);
+      String date = getCsvToken(&line, 1);
+      if (date.equals(lastDate)) {
+        date = "";
+      } else {
+        if (yPos > 40) {
+          spr.drawFastHLine(0, yPos-1, 320, 0x528a);
+        }      
+        lastDate = date;
+      }
+      String time = getCsvToken(&line, 2);
+      time = leftPadString(time, 5);
+      String successes = getCsvToken(&line, 3);
+      String fails = getCsvToken(&line, 4);
+      int32_t durationSeconds = getCsvToken(&line, 5).toInt() / 1000;
+      String duration = leftPadString(String(durationSeconds/60), 2, "0") + ":" + leftPadString(String(durationSeconds%60), 2, "0");
+      spr.drawString(date, 0, yPos);
+      spr.drawString(time, 58, yPos);
+      spr.drawString(profile, 90, yPos);
+      spr.drawString(successes, 160, yPos);
+      spr.drawString(fails, 180, yPos);
+      spr.drawString(duration, 210, yPos);
     }
-    String time = getCsvToken(&line, 2);
-    time = leftPadString(time, 5);
-    String successes = getCsvToken(&line, 3);
-    String fails = getCsvToken(&line, 4);
-    int32_t durationSeconds = getCsvToken(&line, 5).toInt() / 1000;
-    String duration = leftPadString(String(durationSeconds/60), 2, "0") + ":" + leftPadString(String(durationSeconds%60), 2, "0");
-    spr.drawString(date, 0, yPos);
-    spr.drawString(time, 58, yPos);
-    spr.drawString(profile, 90, yPos);
-    spr.drawString(successes, 160, yPos);
-    spr.drawString(fails, 180, yPos);
-    spr.drawString(duration, 210, yPos);
     yPos += 8;
     lineStart = lineEnd + 1;
   }
