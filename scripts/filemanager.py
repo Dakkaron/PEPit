@@ -9,12 +9,16 @@ import readline
 import atexit
 from esptool.cmds import detect_chip
 import serial.serialutil
+import binascii
+import struct
 
 MAX_RETRIES = 5
 MAX_READ_RETRIES = 1
 PORT_NAME = "/dev/ttyACM"
 BAUD_RATE = 115200
 detectedPortName = None
+
+FILE_BUFFER_BLOCK_SIZE = 4096
 
 histfile = os.path.join(os.path.expanduser("~"), ".pepit_fm_history")
 try:
@@ -66,10 +70,10 @@ def writeFile(path, data):
     while not (l := ser.readline().strip())==b"Starting transmission":
         print(l)
     lastDot = 0
-    for i in range(0, 1+len(data), 128):
-        ser.write(data[i:i+128])
+    for i in range(0, 1+len(data), 1024):
+        ser.write(data[i:i+1024])
         ser.flush()
-        r = ser.read_until(data[i:i+128])
+        r = ser.read_until(data[i:i+1024])
         if (i/100 > lastDot):
             lastDot = i/100
             print(".", end="")
@@ -77,6 +81,65 @@ def writeFile(path, data):
     print()
     print("Done uploading")
     print(time.time()-st)
+
+def writeFileBlocked(path, data):
+    print("Starting writeFileBlocked()")
+    st = time.time()
+    if isinstance(path,str):
+        path = path.encode("utf-8")
+    if isinstance(data,str):
+        data = data.encode("utf-8")
+    ser.flush()
+    print(" ")
+    print(" ulb "+path.decode("utf-8"))
+    print(len(data))
+    ser.write(b" ulb "+path+b"\n")
+    ser.write(str(len(data)).encode("utf-8")+b"\n")
+    print("Waiting for 'Starting transmission'")
+    while b"Starting transmission" not in (l := ser.readline().strip()):
+        print(l)
+    print("Found 'Starting transmission'")
+
+    blockCount = 1+len(data)
+    fileStartTime = time.time()
+    blockId = 0
+    for i in range(0, 1+len(data), FILE_BUFFER_BLOCK_SIZE):
+        cycleStart = time.time()
+        chunk = data[i:i+FILE_BUFFER_BLOCK_SIZE]
+        crc32 = binascii.crc32(chunk)
+        while True:
+            ser.write(struct.pack("<II", blockId, crc32))
+            ser.write(chunk)
+            ser.flush()
+
+            r = ser.read_until(b"_CRC_CHECK")
+            if b"SUCCESSFUL_CRC_CHECK" in r:
+                cycleTime = time.time()-cycleStart
+                kbs = (FILE_BUFFER_BLOCK_SIZE/1024)/cycleTime
+                if (i//10000 % 10 == 0):
+                    print(f"Block {i}/{blockCount}, {kbs} kB/s")
+                sys.stdout.flush()
+                blockId += 1
+                break
+            elif b"REQUEST_RESEND_CRC_CHECK" in r:
+                print("Resending block")
+                sys.stdout.flush()
+            elif b"Done writing tmp file" in r:
+                print("Finished after drop")
+                break
+            else:
+                print("Did not receive ACK/NACK")
+                print(r)
+                sys.stdout.flush()
+
+    print()
+    ser.write(b" "*20)
+    fileTime = time.time() - fileStartTime
+    kbs = (len(data)/1024.0)/fileTime
+    ser.read_until(b"Renamed tmp file to final file")
+    print(f"Done uploading, took {fileTime}s, average speed: {kbs} kB/s")
+    print(time.time()-st)
+    print("Finished writeFileBlocked()")
 
 def readFile(path, retry=0):
     if retry>=MAX_RETRIES:
@@ -182,6 +245,11 @@ def ul(src, target):
         data = f.read()
     writeFile(target.strip(), data)
 
+def ulb(src, target):
+    with open(src.strip(), "rb") as f:
+        data = f.read()
+    writeFileBlocked(target.strip(), data)
+
 def dl(src, target):
     data = readFile(src.strip())
     with open(target.strip(), "wb") as f:
@@ -236,6 +304,13 @@ def ulm(paths):
     print("Done uploading multiple")
     print(time.time()-st)
 
+def ulbm(paths):
+    st = time.time()
+    for path in paths:
+        ulb(path[1:], path)
+    print("Done uploading multiple")
+    print(time.time()-st)
+
 def ulr(src, target):
     st = time.time()
     print(f"ULR {src} {target}")
@@ -252,6 +327,22 @@ def ulr(src, target):
     print("Done uploading recursively")
     print(time.time()-st)
 
+def ulbr(src, target):
+    st = time.time()
+    print(f"ULBR {src} {target}")
+    paths = os.listdir(src)
+    mkdir(target)
+    for path in paths:
+        srcPath = os.path.join(src, path)
+        targetPath = os.path.join(target, path)
+        if os.path.isdir(srcPath):
+            ulbr(srcPath, targetPath)
+        elif os.path.isfile(srcPath):
+            print(f"ULB {srcPath} {targetPath}")
+            ulb(srcPath, targetPath)
+    print("Done uploading recursively")
+    print(time.time()-st)
+
 def dlr(src, target):
     start = time.time()
     os.makedirs(target, exist_ok=True)
@@ -265,6 +356,10 @@ def dlr(src, target):
         dirPath = dir.decode("utf-8")
         dlr(os.path.join(src, dirPath), os.path.join(target, dirPath))
     print(f"Took {time.time()-start}s")
+
+def monitor():
+    while True:
+        print(ser.readline())
 
 def checkDoublePath(param):
     path = param.split(" ")
@@ -292,8 +387,13 @@ def printHelp():
     print("ul [srcpath] [targetpath]   Uploads the given file to PEPit. Targetpath is optional")
     print("ulm [path1] [path2] [...]   Uploads the given files to PEPit.")
     print("ulr [srcpath] [targetpath]  Uploads the given directory and all files in it to PEPit. Targetpath is optional")
+    print("uls [srcpath] [targetpath]  Like ul, but slow compatibility mode for PEPit versions <9.0.")
+    print("ulsm [path1] [path2] [...]  Like ulm, but slow compatibility mode for PEPit versions <9.0.")
+    print("ulsr [srcpath] [targetpath] Like ulr, but slow compatibility mode for PEPit versions <9.0.")
     print("dl [srcpath] [targetpath]   Downloads the given file from PEPit. Targetpath is optional")
     print("dlr [srcpath] [targetpath]  Downloads the given directory and all files in it from PEPit. Targetpath is optional")
+    print("delay                       Pauses the execution for a given amount of seconds.")
+    print("monitor                     Shows serial output passively.")
     print("reset                       Reboots the PEPit and reconnects after boot")
     print("exit                        Exits the file manager")
 
@@ -302,7 +402,9 @@ def parseInput(inp, localRoot, pwd):
     cmd = inp.split(" ")[0]
     param = inp[len(cmd):].strip()
     param = " ".join([ os.path.join(pwd, x) for x in param.split(" ") ])
-    if cmd == "lsa":
+    if cmd == "delay":
+        time.sleep(float(param[1:])/1000)
+    elif cmd == "lsa":
         print("\n#### ON PEPit")
         printLs(ls(param if param else pwd, True))
     elif cmd == "ls":
@@ -326,16 +428,26 @@ def parseInput(inp, localRoot, pwd):
         res = res.decode("utf-8")
         print("File content:")
         print(res)
-    elif cmd == "ul":
+    elif cmd == "uls":
         path = checkDoublePath(param)
         ul(path[0], path[1])
-    elif cmd == "ulm":
+    elif cmd == "ul":
+        path = checkDoublePath(param)
+        ulb(path[0], path[1])
+    elif cmd == "ulsm":
         paths  = param.split(" ")
         ulm(paths)
-    elif cmd == "ulr":
+    elif cmd == "ulm":
+        paths  = param.split(" ")
+        ulbm(paths)
+    elif cmd == "ulsr":
         path = checkDoublePath(param)
         print(path)
         ulr(path[0], path[1])
+    elif cmd == "ulr":
+        path = checkDoublePath(param)
+        print(path)
+        ulbr(path[0], path[1])
     elif cmd == "dl":
         path = checkDoublePath(param)
         dl(path[0], path[1])
@@ -361,6 +473,8 @@ def parseInput(inp, localRoot, pwd):
         res = issueCommand("clearprefs", b"")
         if res:
             print(res.decode("utf-8"))
+    elif inp == "monitor":
+        monitor()
     elif inp == "exit":
         exit()
     elif inp == "reset":
