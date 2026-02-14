@@ -1,5 +1,8 @@
+#include <esp_rom_crc.h>
 #include "serialHandler.h"
 #include "prefsHandler.h"
+
+#define FILE_BUFFER_BLOCK_SIZE 4096
 
 void readFileToSerialSlow(const char *path, bool readAsHex, bool printFileSize) {
   Serial.printf("Reading file: %s\n", path);
@@ -132,20 +135,19 @@ String readSerialLine() {
   }
 }
 
-
-void handleUploadFileMode() {
-  Serial.println("Upload mode");
+void handleUploadFileBlocksMode() {
+  Serial.println("Upload blocks mode");
   String path = readSerialLine();
   Serial.print("Writing to file: '");
   Serial.print(path);
   Serial.println("'");
 
-  uint32_t fileLength = atoi(readSerialLine().c_str());
+  uint32_t remainingFileLength = atoi(readSerialLine().c_str());
   Serial.print("Number of bytes: '");
-  Serial.print(fileLength);
+  Serial.print(remainingFileLength);
   Serial.println("'");
 
-  uint8_t* fileBuffer = new uint8_t[fileLength+1];
+  uint8_t* fileBuffer = new uint8_t[FILE_BUFFER_BLOCK_SIZE+1];
 
   if (SD_MMC.exists(path + ".tmp")) {
     Serial.println("Deleting existing tmp file");
@@ -155,14 +157,82 @@ void handleUploadFileMode() {
   File file = SD_MMC.open(path + ".tmp", FILE_WRITE, true);
   Serial.println("Starting transmission");
   Serial.flush();
-  for (uint32_t i=0;i<fileLength;i++) {
-    while (Serial.available()==0) {}
-    fileBuffer[i] = Serial.read();
-    Serial.write(fileBuffer[i]);
-    Serial.flush();
+  Serial.setTimeout(10000);
+  uint32_t chunkLength = 1;
+  uint8_t headerBuffer[9];
+  int32_t lastBlockId = -1;
+  int32_t* receivedBlockId = (int32_t*)headerBuffer;
+  uint32_t* receivedCrc = (uint32_t*)(headerBuffer+4);
+  while (chunkLength>0) {
+    Serial.readBytes(headerBuffer, 8);
+    chunkLength = _min(remainingFileLength, FILE_BUFFER_BLOCK_SIZE);
+    Serial.readBytes(fileBuffer, chunkLength);
+    uint32_t crc = esp_rom_crc32_le(0, (const uint8_t*)fileBuffer, chunkLength);
+    if (*receivedBlockId == lastBlockId) { // Block was resent because "SUCCESSFUL_CRC_CHECK" response got lost, thus resending "SUCCESSFUL_CRC_CHECK"
+      Serial.println("SUCCESSFUL_CRC_CHECK");
+      Serial.flush();
+    } else if (crc == *receivedCrc) {
+      Serial.println("SUCCESSFUL_CRC_CHECK");
+      Serial.flush();
+      file.write(fileBuffer, chunkLength);
+      lastBlockId = *receivedBlockId;
+      remainingFileLength -= chunkLength;
+    } else {
+      Serial.println("REQUEST_RESEND_CRC_CHECK");
+      Serial.flush();
+    }
   }
-  fileBuffer[fileLength] = 0;
-  file.write(fileBuffer, fileLength);
+  Serial.println("SUCCESSFUL_CRC_CHECK");
+  Serial.flush();
+
+  free(fileBuffer);
+  file.close();
+  Serial.println();
+  Serial.println("Done writing tmp file");
+
+  if (SD_MMC.exists(path)) {
+    Serial.println("Deleting existing file");
+    SD_MMC.remove(path);
+  }
+
+  SD_MMC.rename(path + ".tmp", path);
+  Serial.println("Renamed tmp file to final file");
+}
+
+void handleUploadFileMode() {
+  Serial.println("Upload mode");
+  String path = readSerialLine();
+  Serial.print("Writing to file: '");
+  Serial.print(path);
+  Serial.println("'");
+
+  uint32_t remainingFileLength = atoi(readSerialLine().c_str());
+  Serial.print("Number of bytes: '");
+  Serial.print(remainingFileLength);
+  Serial.println("'");
+
+  uint8_t* fileBuffer = new uint8_t[FILE_BUFFER_BLOCK_SIZE+1];
+
+  if (SD_MMC.exists(path + ".tmp")) {
+    Serial.println("Deleting existing tmp file");
+    SD_MMC.remove(path + ".tmp");
+  }
+
+  File file = SD_MMC.open(path + ".tmp", FILE_WRITE, true);
+  Serial.println("Starting transmission");
+  Serial.flush();
+  uint32_t chunkLength = 1;
+  while (chunkLength>0) {
+    chunkLength = _min(remainingFileLength, FILE_BUFFER_BLOCK_SIZE);
+    remainingFileLength -= chunkLength;
+    for (uint32_t i=0;i<chunkLength;i++) {
+      while (Serial.available()==0) {}
+      fileBuffer[i] = Serial.read();
+      Serial.write(fileBuffer[i]);
+      Serial.flush();
+    }
+    file.write(fileBuffer, remainingFileLength);
+  }
 
   free(fileBuffer);
   file.close();
@@ -315,6 +385,8 @@ void handleSerial() {
     serialCommandBuffer[serialCommandCharacterCount] = 0;
     if (strcasecmp(serialCommandBuffer, "ul ") == 0) {
       handleUploadFileMode();
+    } else if (strcasecmp(serialCommandBuffer, "ulb ") == 0) {
+      handleUploadFileBlocksMode();
     } else if (strcasecmp(serialCommandBuffer, "ver ") == 0) {
       handlePrintVersion();
     } else if (strcasecmp(serialCommandBuffer, "ls ") == 0) {
@@ -341,6 +413,8 @@ void handleSerial() {
       dumpNamespaceContents();
     } else if (strcasecmp(serialCommandBuffer, "clearprefs ") == 0) {
       clearPreferencesExceptSystem();
+    } else if (strcasecmp(serialCommandBuffer, "reset ") == 0) {
+      ESP.restart();
     }
 
     if (charRead == 32 || charRead == 0 || charRead == 10) { // Check for space, \n or \0
