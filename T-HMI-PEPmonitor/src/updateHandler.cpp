@@ -171,6 +171,23 @@ void downloadAndRunSystemUpdate(String* errorMessage) {
     return;
   }
 
+  checkForAndRunUpdateFromSD(errorMessage);
+}
+
+void checkForAndRunUpdateFromSD(String* errorMessage) {
+  if (!SD_MMC.exists(String("/")+FIRMWARE_FILE_NAME)) {
+    Serial.println("No firmware update found on SD card.");
+    return;
+  }
+  if (!SD_MMC.exists(String("/")+SDCARD_CONTENT_FILE_NAME)) {
+    Serial.println("No content update found on SD card.");
+    return;
+  }
+  Serial.println("Starting update from SD card.");
+  tft.fillScreen(TFT_BLACK);
+  displayFullscreenMessage("Firmware-Update auf\nSD-Karte gefunden.\nUpdate wird ausgeführt.");
+
+
   Update.onProgress([](int progress, int total) {
     displayFullscreenMessage("Update installieren\n\n    "+String(progress / (total / 100))+"%");
     Serial.printf("Progress: %d%%\r", (progress / (total / 100)));
@@ -204,53 +221,24 @@ void downloadAndRunSystemUpdate(String* errorMessage) {
     SD_MMC.remove("/FIRMWARE.ERR");
   }
 
+  if (SD_MMC.exists("/SDCARDCONTENT.CUR")) {
+    SD_MMC.remove("/SDCARDCONTENT.CUR");
+  }
+  if (SD_MMC.exists("/SDCARDCONTENT.ERR")) {
+    SD_MMC.remove("/SDCARDCONTENT.ERR");
+  }
+
   if (Update.end()) {
-    SD_MMC.rename("/firmware.bin", "/FIRMWARE.CUR");
+    SD_MMC.rename(String("/")+FIRMWARE_FILE_NAME, "/FIRMWARE.CUR");
+    SD_MMC.rename(String("/")+SDCARD_CONTENT_FILE_NAME, "/SDCARDCONTENT.CUR");
     displayFullscreenMessage("Update erfolgreich!\n\nWird neugestartet...");
     Serial.println("Update done");
     delay(2000);
     Serial.println("Resetting device");
     ESP.restart();
   } else {
-    SD_MMC.rename("/firmware.bin", "/FIRMWARE.ERR");
-    errorMessage->concat("Update failed: ");
-    errorMessage->concat(Update.errorString());
-    errorMessage->concat("\n");
-    return;
-  }
-}
-
-void checkForAndRunUpdateFromSD(String* errorMessage) {
-  if (!SD_MMC.exists("/firmware.bin")) {
-    Serial.println("No update found on SD card.");
-    return;
-  }
-  Serial.println("Starting update from SD card.");
-  tft.fillScreen(TFT_BLACK);
-  displayFullscreenMessage("Firmware-Update auf\nSD-Karte gefunden.\nUpdate wird ausgeführt.");
-  File fileStream = SD_MMC.open("/firmware.bin");
-  Update.begin(fileStream.size(), U_FLASH);
-  Update.writeStream(fileStream);
-
-  Update.onProgress([](int progress, int total) {
-    displayFullscreenMessage("Update installieren\n\n    "+String(progress / (total / 100))+"%");
-    Serial.printf("Progress: %d%%\r", (progress / (total / 100)));
-  });
-  if (SD_MMC.exists("/FIRMWARE.CUR")) {
-    SD_MMC.remove("/FIRMWARE.CUR");
-  }
-  if (SD_MMC.exists("/FIRMWARE.ERR")) {
-    SD_MMC.remove("/FIRMWARE.ERR");
-  }
-  if (Update.end()) {
-    SD_MMC.rename("/firmware.bin", "/FIRMWARE.CUR");
-    displayFullscreenMessage("Update erfolgreich!\n\nWird neugestartet...");
-    Serial.println("Update done");
-    delay(2000);
-    Serial.println("Resetting device");
-    ESP.restart();
-  } else {
-    SD_MMC.rename("/firmware.bin", "/FIRMWARE.ERR");
+    SD_MMC.rename(String("/")+FIRMWARE_FILE_NAME, "/FIRMWARE.ERR");
+    SD_MMC.rename(String("/")+SDCARD_CONTENT_FILE_NAME, "/SDCARDCONTENT.ERR");
     errorMessage->concat("Update failed: ");
     errorMessage->concat(Update.errorString());
     errorMessage->concat("\n");
