@@ -359,7 +359,10 @@ def dlr(src, target):
 
 def monitor():
     while True:
-        print(ser.readline())
+        line = ser.readline()
+        if len(line.strip())>0:
+            line = line.strip(b"\r\n")
+            print(repr(line)[2:-1])
 
 def checkDoublePath(param):
     path = param.split(" ")
