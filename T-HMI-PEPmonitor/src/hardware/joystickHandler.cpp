@@ -10,22 +10,34 @@ static bool joystickPresent = false;
 bool isJoystickPresent() {
   if (!joystickInitialized) {
     joystickPresent = joystick2.begin(&Wire, JOYSTICK2_ADDR, 15, 16);
-    joystick2.set_rgb_color(0x00ff00);
+    joystick2.set_rgb_color(0x000000);
     joystickInitialized = true;
   }
   return joystickPresent;
 }
 
 void getJoystickXY(float* x, float* y) {
+  static float joystickX = 0;
+  static float joystickY = 0;
   if (isJoystickPresent()) {
     uint16_t adc_x;
     uint16_t adc_y;
     joystick2.get_joy_adc_16bits_value_xy(&adc_x, &adc_y);
-    *y = -((((int32_t)adc_x) - 32768) * 0.000030518); //divide by 2^15
-    *x = ((((int32_t)adc_y) - 32768) * 0.000030518); //divide by 2^15
+    if (adc_x != 257 && adc_y != 257) {
+      joystickX = ((((int32_t)adc_y) - 32768) * 0.000030518); //divide by 2^15
+      joystickY = -((((int32_t)adc_x) - 32768) * 0.000030518); //divide by 2^15
+    }
+    if (abs(joystickX)<0.05) {
+      joystickX = 0;
+    }
+    if (abs(joystickY)<0.05) {
+      joystickY = 0;
+    }
+    *x = joystickX;
+    *y = joystickY;
   } else {
-    *y = 0;
     *x = 0;
+    *y = 0;
   }
 }
 
@@ -37,7 +49,7 @@ bool getJoystickButton() {
   }
 }
 
-bool setJoystickRGB(uint32_t rgb) {
+void setJoystickRGB(uint32_t rgb) {
   if (isJoystickPresent()) {
     joystick2.set_rgb_color(rgb);
   }
