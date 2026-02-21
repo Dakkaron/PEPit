@@ -709,7 +709,68 @@ void printShaded(DISPLAY_T* display, String text, uint8_t shadeStrength, uint16_
   display->print(text);
 }
 
+#define MENU_SPRITE_COUNT_LIMIT 11
+static String menuSpritePaths[8];
+static TFT_eSprite* menuSprites = nullptr;
+
+static void refreshMenuSprites() {
+  if (menuSprites == nullptr) {
+    menuSprites = (TFT_eSprite*) heap_caps_malloc(sizeof(TFT_eSprite) * MENU_SPRITE_COUNT_LIMIT, MALLOC_CAP_SPIRAM);
+    if (!menuSprites) {
+      Serial.println("Failed to allocate sprites in PSRAM!");
+      checkFailWithMessage("init: Failed to allocate sprites in PSRAM!");
+      return;
+    }
+
+    for (size_t i = 0; i < MENU_SPRITE_COUNT_LIMIT; ++i) {
+      new (&menuSprites[i]) TFT_eSprite(&tft);
+      menuSprites[i].setColorDepth(16);
+    }
+  }
+}
+
+static void refreshAndDrawMenuSprite(DISPLAY_T* display, uint32_t slotId, String path, int32_t x, int32_t y) {
+  if (menuSpritePaths[slotId] != path) {
+    if (menuSprites[slotId].created()) {
+      menuSprites[slotId].deleteSprite();
+    }
+    if (!loadBmp(&menuSprites[slotId], path, 0, 0xf81f)) {
+      Serial.println("Failed to load sprite " + path);
+    }
+    menuSpritePaths[slotId] = path;
+  }
+  menuSprites[slotId].pushToSprite(display, x - menuSprites[slotId].width()/2, y  - menuSprites[slotId].height()/2, 0xf81f);
+}
+
+static void drawStringWordWrapped(DISPLAY_T* display, String string, uint32_t charsPerLine, int32_t x, int32_t y) {
+  if (string.length()<=charsPerLine) {
+    display->drawString(string, x, y);
+  } else {
+    int32_t wordCount = 0;
+    int32_t spacePos = 0;
+    while (spacePos >= 0) {
+      spacePos = string.indexOf(" ", spacePos+1);
+      Serial.print("Spacepos ");
+      Serial.println(spacePos);
+      wordCount++;
+    }
+    spacePos = -1;
+    for (int32_t i=1;i<=wordCount;i++) {
+      Serial.print(i);
+      Serial.print("/");
+      Serial.println(wordCount);
+      int32_t nextSpacePos = string.indexOf(" ", spacePos+1);
+      if (nextSpacePos==-1) {
+        nextSpacePos = string.length();
+      }
+      display->drawString(string.substring(spacePos+1, nextSpacePos), x, y + (i - wordCount)*9);
+      spacePos = nextSpacePos;
+    }
+  }
+}
+
 static void drawProfileSelectionPage(DISPLAY_T* display, uint16_t startNr, uint16_t nr, bool drawArrows, uint8_t systemUpdateAvailableStatus, String* errorMessage) {
+  refreshMenuSprites();
   int32_t columns = _min(4, nr);
   int32_t rows = nr>4 ? 2 : 1;
   int32_t cWidth = (290 - 10*columns) / columns;
@@ -721,24 +782,22 @@ static void drawProfileSelectionPage(DISPLAY_T* display, uint16_t startNr, uint1
         ProfileData profileData;
         readProfileData(profileId, &profileData, errorMessage);
         display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_BLUE);
-        int16_t imgW, imgH;
-        getBmpDimensions(profileData.imagePath, &imgW, &imgH);
-        drawBmp(profileData.imagePath, 20 + c*(cWidth + 10) + cWidth/2 - imgW/2, 30+r*(cHeight+10) + cHeight/2 - imgH/2, false);
+        refreshAndDrawMenuSprite(display, profileId, profileData.imagePath, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight/2);
         uint8_t textDatumBackup = display->getTextDatum();
         display->setTextDatum(BC_DATUM);
         display->setTextSize(1);
-        display->drawString(profileData.name, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight - 3);
+        drawStringWordWrapped(display, profileData.name, 13, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight - 3);
         display->setTextDatum(textDatumBackup);
       }
     }
   }
-  drawBmp("/gfx/progressionmenu.bmp", SCREEN_WIDTH - 32, 0, false);
-  drawBmp("/gfx/executionlist.bmp", SCREEN_WIDTH - 80, 0, true);
+  refreshAndDrawMenuSprite(display, 9, "/gfx/progressionmenu.bmp", SCREEN_WIDTH - 16, 16);
+  refreshAndDrawMenuSprite(display, 9, "/gfx/executionlist.bmp", SCREEN_WIDTH - 64, 16);
   if (systemUpdateAvailableStatus == FIRMWARE_UPDATE_AVAILABLE) {
     display->setTextDatum(BR_DATUM);
     display->setTextSize(1);
     display->drawString("System-Update verfügbar", SCREEN_WIDTH - 35, SCREEN_HEIGHT - 1, GFXFF);
-    drawBmp("/gfx/systemupdate.bmp", SCREEN_WIDTH - 32, SCREEN_HEIGHT - 32, false);
+    refreshAndDrawMenuSprite(display, 9, "/gfx/systemupdate.bmp", SCREEN_WIDTH - 16, SCREEN_HEIGHT - 16);
   } else if (systemUpdateAvailableStatus == FIRMWARE_UPDATE_CHECK_RUNNING) {
     display->setTextDatum(BR_DATUM);
     display->setTextSize(1);
@@ -751,17 +810,23 @@ static void drawGameSelectionPage(DISPLAY_T* display, uint16_t startNr, uint16_t
   int32_t rows = nr>4 ? 2 : 1;
   int32_t cWidth = (290 - 10*columns) / columns;
   int32_t cHeight = rows==1 ? 200 : 95; 
+  display->setTextDatum(BC_DATUM);
+  display->setTextSize(1);
+  GameConfig gameConfig;
+  String ignoreErrors;
   for (int32_t c = 0; c<columns; c++) {
     for (int32_t r = 0; r<rows; r++) {
       if (c + r*columns < nr) {
-        String gamePath = getGamePath(c + r*columns, requiredTaskTypes, errorMessage);
+        uint32_t gameId = c + r*columns;
+        String gamePath = getGamePath(gameId, requiredTaskTypes, errorMessage);
+        readGameConfig(gamePath, &gameConfig, &ignoreErrors);
         display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_BLUE);
-        int16_t imgW, imgH;
-        getBmpDimensions(gamePath + "logo.bmp", &imgW, &imgH);
-        drawBmp(gamePath + "logo.bmp", 20 + c*(cWidth + 10) + cWidth/2 - imgW/2, 30+r*(cHeight+10) + cHeight/2 - imgH/2, false);
+        refreshAndDrawMenuSprite(display, gameId, gamePath + "logo.bmp", 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight/2);
+        drawStringWordWrapped(display, gameConfig.name, 13, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight - 3);
       }
     }
   }
+  display->setTextDatum(TL_DATUM);
 }
 
 static int16_t checkSelectionPageSelection(uint16_t startNr, uint16_t nr, bool drawArrows, bool progressMenuIcon, bool executionListIcon, bool systemupdateAvailable) {
