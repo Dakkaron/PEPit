@@ -98,6 +98,8 @@ def writeFileBlocked(path, data):
     print("Waiting for 'Starting transmission'")
     while b"Starting transmission" not in (l := ser.readline().strip()):
         print(l)
+        if b"REQUEST_RESEND_CRC_CHECK" in l:
+            break
     print("Found 'Starting transmission'")
 
     blockCount = 1+len(data)
