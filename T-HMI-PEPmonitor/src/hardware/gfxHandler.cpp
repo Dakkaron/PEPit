@@ -710,7 +710,7 @@ void printShaded(DISPLAY_T* display, String text, uint8_t shadeStrength, uint16_
 }
 
 #define MENU_SPRITE_COUNT_LIMIT 11
-static String menuSpritePaths[8];
+static String menuSpritePaths[MENU_SPRITE_COUNT_LIMIT];
 static TFT_eSprite* menuSprites = nullptr;
 
 static void refreshMenuSprites() {
@@ -730,7 +730,12 @@ static void refreshMenuSprites() {
 }
 
 static void refreshAndDrawMenuSprite(DISPLAY_T* display, uint32_t slotId, String path, int32_t x, int32_t y) {
-  if (menuSpritePaths[slotId] != path) {
+  if (!menuSpritePaths[slotId].equals(path)) {
+    Serial.print("(Re-)loading menu sprite ");
+    Serial.print(path);
+    Serial.print(" to slot ");
+    Serial.print(slotId);
+    Serial.println(".");
     if (menuSprites[slotId].created()) {
       menuSprites[slotId].deleteSprite();
     }
@@ -791,13 +796,13 @@ static void drawProfileSelectionPage(DISPLAY_T* display, uint16_t startNr, uint1
       }
     }
   }
-  refreshAndDrawMenuSprite(display, 9, "/gfx/progressionmenu.bmp", SCREEN_WIDTH - 16, 16);
+  refreshAndDrawMenuSprite(display, 8, "/gfx/progressionmenu.bmp", SCREEN_WIDTH - 16, 16);
   refreshAndDrawMenuSprite(display, 9, "/gfx/executionlist.bmp", SCREEN_WIDTH - 64, 16);
   if (systemUpdateAvailableStatus == FIRMWARE_UPDATE_AVAILABLE) {
     display->setTextDatum(BR_DATUM);
     display->setTextSize(1);
     display->drawString("System-Update verfügbar", SCREEN_WIDTH - 35, SCREEN_HEIGHT - 1, GFXFF);
-    refreshAndDrawMenuSprite(display, 9, "/gfx/systemupdate.bmp", SCREEN_WIDTH - 16, SCREEN_HEIGHT - 16);
+    refreshAndDrawMenuSprite(display, 10, "/gfx/systemupdate.bmp", SCREEN_WIDTH - 16, SCREEN_HEIGHT - 16);
   } else if (systemUpdateAvailableStatus == FIRMWARE_UPDATE_CHECK_RUNNING) {
     display->setTextDatum(BR_DATUM);
     display->setTextSize(1);
@@ -922,7 +927,6 @@ int16_t displayProfileSelection(DISPLAY_T* display, uint16_t nr, String* errorMe
         for (uint32_t i = 0;i<2;i++) {
           display->fillSprite(TFT_BLACK);
           drawProfileSelectionPage(display, startNr, _min(nr, 8), nr>8, systemupdateAvailableStatus, errorMessage);
-          display->fillRect(SCREEN_WIDTH - 15, SCREEN_HEIGHT - 19, 15, 19, TFT_BLACK);
           display->pushSpriteFast(0, 0);
         }
       }

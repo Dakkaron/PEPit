@@ -103,7 +103,8 @@ void setup() {
   checkFailWithMessage(errorMessage);
   
   if (reason != ESP_RST_SW && reason != ESP_RST_USB) {
-    drawBmp("/gfx/splash.bmp", 0, 0);
+    loadBmp(&spr, "/gfx/splash.bmp");
+    spr.pushSpriteFast(0,0);
   }
   checkForPrefsReset();
   initSystemConfig(&errorMessage);
