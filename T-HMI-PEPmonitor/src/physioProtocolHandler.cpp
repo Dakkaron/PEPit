@@ -477,6 +477,7 @@ static void drawFinished() {
         Serial.print(millis());
         Serial.print(" - ");
         Serial.println(isUpdateStarted);
+        doSystemTasks();
       }
       Serial.print("Ending winscreen timeout: ");
       Serial.println(isUpdateStarted);
@@ -528,6 +529,7 @@ void displayPhysioRotateScreen() {
       displayOkButtonMs = 0;
     }
     handleSerial();
+    doSystemTasks();
     vTaskDelay(1); // watchdog
   }
   
