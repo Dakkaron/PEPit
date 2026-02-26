@@ -61,8 +61,8 @@
 #define SDCARD_CONTENT_FILE_NAME "SDCardContent.tar"
 
 #define GAME_SELECTION_POWEROFF_TIMEOUT 3L*60L*1000L // Power off device if it spends >3 minutes on game selection screen
-#define WIN_SCREEN_TIMEOUT 3L*5L*1000L
-#define SHOW_SYSTEM_UPDATE_ON_WINSCREEN_TIMEOUT 5L*1000L
+#define WIN_SCREEN_TIMEOUT 3L*60L*1000L
+#define SHOW_SYSTEM_UPDATE_ON_WINSCREEN_TIMEOUT 3L*1000L
 
 #define MANOMETER_WINSCREEN_PATH "/gfx/manometerWinscreen.bmp"
 
