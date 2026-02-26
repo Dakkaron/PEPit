@@ -59,6 +59,7 @@ void setup() {
   digitalWrite(PWR_ON_PIN, HIGH);
   pinMode(BK_LIGHT_PIN, OUTPUT);
   digitalWrite(BK_LIGHT_PIN, LOW);
+  gpio_deep_sleep_hold_en();
 
   esp_log_level_set("gpio", ESP_LOG_ERROR);
 
