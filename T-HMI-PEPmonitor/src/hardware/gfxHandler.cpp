@@ -29,6 +29,7 @@ TFT_eSprite spr = TFT_eSprite(&tft);
 TFT_eSprite batteryIcon[] = {TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprite(&tft)};
 
 void initGfxHandler() {
+  tft.writecommand(0x11);
   tft.fillScreen(TFT_BLACK);
   spr.setColorDepth(16);
   spr.createSprite(SCREEN_WIDTH, SCREEN_HEIGHT, 2);

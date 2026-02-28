@@ -24,6 +24,10 @@ void initPressureSensor(String* errorMessage) {
 
 }
 
+void powerDownPressureSensor(bool down) {
+  hx711.powerDown(down);
+}
+
 void readPressure(BlowData* blowData) {
   static float readings[PRESSURE_SENSOR_SMOOTHING_NUM_READINGS];
   static uint8_t readIndex = 0;

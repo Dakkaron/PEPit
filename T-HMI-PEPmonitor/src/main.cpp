@@ -59,7 +59,12 @@ void setup() {
   digitalWrite(PWR_ON_PIN, HIGH);
   pinMode(BK_LIGHT_PIN, OUTPUT);
   digitalWrite(BK_LIGHT_PIN, LOW);
+
+  pinMode(M5STACK_JOYSTICK2_POWER_PIN, OUTPUT); // Activate joystick power
+  digitalWrite(M5STACK_JOYSTICK2_POWER_PIN, HIGH);
+
   gpio_deep_sleep_hold_en();
+  gpio_hold_en(GPIO_NUM_14); // Make sure PWR_ON_PIN stays active even in deep sleep
 
   esp_log_level_set("gpio", ESP_LOG_ERROR);
 
@@ -83,9 +88,8 @@ void setup() {
 
   initGfxHandler();
   setBrightness(16);
-  esp_reset_reason_t reason = esp_reset_reason();
   tft.setTextSize(2);
-  if (reason != ESP_RST_SW && reason != ESP_RST_USB) {
+  if (!isSkipSplashScreen()) {
     tft.drawString("Nicht", 10, 10);
     tft.drawString("blasen!", 10, 25);
   }
@@ -103,7 +107,7 @@ void setup() {
   initSD(&errorMessage);
   checkFailWithMessage(errorMessage);
   
-  if (reason != ESP_RST_SW && reason != ESP_RST_USB) {
+  if (!isSkipSplashScreen()) {
     loadBmp(&spr, "/gfx/splash.bmp");
     spr.pushSpriteFast(0,0);
   }
@@ -114,7 +118,7 @@ void setup() {
   uint8_t defaultTextDatum = tft.getTextDatum();
   tft.setTextColor(TFT_BLACK);
   tft.setTextDatum(TR_DATUM);
-  if (reason != ESP_RST_SW && reason != ESP_RST_USB) {
+  if (!isSkipSplashScreen()) {
     tft.drawString("Version "+String(VERSION), 320, 2);
     tft.setTextDatum(defaultTextDatum);
     Serial.println(F("done"));

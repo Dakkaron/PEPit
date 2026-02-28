@@ -6,5 +6,6 @@
 
 void initPressureSensor(String* errorMessage);
 void readPressure(BlowData* blowData);
+void powerDownPressureSensor(bool down);
 
 #endif /*PRESSURESENSOR*/

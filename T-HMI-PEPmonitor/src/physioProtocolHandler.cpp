@@ -17,8 +17,6 @@
 static TFT_eSprite inhaleIcon(&tft);
 static TFT_eSprite exhaleIcon(&tft);
 
-static RTC_DATA_ATTR int32_t rebootSafeTest;
-
 ProfileData profileData;
 uint32_t currentTask;
 uint32_t currentCycle;
@@ -80,9 +78,7 @@ uint32_t runProfileSelection() {
         vTaskDelay(1); // watchdog
       }
       tft.fillScreen(TFT_BLACK);
-      //ESP.restart(); // Todo: don't restart, just go back to profile selection, but clear running game data
-      esp_sleep_enable_timer_wakeup(1);
-      esp_deep_sleep_start();
+      deepSleepReset(); // Todo: don't restart, just go back to profile selection, but clear running game data
       
       profileSuccessfullyLoaded = false;
       continue;
@@ -482,9 +478,7 @@ static void drawFinished() {
         isUpdateStarted = isTouchInZone(60, 110, 200, 45);
         if (isTouchInZone(60, 160, 200, 45)) {
           tft.fillScreen(TFT_BLACK);
-          //ESP.restart();
-          esp_sleep_enable_timer_wakeup(1);
-          esp_deep_sleep_start();
+          deepSleepReset();
         }
         Serial.print(winscreenTimeout);
         Serial.print(" . ");
@@ -513,17 +507,14 @@ static void drawFinished() {
       tft.setTextColor(0xFFFF);
       tft.fillRect(55, 175, 210, 55, 0x94b2);
       tft.fillRect(60, 180, 200, 45, 0x001F);
-      tft.drawString(String("Neustart")+rebootSafeTest, 160, 195);
+      tft.drawString("Neustart", 160, 195);
     }
   } else if (millis() > winscreenTimeout) {
     power_off();
   }
   if (getSystemUpdateAvailableStatus() != FIRMWARE_UPDATE_AVAILABLE && isTouchInZone(60, 160, 200, 45)) {
     tft.fillScreen(TFT_BLACK);
-    rebootSafeTest = 10;
-    //ESP.restart();
-    esp_sleep_enable_timer_wakeup(1);
-    esp_deep_sleep_start();
+    deepSleepReset();
   }
   spr.fillRect(32,0,38,20,TFT_BLACK);
   doSystemTasks();
