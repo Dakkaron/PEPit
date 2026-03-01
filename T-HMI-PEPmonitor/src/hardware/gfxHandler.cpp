@@ -1162,3 +1162,108 @@ void displayFullscreenMessage(String message, uint8_t textSize) {
   spr.println(message);
   spr.pushSpriteFast(0, 0);
 }
+
+static bool touchPressed = false;
+static void displayDigitSelector(int32_t* digit, int32_t min, int32_t max, uint32_t digits, int32_t x, int32_t y) {
+  *digit = _max(_min(*digit, max), min);
+  String digitString = String(*digit);
+  while (digitString.length()<digits) {
+    digitString = "0"+digitString;
+  }
+  spr.setTextDatum(CC_DATUM);
+  spr.setTextSize(2);
+  spr.setTextColor(COLOR_BUTTON_PRIMARY_TEXT);
+  spr.fillRect(x, y, 50, 50, COLOR_BUTTON_PRIMARY_FRAME);
+  spr.fillRect(x+2, y+2, 46, 46, COLOR_BUTTON_PRIMARY);
+  spr.drawString(digitString, x+25, y+17);
+  if (*digit < max) {
+    spr.fillTriangle(x, y-5, x+25, y-35, x+50, y-5, COLOR_BUTTON_PRIMARY_FRAME);
+    spr.fillTriangle(x+4, y-7, x+25, y-32, x+46, y-7, COLOR_BUTTON_PRIMARY);
+    if (!touchPressed && isTouchInZone(x, y-35, 50, 25)) {
+      (*digit)++;
+      touchPressed = true;
+    }
+  }
+  if (*digit > min) {
+    spr.fillTriangle(x, y+55, x+25, y+80, x+50, y+55, COLOR_BUTTON_PRIMARY_FRAME);
+    spr.fillTriangle(x+4, y+57, x+25, y+78, x+46, y+57, COLOR_BUTTON_PRIMARY);
+    if (!touchPressed && isTouchInZone(x, y+55, 50, 25)) {
+      (*digit)--;
+      touchPressed = true;
+    }
+  }
+}
+
+static uint32_t getDaysInMonth(int32_t month, int32_t year) {
+  if (month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12) {
+    return 31;
+  } else if (month == 2) {
+    if (year % 400 == 0) {
+      return 29;
+    } else if (year % 100 == 0) {
+      return 28;
+    } else if (year % 4 == 0) {
+      return 29;
+    } else {
+      return 28;
+    }
+  } else {
+    return 30;
+  }
+}
+
+void displayDateTimeSelection() {
+  int32_t hour = 0;
+  int32_t minute = 0;
+  int32_t day = 1;
+  int32_t month = 1;
+  int32_t year = 2026;
+  while (true) {
+    spr.fillSprite(TFT_BLACK);
+    doSystemTasks();
+    displayDigitSelector(&hour, 0, 23, 2, 10, 105);
+    displayDigitSelector(&minute, 0, 59, 2, 65, 105);
+
+    displayDigitSelector(&day, 1, getDaysInMonth(month, year), 2, 140, 105);
+    displayDigitSelector(&month, 1, 12, 2, 195, 105);
+    displayDigitSelector(&year, 2026, 2100, 4, 250, 105);
+
+    spr.setTextDatum(CC_DATUM);
+    spr.setTextSize(2);
+    spr.drawString("Uhrzeit", 60, 40);
+    spr.drawString("Datum", 220, 40);
+    spr.setTextColor(COLOR_BUTTON_PRIMARY_TEXT);
+    spr.fillRect(120, 200, 80, 40, COLOR_BUTTON_PRIMARY_FRAME);
+    spr.fillRect(125, 205, 70, 30, COLOR_BUTTON_PRIMARY);
+    spr.drawString("OK", 160, 212);
+    
+    if (isTouchInZone(120, 200, 80, 40)) {
+      break;
+    } else if (!isTouchInZone(0, 0, 320, 240)) {
+      touchPressed = false;
+    }
+    
+    spr.pushSpriteFast(0, 0);
+  }
+  struct tm tm;
+  tm.tm_hour = hour;
+  tm.tm_min = minute;
+  tm.tm_mday = day;
+  tm.tm_mon = month-1;
+  tm.tm_year = year-1900;
+  tm.tm_isdst = -1;
+  time_t t = mktime(&tm);
+  if (t == (time_t)-1) {
+    Serial.println("mktime failed!");
+    return;
+  }
+  
+  struct timeval tv;
+  tv.tv_sec = t;
+  tv.tv_usec = 0;
+  if (settimeofday(&tv, NULL) != 0) {
+    Serial.println("settimeofday failed!");
+    return;
+  }
+  spr.setTextDatum(TL_DATUM);
+}

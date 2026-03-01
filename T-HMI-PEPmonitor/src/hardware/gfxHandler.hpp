@@ -60,5 +60,6 @@ void checkKeyboard(DISPLAY_T* display, String* output, uint32_t maxCharacters, u
 void checkFailWithMessage(String message);
 void checkSoftFailWithMessage(String message, uint8_t textSize = 2);
 void displayFullscreenMessage(String message, uint8_t textSize = 2);
+void displayDateTimeSelection();
 
 #endif /*__GFXHANDLER_H__*/
