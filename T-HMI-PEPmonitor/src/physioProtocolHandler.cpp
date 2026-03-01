@@ -504,9 +504,9 @@ static void drawFinished() {
       }
     } else {
       tft.setTextDatum(1);
-      tft.setTextColor(0xFFFF);
-      tft.fillRect(55, 175, 210, 55, 0x94b2);
-      tft.fillRect(60, 180, 200, 45, 0x001F);
+      tft.setTextColor(COLOR_BUTTON_PRIMARY_TEXT);
+      tft.fillRect(55, 175, 210, 55, COLOR_BUTTON_PRIMARY_FRAME);
+      tft.fillRect(60, 180, 200, 45, COLOR_BUTTON_PRIMARY);
       tft.drawString("Neustart", 160, 195);
     }
   } else if (millis() > winscreenTimeout) {
