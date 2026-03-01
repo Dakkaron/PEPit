@@ -70,16 +70,6 @@ uint8_t startWifi() {
   return wifiStatus;
 }
 
-bool startFetchingNTPTime() {
-  uint32_t connectionStatus = startWifi();
-  Serial.println("Configuring time settings and NTP");
-  if (connectionStatus == WIFI_CONNECTION_NOWIFI) {
-    Serial.println("Failed to start NTP because of missing WIFI connection");
-  }
-  configTime(systemConfig.timezoneOffset, 0, "pool.ntp.org", "time.nist.gov");
-  return true;
-}
-
 static String leftPad(String s, uint16_t len, String c) {
   while (s.length()<len) {
     s = c + s;

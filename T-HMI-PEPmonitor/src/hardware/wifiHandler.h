@@ -13,7 +13,6 @@
 
 typedef std::function<void(size_t, size_t)> THandlerFunction_Progress;
 
-bool startFetchingNTPTime();
 void getFormattedTime(String* ntpDateString, String* ntpTimeString, String* errorMessage);
 
 void downloadFile(String url, String filename, String* errorMessage, THandlerFunction_Progress progressCallback);

@@ -114,6 +114,7 @@ void setup() {
   checkForPrefsReset();
   initSystemConfig(&errorMessage);
   checkFailWithMessage(errorMessage);
+  configTime(systemConfig.timezoneOffset, 0, "pool.ntp.org", "time.nist.gov");
 
   uint8_t defaultTextDatum = tft.getTextDatum();
   tft.setTextColor(TFT_BLACK);

@@ -40,7 +40,6 @@ static void fetchReleaseUrl() {
 void firmwareCheckTask(void* parameter) {
   Serial.println("Checking for firmware update in task");
   startWifi();
-  startFetchingNTPTime();
   fetchReleaseUrl();
   vTaskDelete(NULL);
 }
