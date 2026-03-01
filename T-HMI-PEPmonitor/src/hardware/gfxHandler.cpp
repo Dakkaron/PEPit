@@ -1022,8 +1022,16 @@ void drawSystemStats() {
   }
   spr.setTextDatum(TL_DATUM);
   spr.setTextSize(1);
-  spr.drawString(String(1000L/_max(1,ms-lastMs)), 64, 1); //FPS counter
-  spr.drawString(String(batteryVoltage/1000) + "." + leftPad(String((batteryVoltage/10)%100), 2, "0") + "V", 64, 11); // Battery voltage
+  spr.drawString(String(1000L/_max(1,ms-lastMs)), 64, 11); //FPS counter
+  if ((millis()>>12)&0x01) { // switch between battery voltage and time every 4 seconds
+    spr.drawString(String(batteryVoltage/1000) + "." + leftPad(String((batteryVoltage/10)%100), 2, "0") + "V", 64, 1); // Battery voltage
+  } else {
+    String timeString;
+    String dateString;
+    String errorMessage;
+    getFormattedTime(&dateString, &timeString, &errorMessage);
+    spr.drawString(timeString, 64, 1); // Battery voltage
+  }
   lastMs = ms;
 }
 
