@@ -21,8 +21,9 @@ bool isSkipSplashScreen() {
 }
 
 void deepSleepReset() {
+    Serial.println("deepSleepReset()");
     skipSplashScreen = true;
-    esp_sleep_enable_timer_wakeup(1);
+    esp_sleep_enable_timer_wakeup(100);
     esp_deep_sleep_start();
 }
 
