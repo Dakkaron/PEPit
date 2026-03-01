@@ -3,9 +3,9 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include "sdHandler.h"
+#include "esp32-hal.h"
 
-static HTTPClient http;
-static uint8_t wifiStatus = CONNECTION_NOWIFI;
+static uint8_t wifiStatus = WIFI_CONNECTION_SEARCHING;
 
 uint8_t getWifiStatus() {
   return wifiStatus;
@@ -14,7 +14,7 @@ uint8_t getWifiStatus() {
 uint8_t startWifi() {
   String ssid = "";
   String password = "";
-  if (wifiStatus == CONNECTION_OK) {
+  if (wifiStatus == WIFI_CONNECTION_OK) {
     return wifiStatus;
   }
   int32_t networksFound = WiFi.scanNetworks();
@@ -49,6 +49,7 @@ uint8_t startWifi() {
     }
     if (!wifiFound) {
       Serial.println("Wifi not found");
+      wifiStatus = WIFI_CONNECTION_NOWIFI;
       continue;
     }
     WiFi.begin(ssid, password);
@@ -58,7 +59,7 @@ uint8_t startWifi() {
         Serial.print('.');
         delay(1000);
       } else {
-        wifiStatus = CONNECTION_OK;
+        wifiStatus = WIFI_CONNECTION_OK;
         Serial.println("done");
         return wifiStatus;
       }
@@ -71,11 +72,10 @@ uint8_t startWifi() {
 
 bool startFetchingNTPTime() {
   uint32_t connectionStatus = startWifi();
-  if (connectionStatus == CONNECTION_NOWIFI) {
+  Serial.println("Configuring time settings and NTP");
+  if (connectionStatus == WIFI_CONNECTION_NOWIFI) {
     Serial.println("Failed to start NTP because of missing WIFI connection");
-    return false;
   }
-  Serial.println("Starting NTP");
   configTime(systemConfig.timezoneOffset, 0, "pool.ntp.org", "time.nist.gov");
   return true;
 }
@@ -87,11 +87,11 @@ static String leftPad(String s, uint16_t len, String c) {
   return s;
 }
 
-void getNTPTime(String* ntpDateString, String* ntpTimeString, String* errorMessage) {
+void getFormattedTime(String* ntpDateString, String* ntpTimeString, String* errorMessage) {
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)){
     Serial.println("Failed to obtain time from NTP");
-    errorMessage->concat("Konnte Zeit nicht per NTP abrufen.\n");
+    errorMessage->concat("Konnte Zeit nicht abrufen.\n");
     errorMessage->concat("Wahrscheinlich WLAN-Verbindungsproblem.\n");
     *ntpDateString = "N/A";
     *ntpTimeString = "N/A";
@@ -103,8 +103,10 @@ void getNTPTime(String* ntpDateString, String* ntpTimeString, String* errorMessa
 void downloadFile(String url, String filename, String* errorMessage, THandlerFunction_Progress progressCallback) {
   // Get file stream from internet
   uint32_t connectionStatus = startWifi();
-  if (connectionStatus == CONNECTION_NOWIFI) {
-    errorMessage->concat("Failed to start NTP because of missing WIFI connection");
+  if (connectionStatus == WIFI_CONNECTION_NOWIFI) {
+    errorMessage->concat("Failed to download file from ");
+    errorMessage->concat(url);
+    errorMessage->concat(" because of missing WIFI connection");
     return;
   }
 
@@ -145,8 +147,10 @@ void downloadFile(String url, String filename, String* errorMessage, THandlerFun
 
 String downloadFileToString(String url, String* errorMessage) {
   uint32_t connectionStatus = startWifi();
-  if (connectionStatus == CONNECTION_NOWIFI) {
-    errorMessage->concat("Failed to start downloadFileToString because of missing WIFI connection");
+  if (connectionStatus == WIFI_CONNECTION_NOWIFI) {
+    errorMessage->concat("Failed to start downloadFileToString from ");
+    errorMessage->concat(url);
+    errorMessage->concat(" because of missing WIFI connection");
     return "";
   }
 

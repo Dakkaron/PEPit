@@ -349,28 +349,20 @@ static void handleLogExecutions() {
   spr.drawString("Bitte warten...", 20, 140);
   spr.pushSpriteFast(0,0);
 
-  bool wifiExists = false;
-  for (uint32_t i=0;i<3;i++) {
-    wifiExists = startFetchingNTPTime();
-    if (wifiExists) {
-      break;
-    }
-  }
-
   String errorMessage;
   String ntpDateString, ntpTimeString;
-  Serial.println("Wifi exists: " + String(wifiExists));
-  if (wifiExists) {
-    getNTPTime(&ntpDateString, &ntpTimeString, &errorMessage);
+  getFormattedTime(&ntpDateString, &ntpTimeString, &errorMessage);
+  checkSoftFailWithMessage(errorMessage);
+  if (!errorMessage.isEmpty()) {
+    displayDateTimeSelection();
+    errorMessage = "";
+    getFormattedTime(&ntpDateString, &ntpTimeString, &errorMessage);
     checkSoftFailWithMessage(errorMessage);
-    if (!errorMessage.isEmpty()) {
+    if (!errorMessage.isEmpty()) { // Should never happen
       ntpDateString = "N/A";
       ntpTimeString = "N/A";
       errorMessage = "";
     }
-  } else {
-    ntpDateString = "N/A";
-    ntpTimeString = "N/A";
   }
   Serial.println("NTP Time: " + ntpDateString + " " + ntpTimeString);
 
@@ -450,7 +442,7 @@ static void drawFinished() {
       Serial.print(" . ");
       Serial.println(millis());
       while (millis() < beforeShowUpdateTimeout) {
-        spr.fillRect(32,0,38,20,TFT_BLACK);
+        spr.fillRect(32,0,66,20,TFT_BLACK);
         doSystemTasks();
         spr.pushSpriteFast(0,0);
         vTaskDelay(1); // watchdog
@@ -485,7 +477,7 @@ static void drawFinished() {
         Serial.print(millis());
         Serial.print(" - ");
         Serial.println(isUpdateStarted);
-        spr.fillRect(32,0,38,20,TFT_BLACK);
+        spr.fillRect(32,0,66,20,TFT_BLACK);
         doSystemTasks();
         spr.pushSpriteFast(0,0);
         vTaskDelay(1); // watchdog
@@ -516,7 +508,7 @@ static void drawFinished() {
     tft.fillScreen(TFT_BLACK);
     deepSleepReset();
   }
-  spr.fillRect(32,0,38,20,TFT_BLACK);
+  spr.fillRect(32,0,66,20,TFT_BLACK);
   doSystemTasks();
   spr.pushSpriteFast(0,0);
 }

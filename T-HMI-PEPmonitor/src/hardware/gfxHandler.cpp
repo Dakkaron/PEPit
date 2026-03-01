@@ -11,6 +11,7 @@
 #include "hardware/MyFont.h"
 #include "updateHandler.h"
 #include "systemStateHandler.h"
+#include "hardware/wifiHandler.h"
 
 #define GFXFF 1
 #define MYFONT5x7 &Font5x7Fixed
@@ -26,7 +27,8 @@
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite spr = TFT_eSprite(&tft);
-TFT_eSprite batteryIcon[] = {TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprite(&tft)};
+#define SYSTEM_STATS_SPRITE_COUNT 5
+static TFT_eSprite* systemStatsSprites = nullptr;
 
 void initGfxHandler() {
   tft.writecommand(0x11);
@@ -879,7 +881,7 @@ int16_t displayGameSelection(DISPLAY_T* display, uint16_t nr, uint32_t requiredT
     if (selection != -1 && selection<nr) {
       return selection;
     }
-    display->fillRect(0,0,70,20,TFT_BLACK);
+    display->fillRect(0,0,100,20,TFT_BLACK);
     doSystemTasks();
     display->pushSpriteFast(0,0);
     if (millis()>GAME_SELECTION_POWEROFF_TIMEOUT) {
@@ -937,7 +939,7 @@ int16_t displayProfileSelection(DISPLAY_T* display, uint16_t nr, String* errorMe
     if (selection != -1 && (selection<nr || selection == PROGRESS_MENU_SELECTION_ID || selection == SYSTEM_UPDATE_SELECTION_ID || selection == EXECUTION_LIST_SELECTION_ID)) {
       return selection;
     }
-    display->fillRect(0,0,70,20,TFT_BLACK);
+    display->fillRect(0,0,100,20,TFT_BLACK);
     doSystemTasks();
     display->pushSpriteFast(0,0);
     if (millis()>GAME_SELECTION_POWEROFF_TIMEOUT) {
@@ -953,31 +955,47 @@ static String leftPad(String s, uint16_t len, String c) {
   return s;
 }
 
+static void initSystemStatsSprites() {
+  if (systemStatsSprites == nullptr) {
+    systemStatsSprites = (TFT_eSprite*) heap_caps_malloc(sizeof(TFT_eSprite)*SYSTEM_STATS_SPRITE_COUNT, MALLOC_CAP_SPIRAM);
+    if (!systemStatsSprites) {
+      Serial.println("Failed to allocate sprites in PSRAM!");
+      checkFailWithMessage("init: Failed to allocate sprites in PSRAM!");
+      return;
+    }
+    for (uint32_t i=0; i<SYSTEM_STATS_SPRITE_COUNT; i++) {
+      new (&systemStatsSprites[i]) TFT_eSprite(&tft);
+      systemStatsSprites[i].setColorDepth(16);
+    }
+
+    loadBmp(&systemStatsSprites[0], "/gfx/battery_low.bmp");
+    loadBmp(&systemStatsSprites[1], "/gfx/battery_half.bmp");
+    loadBmp(&systemStatsSprites[2], "/gfx/battery_full.bmp");
+    loadBmp(&systemStatsSprites[3], "/gfx/wifi.bmp");
+    loadBmp(&systemStatsSprites[4], "/gfx/nowifi.bmp");
+  }
+}
+
 // Draws battery icon, battery voltage, FPS
 void drawSystemStats() {
+  initSystemStatsSprites();
   static int32_t lowBatteryCount = -1;
   static uint32_t lowBatteryWarningCount = 0;
   static uint32_t lastMs = millis();
   uint32_t ms = millis();
   uint32_t batteryVoltage = readBatteryVoltage();
-  if (lowBatteryCount == -1) { //check to run only once
-    lowBatteryCount = 0;
-    loadBmp(&batteryIcon[0], "/gfx/battery_low.bmp");
-    loadBmp(&batteryIcon[1], "/gfx/battery_half.bmp");
-    loadBmp(&batteryIcon[2], "/gfx/battery_full.bmp");
-  }
   if (batteryVoltage < 3600) {
-    batteryIcon[0].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[0].pushToSprite(&spr, 0, 0, 0x0000);
   } else if (batteryVoltage < 3800) {
-    batteryIcon[1].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[1].pushToSprite(&spr, 0, 0, 0x0000);
   } else if (batteryVoltage < 4200) {
-    batteryIcon[2].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[2].pushToSprite(&spr, 0, 0, 0x0000);
   } else if (batteryVoltage < 4400) {
-    batteryIcon[0].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[0].pushToSprite(&spr, 0, 0, 0x0000);
   } else if (batteryVoltage < 4600) {
-    batteryIcon[1].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[1].pushToSprite(&spr, 0, 0, 0x0000);
   } else {
-    batteryIcon[2].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[2].pushToSprite(&spr, 0, 0, 0x0000);
   }
   if (batteryVoltage<BATTERY_LOW_WARNING_VOLTAGE ) {
     lowBatteryWarningCount++;
@@ -985,7 +1003,7 @@ void drawSystemStats() {
     lowBatteryWarningCount = 0;
   }
   if (lowBatteryWarningCount>100 && batteryVoltage<BATTERY_LOW_WARNING_VOLTAGE && (ms/1000)&0x01) {
-    batteryIcon[0].pushToSprite(&spr, 144, 110, 0x0000);
+    systemStatsSprites[0].pushToSprite(&spr, 144, 110, 0x0000);
   }
   if (batteryVoltage<BATTERY_LOW_SHUTDOWN_VOLTAGE) {
     lowBatteryCount++;
@@ -995,10 +1013,17 @@ void drawSystemStats() {
   if (lowBatteryCount>100) {
     power_off();
   }
+  if (getWifiStatus() == WIFI_CONNECTION_OK) {
+    systemStatsSprites[3].pushToSprite(&spr, 34, 0, 0xf81f);
+  } else if (getWifiStatus() == WIFI_CONNECTION_NOWIFI) {
+    systemStatsSprites[4].pushToSprite(&spr, 34, 0, 0xf81f);
+  } else if ((millis() >> 10) & 0x01) { // WIFI_CONNECTION_SEARCHING, blink once per second
+    systemStatsSprites[3].pushToSprite(&spr, 34, 0, 0xf81f);
+  }
   spr.setTextDatum(TL_DATUM);
   spr.setTextSize(1);
-  spr.drawString(String(1000L/_max(1,ms-lastMs)), 34, 1); //FPS counter
-  spr.drawString(String(batteryVoltage/1000) + "." + leftPad(String(batteryVoltage%1000), 3, "0") + "V", 34, 11); // Battery voltage
+  spr.drawString(String(1000L/_max(1,ms-lastMs)), 64, 1); //FPS counter
+  spr.drawString(String(batteryVoltage/1000) + "." + leftPad(String((batteryVoltage/10)%100), 2, "0") + "V", 64, 11); // Battery voltage
   lastMs = ms;
 }
 
