@@ -80,7 +80,7 @@ RoadXOffsetDirection = 1
 
 PlayerX = 0
 
-Speed = 0.01
+Speed = 0.004
 
 SSky = LoadSprite("gfx/sky.bmp")
 STree = LoadSprite("gfx/tree.bmp", 0, 0xf81f)

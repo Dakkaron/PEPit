@@ -1,11 +1,11 @@
 local speedDrop = (1 - (0.0001 * MsDelta))
 Speed = Speed * speedDrop
 if (NewRepetition) then
-  Speed = Speed + 0.0075 + 0.0005*PlayerHorse.speed
+  Speed = Speed + 0.005 + 0.00025*PlayerHorse.speed
 end
 
 local distanceDelta = 0.0
-local speedLimit = (5 + PlayerHorse.speed) * 0.0005
+local speedLimit = (5 + PlayerHorse.speed) * 0.01
 distanceDelta = MsDelta * math.min(Speed, speedLimit)
 Distance = Distance + distanceDelta
 PlayerX = PlayerX - distanceDelta * RoadXOffset * 0.03
