@@ -78,13 +78,20 @@ static String leftPad(String s, uint16_t len, String c) {
 }
 
 void getFormattedTime(String* ntpDateString, String* ntpTimeString, String* errorMessage) {
+  static int32_t lastWifiStatus = -1;
+  static bool getLocalTimeFailedBefore = false;
   struct tm timeinfo;
-  if(!getLocalTime(&timeinfo)){
-    Serial.println("Failed to obtain time from NTP");
+  if((wifiStatus==lastWifiStatus && getLocalTimeFailedBefore) || !getLocalTime(&timeinfo,1)){
+    if (!(wifiStatus==lastWifiStatus && getLocalTimeFailedBefore)) {
+      Serial.println("Failed to obtain time from NTP");
+    }
+    getLocalTimeFailedBefore = true;
+    lastWifiStatus = wifiStatus;
     errorMessage->concat("Konnte Zeit nicht abrufen.\n");
     errorMessage->concat("Wahrscheinlich WLAN-Verbindungsproblem.\n");
     *ntpDateString = "N/A";
     *ntpTimeString = "N/A";
+    return;
   }
   *ntpDateString = String(timeinfo.tm_year+1900) + "-" + String(timeinfo.tm_mon+1) + "-" + String(timeinfo.tm_mday);
   *ntpTimeString = leftPad(String(timeinfo.tm_hour), 2, "0") + ":" + leftPad(String(timeinfo.tm_min), 2, "0");

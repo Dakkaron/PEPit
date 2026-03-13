@@ -1030,7 +1030,13 @@ void drawSystemStats() {
     String dateString;
     String errorMessage;
     getFormattedTime(&dateString, &timeString, &errorMessage);
-    spr.drawString(timeString, 64, 1); // Battery voltage
+    if (timeString.equals("N/A")) {
+      if (!((millis()>>9)&0x01)) { // blink 2x per second
+        spr.drawString("00:00", 64, 1); // Clock
+      }
+    } else {
+      spr.drawString(timeString, 64, 1); // Clock
+    }
   }
   lastMs = ms;
 }

@@ -40,6 +40,7 @@ static void fetchReleaseUrl() {
 void firmwareCheckTask(void* parameter) {
   Serial.println("Checking for firmware update in task");
   startWifi();
+  configTime(systemConfig.timezoneOffset, 0, "pool.ntp.org", "time.nist.gov");
   fetchReleaseUrl();
   vTaskDelete(NULL);
 }
