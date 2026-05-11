@@ -949,7 +949,8 @@ int16_t displayProfileSelection(DISPLAY_T* display, uint16_t nr, String* errorMe
 }
 
 static String leftPad(String s, uint16_t len, String c) {
-  while (s.length()<len) {
+  uint32_t charsToAdd = len - s.length();
+  for (uint32_t i=0; i<charsToAdd; i++) {
     s = c + s;
   }
   return s;
@@ -1181,9 +1182,7 @@ static bool touchPressed = false;
 static void displayDigitSelector(int32_t* digit, int32_t min, int32_t max, uint32_t digits, int32_t x, int32_t y) {
   *digit = _max(_min(*digit, max), min);
   String digitString = String(*digit);
-  while (digitString.length()<digits) {
-    digitString = "0"+digitString;
-  }
+  leftPad(digitString, digits, "0");
   spr.setTextDatum(CC_DATUM);
   spr.setTextSize(2);
   spr.setTextColor(COLOR_BUTTON_PRIMARY_TEXT);

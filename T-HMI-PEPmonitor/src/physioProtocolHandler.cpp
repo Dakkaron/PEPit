@@ -407,7 +407,7 @@ static void drawFinished() {
     tft.fillScreen(TFT_BLACK);
     Serial.print("##### start displaying win screen: ");
     Serial.println(millis());
-    while (displayWinScreen(&spr, &errorMessage)) {
+    while (displayWinScreen(&spr, &errorMessage) && millis() < winscreenTimeout) {
       checkFailWithMessage(errorMessage);
       spr.pushSpriteFast(0,0);
       spr.fillSprite(TFT_BLACK);
@@ -416,8 +416,6 @@ static void drawFinished() {
       vTaskDelay(1); // watchdog
       if (isTouchInZone(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)) {
         winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
-      } else if (millis() > winscreenTimeout) {
-        power_off();
       }
     }
     Serial.print("##### Display winscreen done: ");

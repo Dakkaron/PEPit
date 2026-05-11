@@ -71,7 +71,8 @@ uint8_t startWifi() {
 }
 
 static String leftPad(String s, uint16_t len, String c) {
-  while (s.length()<len) {
+  uint32_t charsToAdd = len-s.length();
+  for (uint32_t i=0; i<charsToAdd; i++) {
     s = c + s;
   }
   return s;
