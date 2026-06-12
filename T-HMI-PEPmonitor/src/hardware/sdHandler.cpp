@@ -507,25 +507,6 @@ char* readFileToNewPSBuffer(const char *path) {
   return buffer;
 }
 
-
-String readFileToString(const char *path) {
-  File file = SD_MMC.open(path);
-  if (!file) {
-    Serial.print("Failed to open file");
-    Serial.print(path);
-    Serial.println(" for reading");
-    return "";
-  }
-
-  String s;
-  while (file.available()) {
-    char charRead = file.read();
-    s += charRead;
-  }
-  file.close();
-  return s;
-}
-
 String readFileLineToString(const char *path, uint32_t lineNr) {
   File file = SD_MMC.open(path);
   if (!file) {

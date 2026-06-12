@@ -136,13 +136,25 @@ String getCsvToken(String* input, uint32_t index) {
   }
 }
 
-bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *errorMessage) {
-  static uint32_t skipLines = 0xFFFFFFFF;
-  uint32_t lineStart = 0;
-  uint32_t totalLineCount = 0;
-  uint32_t yPos = 40;
+int32_t charArrIndexOf(char* arr, int32_t len, char c, uint32_t offset = 0) {
+  if (offset >= len) {
+    return -1;
+  }
+  char* start = arr + offset;
+  char* end = arr + len;
+  int32_t res = (int32_t)(std::find(start, end, c)-arr);
+  return res;
+}
 
-  if (executionLog->length()==0 || executionLog->indexOf('\n')==-1) {
+bool displayExecutionList(DISPLAY_T* display, char* executionLog, String* errorMessage) {
+  static uint32_t skipLines = 0xFFFFFFFF;
+  static int32_t totalLineCount = -1;
+  uint32_t lineStart = 0;
+  uint32_t yPos = 40;
+  uint32_t executionLogLength = strlen(executionLog);
+  char lineBuff[256];
+
+  if (executionLogLength==0 || charArrIndexOf(executionLog, executionLogLength, '\n')==-1) {
     spr.setTextSize(2);
     spr.drawString("Keine gespeicherten Ausführungen.", 0, 100);
     spr.fillRect(240, 200, 100, 40, 0x001F);
@@ -153,13 +165,19 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
     }
     return true;
   }
-  while (lineStart < executionLog->length()) {
-    uint32_t lineEnd = executionLog->indexOf('\n', lineStart);
-    if (lineEnd == -1) {
-      lineEnd = executionLog->length();
+  if (totalLineCount==-1) {
+    totalLineCount = 0;
+    while (lineStart < executionLogLength) {
+      uint32_t lineEnd = charArrIndexOf(executionLog, executionLogLength, '\n', lineStart);
+      if (lineEnd == -1) {
+        lineEnd = executionLogLength;
+      }
+      lineStart = lineEnd + 1;
+      totalLineCount++;
     }
-    lineStart = lineEnd + 1;
-    totalLineCount++;
+    Serial.println("and out");
+    Serial.print("->");
+    Serial.println(totalLineCount);
   }
 
   if (skipLines > totalLineCount) {
@@ -181,17 +199,20 @@ bool displayExecutionList(DISPLAY_T *display, String *executionLog, String *erro
   lineStart = 0;
   uint32_t lineCount = 0;
   String lastDate = "";
-  while (lineStart < executionLog->length()) {
-    uint32_t lineEnd = executionLog->indexOf('\n', lineStart);
+  while (lineStart < executionLogLength) {
+    uint32_t lineEnd = charArrIndexOf(executionLog, executionLogLength, '\n', lineStart);
     if (lineEnd == -1) {
-      lineEnd = executionLog->length();
+      lineEnd = executionLogLength;
     }
     lineCount++;
     if (lineCount < skipLines) {
       lineStart = lineEnd + 1;
       continue;
     }
-    String line = executionLog->substring(lineStart, lineEnd);
+    uint32_t lineLen = _min(lineEnd-lineStart, 255);
+    memcpy(lineBuff, &executionLog[lineStart], lineLen);
+    lineBuff[lineLen] = '\0';
+    String line = lineBuff;
     if (!line.startsWith("profileName;executionDate;executionTime")) {
       String profile = getCsvToken(&line, 0);
       String date = getCsvToken(&line, 1);
