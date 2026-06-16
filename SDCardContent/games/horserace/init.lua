@@ -378,42 +378,42 @@ function PopulateShopItems()
   if ShopItems == nil then
     ShopItems = {
       {
-        sprite = LoadSprite("gfx/items/shop_coat_red.bmp"),
+        sprite = LoadSprite("gfx/items/shop_coat_red.bmp", 0, 0xf81f),
         cost = 1200,
         name = "Rote Jacke",
         color = COAT_R,
         itemType = ITEM_TYPE_COAT
       },
       {
-        sprite = LoadSprite("gfx/items/shop_coat_blue.bmp"),
+        sprite = LoadSprite("gfx/items/shop_coat_blue.bmp", 0, 0xf81f),
         cost = 1200,
         name = "Blaue Jacke",
         color = COAT_B,
         itemType = ITEM_TYPE_COAT
       },
       {
-        sprite = LoadSprite("gfx/items/shop_coat_yellow.bmp"),
+        sprite = LoadSprite("gfx/items/shop_coat_yellow.bmp", 0, 0xf81f),
         cost = 1200,
         name = "Gelbe Jacke",
         color = COAT_Y,
         itemType = ITEM_TYPE_COAT
       },
       {
-        sprite = LoadSprite("gfx/items/shop_helmet_blue.bmp"),
+        sprite = LoadSprite("gfx/items/shop_helmet_blue.bmp", 0, 0xf81f),
         cost = 1200,
         name = "Blauer Helm",
         color = HELMET_B,
         itemType = ITEM_TYPE_HELMET
       },
       {
-        sprite = LoadSprite("gfx/items/shop_helmet_red.bmp"),
+        sprite = LoadSprite("gfx/items/shop_helmet_red.bmp", 0, 0xf81f),
         cost = 1200,
         name = "Roter Helm",
         color = HELMET_R,
         itemType = ITEM_TYPE_HELMET
       },
       {
-        sprite = LoadSprite("gfx/items/shop_helmet_green.bmp"),
+        sprite = LoadSprite("gfx/items/shop_helmet_green.bmp", 0, 0xf81f),
         cost = 1200,
         name = "Grüner Helm",
         color = HELMET_G,
