@@ -75,22 +75,23 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
       r = *bptr++;
       a = *bptr++;
       if (a == 0 || (enableDitherTransparency && (col & 0x01) == oddRow)) {
-        *tptr++ = maskingColor;
+        *tptr++ = (maskingColor & 0x00FF) << 8 | (maskingColor & 0xFF00) >> 8;
       } else {
         uint16_t res = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
         if (res == maskingColor) {
           res = (res & 0xFFDF) | (~res & 0x0020); // flip lowest green bit
         }
-        *tptr++ = res;
+        *tptr++ = (res & 0x00FF) << 8 | (res & 0xFF00) >> 8;
       }
     } else if (bytesPerPixel == 3) {
       if (enableDitherTransparency && (col & 0x01) == oddRow) {
-        *tptr++ = maskingColor;
+        *tptr++ = (maskingColor & 0x00FF) << 8 | (maskingColor & 0xFF00) >> 8;
       } else {
         b = *bptr++;
         g = *bptr++;
         r = *bptr++;
-        *tptr++ = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        uint16_t res = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        *tptr++ = (res & 0x00FF) << 8 | (res & 0xFF00) >> 8;
       }
     } else if (bytesPerPixel == 2) {
       if (hasAlpha) {
@@ -98,7 +99,7 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
         color |= (*bptr++) << 8;
         a = (color & 0x8000) >> 15;
         if (a == 0 || (enableDitherTransparency && (col & 0x01) == oddRow)) {
-          *tptr++ = maskingColor;
+          *tptr++ = (maskingColor & 0x00FF) << 8 | (maskingColor & 0xFF00) >> 8;
         } else {
           r = (color & 0xFC00) >> 10;
           g = (color & 0x03E0) >> 5;
@@ -106,16 +107,17 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
           if (color == maskingColor) {
             g = (g & 0xFFFE) | (~g & 0x1); // flip lowest green bit
           }
-          *tptr++ = (r << 11) | (g << 6) | b;
+          uint16_t res = (r << 11) | (g << 6) | b;
+          *tptr++ = (res & 0x00FF) << 8 | (res & 0xFF00) >> 8;
         }
       } else {
         if (enableDitherTransparency && ((col & 0x01) == oddRow)) {
           bptr++;
           bptr++;
-          *tptr++ = maskingColor;
+          *tptr++ = (maskingColor & 0x00FF) << 8 | (maskingColor & 0xFF00) >> 8;
         } else {
-          uint16_t color = (*bptr++);
-          color |= (*bptr++) << 8;
+          uint16_t color = (*bptr++) << 8;
+          color |= (*bptr++);
           *tptr++ = color;
         }
       }
@@ -227,7 +229,7 @@ bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint
       bool hasAlpha = (bitDepth == 32);
       
       for (uint8_t i=0; i < animFrames; i++) {
-        displays[i]->setSwapBytes(true);
+        displays[i]->setSwapBytes(false);
         displays[i]->fillSprite(TFT_BLACK);
       }
       uint16_t padding = 0;
@@ -246,7 +248,7 @@ bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint
           displays[frameNr]->deleteSprite();
         }
         if (!displays[frameNr]->created()) {
-          displays[frameNr]->setSwapBytes(true);
+          displays[frameNr]->setSwapBytes(false);
           displays[frameNr]->setColorDepth(16);
           displays[frameNr]->createSprite(w, frameH);
         }
@@ -339,7 +341,6 @@ bool drawBmpSlice(String filename, int16_t x, int16_t y, int16_t maxH, bool debu
       uint8_t bytesPerPixel = bitDepth/8;
       bool hasAlpha = (bitDepth == 32);
       
-      tft.setSwapBytes(true);
       maxH = maxH == -1 ? h : maxH;
 
       uint16_t padding = 0;
@@ -391,6 +392,7 @@ static bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, ui
   }
 
   File bmpFS;
+  transp = (transp & 0x00FF) << 8 | (transp & 0xFF00) >> 8;
 
   // Open requested file on SD card
   bmpFS = SD_MMC.open(filename);
@@ -425,7 +427,7 @@ static bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, ui
       uint8_t bytesPerPixel = bitDepth/8;
       bool hasAlpha = (bitDepth == 32);
       
-      sprite->setSwapBytes(true);
+      sprite->setSwapBytes(false);
       bmpFS.seek(seekOffset);
 
       uint16_t padding = 0;
@@ -448,13 +450,18 @@ static bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, ui
           for (uint16_t iX = 0; iX < w; iX++) {
             uint16_t color = ((uint16_t*)lineBuffer)[iX];
             if (color == transp) {
-              sprite->pushImage(x + currX, y + h - 1 - row, iX-currX, 1, (uint16_t*)lineBuffer + currX, transp);
-              currX = iX + 1;
+              Serial.println(currX +  "->" +iX);
+              if (currX == iX-1) {
+                currX = iX + 1;
+              } else {
+                sprite->pushImage(x + currX, y + h - 1 - row, 1, 1, (uint16_t*)lineBuffer + currX, bytesPerPixel);
+                currX = iX + 1;
+              }
             }
           }
-          sprite->pushImage(x + currX, y + h - 1 - row, w-currX, 1, (uint16_t*)lineBuffer + currX, transp);
+          sprite->pushImage(x + currX, y + h - 1 - row, w-currX, 1, (uint16_t*)lineBuffer + currX, bytesPerPixel);
         } else {
-          sprite->pushImage(x, y + h - 1 - row, w, 1, (uint16_t*)lineBuffer, 0x0000);
+          sprite->pushImage(x, y + h - 1 - row, w, 1, (uint16_t*)lineBuffer, bytesPerPixel);
         }
       }
       if (debugLog) {
@@ -620,9 +627,7 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
   int32_t toY = _min(drawPosY+spriteHScaled, displayH);
   float inverseScaleX = std::abs(1/scale->x);
   float inverseScaleY = std::abs(1/scale->y);
-  if (sprite->getSwapBytes()) {
-    maskColor = maskColor << 8 | maskColor >> 8;
-  }
+  maskColor = maskColor << 8 | maskColor >> 8;
   int32_t frameOffset = frameNr * frameHeight * frameWidth;
   for (int32_t y = _max(drawPosY, 0); y<toY; y++) {
     int32_t addYScreen = y * displayW;

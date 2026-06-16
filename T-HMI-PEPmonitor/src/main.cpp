@@ -83,7 +83,7 @@ void setup() {
   getSystemUpdateAvailableStatus(); // Trigger connecting to Wifi
   tft.init();
   tft.setRotation(SCREEN_ROTATION);
-  tft.setSwapBytes(true);
+  tft.setSwapBytes(false);
   tft.fillScreen(TFT_BLACK);
 
   initGfxHandler();

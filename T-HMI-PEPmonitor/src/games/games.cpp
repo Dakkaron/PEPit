@@ -149,10 +149,21 @@ int32_t charArrIndexOf(char* arr, int32_t len, char c, uint32_t offset = 0) {
 bool displayExecutionList(DISPLAY_T* display, char* executionLog, String* errorMessage) {
   static uint32_t skipLines = 0xFFFFFFFF;
   static int32_t totalLineCount = -1;
+  static TFT_eSprite* sprites = nullptr;
   uint32_t lineStart = 0;
   uint32_t yPos = 40;
   uint32_t executionLogLength = strlen(executionLog);
   char lineBuff[256];
+
+  if (sprites == nullptr) {
+    sprites = (TFT_eSprite*) heap_caps_malloc(sizeof(TFT_eSprite) * 2, MALLOC_CAP_SPIRAM);
+    for (size_t i = 0; i < 2; ++i) {
+      new (&sprites[i]) TFT_eSprite(&tft);
+      sprites[i].setColorDepth(16);
+    }
+    loadBmp(&sprites[0], "/gfx/arrow_up.bmp", 0, 0xf81f);
+    loadBmp(&sprites[1], "/gfx/arrow_down.bmp", 0, 0xf81f);
+  }
 
   if (executionLogLength==0 || charArrIndexOf(executionLog, executionLogLength, '\n')==-1) {
     spr.setTextSize(2);
@@ -175,9 +186,6 @@ bool displayExecutionList(DISPLAY_T* display, char* executionLog, String* errorM
       lineStart = lineEnd + 1;
       totalLineCount++;
     }
-    Serial.println("and out");
-    Serial.print("->");
-    Serial.println(totalLineCount);
   }
 
   if (skipLines > totalLineCount) {
@@ -240,8 +248,8 @@ bool displayExecutionList(DISPLAY_T* display, char* executionLog, String* errorM
     yPos += 8;
     lineStart = lineEnd + 1;
   }
-  drawBmp(&spr, "/gfx/arrow_up.bmp", 280, 40, 0xf81f, false);
-  drawBmp(&spr, "/gfx/arrow_down.bmp", 280, 158, 0xf81f, false);
+  sprites[0].pushToSprite(&spr, 280, 40, 0xf81f);
+  sprites[1].pushToSprite(&spr, 280, 158, 0xf81f);
   if (skipLines > 0 && isTouchInZone(280, 40, 32, 32)) {
     skipLines--;
   } else if (skipLines < totalLineCount - EXECUTION_LOG_MAX_LINES && isTouchInZone(280, 158, 32, 32)) {
