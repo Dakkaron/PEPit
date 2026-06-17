@@ -157,6 +157,9 @@ uint32_t runProfileSelection() {
   blowData.totalTaskNumber = profileData.tasks;
   jumpData.totalCycleNumber = profileData.cycles;
   jumpData.totalTaskNumber = profileData.tasks;
+  while (touch.pressed()) {
+    vTaskDelay(1);
+  }
   return requiredTaskTypes;
 }
 
