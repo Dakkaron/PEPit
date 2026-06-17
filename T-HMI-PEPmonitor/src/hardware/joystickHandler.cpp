@@ -27,10 +27,10 @@ void getJoystickXY(float* x, float* y) {
       joystickX = ((((int32_t)adc_y) - 32768) * 0.000030518); //divide by 2^15
       joystickY = -((((int32_t)adc_x) - 32768) * 0.000030518); //divide by 2^15
     }
-    if (abs(joystickX)<0.05) {
+    if (fabs(joystickX)<0.05) {
       joystickX = 0;
     }
-    if (abs(joystickY)<0.05) {
+    if (fabs(joystickY)<0.05) {
       joystickY = 0;
     }
     *x = joystickX;

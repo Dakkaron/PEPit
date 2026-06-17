@@ -605,8 +605,8 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
 }
 
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor, int16_t frameWidth, int16_t frameHeight, int16_t frameNr) {
-  float spriteWScaled = std::abs(frameWidth * scale->x);
-  float spriteHScaled = std::abs(frameHeight * scale->y);
+  float spriteWScaled = fabs(frameWidth * scale->x);
+  float spriteHScaled = fabs(frameHeight * scale->y);
   float drawPosX = position->x;
   float drawPosY = position->y;
   uint16_t* screenBuffer = display->get16BitBuffer();
@@ -625,8 +625,8 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
   uint32_t displayH = display->height();
   int32_t toX = _min(drawPosX+spriteWScaled, displayW);
   int32_t toY = _min(drawPosY+spriteHScaled, displayH);
-  float inverseScaleX = std::abs(1/scale->x);
-  float inverseScaleY = std::abs(1/scale->y);
+  float inverseScaleX = fabs(1/scale->x);
+  float inverseScaleY = fabs(1/scale->y);
   maskColor = maskColor << 8 | maskColor >> 8;
   int32_t frameOffset = frameNr * frameHeight * frameWidth;
   for (int32_t y = _max(drawPosY, 0); y<toY; y++) {
