@@ -40,8 +40,8 @@ void doDrawMode7(DISPLAY_T* display,
   uint16_t* screenBuffer = display->get16BitBuffer();
   uint16_t* textureBuffer = texture->get16BitBuffer();
 
-  int32_t centerXi = screenWidth / 2;
-  int32_t centerYi = screenHeight / 2;
+  int32_t centerXi = screenWidth >> 1;
+  int32_t centerYi = screenHeight >> 1;
 
   uint32_t textureWidthMask = textureWidth - 1;
   uint32_t textureHeightMask = texture->height() - 1;
@@ -70,13 +70,14 @@ void doDrawMode7(DISPLAY_T* display,
       float fov = 120 / zoom;
       float py = fov;
       float pz = (y + horizonHeight);
-      float sy = py / pz;
+      float pzInv = 1.0f / pz;
+      float sy = py * pzInv;
 
       float sYsin = -sy * sinYaw;
       float sYcos = sy * cosYaw;
 
       for (int32_t px = -centerXi; px < centerXi; px++) {
-        float sx = px / pz;
+        float sx = px * pzInv;
 
         float worldX = sx * cosYaw + sYsin;
         float worldY = sx * sinYaw + sYcos;
@@ -84,8 +85,8 @@ void doDrawMode7(DISPLAY_T* display,
         sx = worldX * scaling + cameraPos->x;
         sy = worldY * scaling + cameraPos->y;
 
-        uint32_t texX = (uint32_t)sx & textureWidthMask;
-        uint32_t texY = (uint32_t)sy & textureHeightMask;
+        uint32_t texX = ((int32_t)sx) & textureWidthMask;
+        uint32_t texY = ((int32_t)sy) & textureHeightMask;
         screenBuffer[px + centerXi + screenYAdd] = textureBuffer[texX + texY * textureWidth];
       }
     }
