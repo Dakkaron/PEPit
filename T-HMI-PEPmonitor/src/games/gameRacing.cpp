@@ -125,10 +125,10 @@ static void legacy_drawRace_desert(DISPLAY_T* display, float x, int32_t y, float
   // Draw lamp mast
   if (((roadYOffset) % 12) == 1) {
     for (int32_t dx = _min(dxTotal, 0); dx < _max(dxTotal + 1, 1); dx++) {
-      display->drawFastVLine(x-w*0.2 + dx, y-lampHeight, lampHeight, (roadYOffset/6) % 2 ? 0xbdf7 : 0xce59);
+      display->drawFastVLine(x-w*0.2 + dx, y-lampHeight, lampHeight, (roadYOffset/6) & 0x1 ? 0xbdf7 : 0xce59);
     }
-    for (uint32_t i=0;i<(w*0.02);i++) {
-      display->drawFastHLine(x-w*0.2, y-lampHeight+i, w*(0.2+0.5+0.125), (roadYOffset/6) % 2 ? 0xbdf7 : 0xce59);
+    for (int32_t i=0;i<(w*0.02);i++) {
+      display->drawFastHLine(x-w*0.2, y-lampHeight+i, w*(0.2+0.5+0.125), (roadYOffset/6) & 0x1 ? 0xbdf7 : 0xce59);
     }
   }
 

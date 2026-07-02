@@ -677,7 +677,9 @@ void drawProgressBar(DISPLAY_T* display, uint16_t percent, uint16_t greenOffset,
   display->setTextSize(1);
   display->setTextColor(TFT_WHITE);
   display->setCursor(x, y - 11);
-  printShaded(display, String(percent) + "%");
+  char spercent[10];
+  sprintf(spercent, "%d%%", percent);
+  printShaded(display, spercent);
 }
 
 void drawProgressBar(DISPLAY_T* display, uint16_t val, uint16_t maxVal, uint16_t greenOffset, int16_t x, int16_t y, int16_t w, int16_t h) {

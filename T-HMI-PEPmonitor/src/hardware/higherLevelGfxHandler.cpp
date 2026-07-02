@@ -31,8 +31,11 @@ void doDrawMode7(DISPLAY_T* display,
   int32_t endY, // radians
   bool drawDownwards
 ) {
-  float cosYaw = std::cos(yawAngle);
-  float sinYaw = std::sin(yawAngle);
+  float fov = 120.0f / zoom;
+  float scaling = 10*cameraHeight;
+  
+  float cosYawScaled = std::cos(yawAngle) * scaling;
+  float sinYawScaled = std::sin(yawAngle) * scaling;
   int32_t screenWidth = display->width();
   int32_t screenHeight = endY - startY;
   int32_t textureWidth = texture->width();
@@ -46,8 +49,6 @@ void doDrawMode7(DISPLAY_T* display,
   uint32_t textureWidthMask = textureWidth - 1;
   uint32_t textureHeightMask = texture->height() - 1;
 
-  float scaling = 10*cameraHeight;
-
   for (int32_t iY = -centerYi; iY < centerYi; iY++) {
     int32_t y = drawDownwards ? iY : -iY;
     if (drawDownwards) {
@@ -59,7 +60,7 @@ void doDrawMode7(DISPLAY_T* display,
       }
     }
     int32_t screenY = y + centerYi + startY;
-    int32_t screenYAdd = screenY * screenWidth;
+    int32_t screenYAdd = screenY * screenWidth + centerXi;
 
     if (y + centerYi <= horizonHeight) {
       // Fill sky above horizon
@@ -67,34 +68,32 @@ void doDrawMode7(DISPLAY_T* display,
         screenBuffer[x + screenYAdd] = 0x7E7D; // sky color
       }*/
     } else {
-      float fov = 120 / zoom;
       float py = fov;
       float pz = (y + horizonHeight);
       float pzInv = 1.0f / pz;
       float sy = py * pzInv;
 
-      float sYsin = -sy * sinYaw;
-      float sYcos = sy * cosYaw;
+      float sYsinScaled = -sy * sinYawScaled;
+      float sYcosScaled = sy * cosYawScaled;
 
       for (int32_t px = -centerXi; px < centerXi; px++) {
         float sx = px * pzInv;
 
-        float worldX = sx * cosYaw + sYsin;
-        float worldY = sx * sinYaw + sYcos;
+        float worldX = sx * cosYawScaled + sYsinScaled;
+        float worldY = sx * sinYawScaled + sYcosScaled;
 
-        sx = worldX * scaling + cameraPos->x;
-        sy = worldY * scaling + cameraPos->y;
+        sx = worldX + cameraPos->x;
+        sy = worldY + cameraPos->y;
 
         uint32_t texX = ((int32_t)sx) & textureWidthMask;
         uint32_t texY = ((int32_t)sy) & textureHeightMask;
-        screenBuffer[px + centerXi + screenYAdd] = textureBuffer[texX + texY * textureWidth];
+        screenBuffer[px + screenYAdd] = textureBuffer[texX + texY * textureWidth];
       }
     }
     if (drawDownwards && mode7TaskParameters.upwardsY<=y) {
       return;
     }
   }
-  Serial.println(drawDownwards ? "Downwards ran out" : "Upwards ran out");
 }
 
 void drawMode7Task(void* parameter) {
