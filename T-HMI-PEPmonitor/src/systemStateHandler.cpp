@@ -18,4 +18,5 @@ void doSystemTasks() {
   buttonPwr.tick();
   buttonUsr.tick();
   joystickButtonTick();
+  vTaskDelay(1);
 }

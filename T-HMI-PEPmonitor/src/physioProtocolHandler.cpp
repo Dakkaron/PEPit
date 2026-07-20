@@ -10,6 +10,7 @@
 #include "constants.h"
 #include "updateHandler.h"
 #include "systemStateHandler.h"
+#include "hardware/joystickHandler.h"
 
 #define INHALE_ICON_PATH "/gfx/inhale.bmp"
 #define EXHALE_ICON_PATH "/gfx/exhale.bmp"
@@ -531,8 +532,16 @@ void displayPhysioRotateScreen() {
   spr.drawString(profileData.taskChangeMessage[currentTask], 5, 5);
   spr.pushSpriteFast(0, 0);
   uint32_t displayOkButtonMs = millis() + 5000;
+  boolean joystickLocked = getJoystickButton();
 
-  while (!isTouchInZone(230, 170, 80, 60)) {
+  while (!isTouchInZone(230, 170, 80, 60) && (joystickLocked || !getJoystickButton())) {
+    Serial.print("Jockstick locked: ");
+    Serial.print(joystickLocked);
+    Serial.println(", clicked: ");
+    Serial.println(getJoystickButton());
+    if (joystickLocked && !getJoystickButton()) {
+      joystickLocked = false;
+    }
     if (displayOkButtonMs!=0 && millis() > displayOkButtonMs) {
       spr.fillSprite(TFT_BLACK);
       spr.pushSpriteFast(0, 0);

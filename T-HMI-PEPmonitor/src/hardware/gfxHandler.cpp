@@ -12,11 +12,17 @@
 #include "updateHandler.h"
 #include "systemStateHandler.h"
 #include "hardware/wifiHandler.h"
+#include "joystickHandler.h"
 
 #define GFXFF 1
 #define MYFONT5x7 &Font5x7Fixed
 
 #define BMP16_ALPHA_FLAG_OFFSET 0x43
+
+#define SELECTION_MODE_NO_SELECTION 0
+#define SELECTION_MODE_PROFILE 1
+#define SELECTION_MODE_GAME 2
+#define SELECTION_MODE_DONE 3
 
 #define swap(x, y) do \
   { unsigned char swap_temp[sizeof(x) == sizeof(y) ? (signed)sizeof(x) : -1]; \
@@ -361,7 +367,8 @@ bool drawBmpSlice(String filename, int16_t x, int16_t y, int16_t maxH, bool debu
         tft.pushImage(x, y + h - 1 - row, w, 1, (uint16_t*)lineBuffer, 0x0000);
       }
       if (debugLog) {
-        Serial.print("Loaded in "); Serial.print(millis() - startTime);
+        Serial.print("Loaded in ");
+        Serial.print(millis() - startTime);
         Serial.println(" ms");
       }
     } else {
@@ -784,7 +791,12 @@ static void drawStringWordWrapped(DISPLAY_T* display, String string, uint32_t ch
   }
 }
 
-static void drawProfileSelectionPage(DISPLAY_T* display, uint16_t startNr, uint16_t nr, bool drawArrows, uint8_t systemUpdateAvailableStatus, String* errorMessage) {
+static char** selectionImagePaths;
+static char** selectionNames;
+static uint32_t selectionNumberOfSlots = 0;
+static uint32_t selectionMode = SELECTION_MODE_NO_SELECTION;
+
+static void drawProfileSelectionPage(DISPLAY_T* display, uint16_t startNr, uint16_t nr, bool drawArrows, uint8_t systemUpdateAvailableStatus, int32_t joystickSelection, String* errorMessage) {
   refreshMenuSprites();
   int32_t columns = _min(4, nr);
   int32_t rows = nr>4 ? 2 : 1;
@@ -794,14 +806,17 @@ static void drawProfileSelectionPage(DISPLAY_T* display, uint16_t startNr, uint1
     for (int32_t r = 0; r<rows; r++) {
       int32_t profileId = c + r*columns;
       if (profileId < nr) {
-        ProfileData profileData;
-        readProfileData(profileId, &profileData, errorMessage);
-        display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_BLUE);
-        refreshAndDrawMenuSprite(display, profileId, profileData.imagePath, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight/2);
+        if (joystickSelection == c + r*columns) {
+          display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_YELLOW);
+          display->fillRect(23 + c*(cWidth + 10), 33+r*(cHeight+10), cWidth-6, cHeight-6, TFT_BLUE);
+        } else {
+          display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_BLUE);
+        }
+        refreshAndDrawMenuSprite(display, profileId, selectionImagePaths[profileId], 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight/2);
         uint8_t textDatumBackup = display->getTextDatum();
         display->setTextDatum(BC_DATUM);
         display->setTextSize(1);
-        drawStringWordWrapped(display, profileData.name, 13, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight - 3);
+        drawStringWordWrapped(display, selectionNames[profileId], 13, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight - 3);
         display->setTextDatum(textDatumBackup);
       }
     }
@@ -820,24 +835,26 @@ static void drawProfileSelectionPage(DISPLAY_T* display, uint16_t startNr, uint1
   }
 }
 
-static void drawGameSelectionPage(DISPLAY_T* display, uint16_t startNr, uint16_t nr, bool drawArrows, uint32_t requiredTaskTypes, String* errorMessage) {
+static void drawGameSelectionPage(DISPLAY_T* display, uint16_t startNr, uint16_t nr, bool drawArrows, uint32_t requiredTaskTypes, uint32_t joystickSelection, String* errorMessage) {
   int32_t columns = _min(4, nr);
   int32_t rows = nr>4 ? 2 : 1;
   int32_t cWidth = (290 - 10*columns) / columns;
   int32_t cHeight = rows==1 ? 200 : 95; 
   display->setTextDatum(BC_DATUM);
   display->setTextSize(1);
-  GameConfig gameConfig;
   String ignoreErrors;
   for (int32_t c = 0; c<columns; c++) {
     for (int32_t r = 0; r<rows; r++) {
       if (c + r*columns < nr) {
         uint32_t gameId = c + r*columns;
-        String gamePath = getGamePath(gameId, requiredTaskTypes, errorMessage);
-        readGameConfig(gamePath, &gameConfig, &ignoreErrors);
-        display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_BLUE);
-        refreshAndDrawMenuSprite(display, gameId, gamePath + "logo.bmp", 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight/2);
-        drawStringWordWrapped(display, gameConfig.name, 13, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight - 3);
+        if (joystickSelection == c + r*columns) {
+          display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_YELLOW);
+          display->fillRect(23 + c*(cWidth + 10), 33+r*(cHeight+10), cWidth-6, cHeight-6, TFT_BLUE);
+        } else {
+          display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_BLUE);
+        }
+        refreshAndDrawMenuSprite(display, gameId, selectionImagePaths[gameId], 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight/2);
+        drawStringWordWrapped(display, selectionNames[gameId], 13, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight - 3);
       }
     }
   }
@@ -869,26 +886,100 @@ static int16_t checkSelectionPageSelection(uint16_t startNr, uint16_t nr, bool d
   return -1;
 }
 
+boolean updateJoystickSelection(int32_t* selection, uint32_t maxSelection) {
+  static boolean moved = false;
+  float x;
+  float y;
+  getJoystickXY(&x, &y);
+  if (!moved && abs(x)>0.2) {
+    if (x>0) {
+      *selection+=1;
+      if (*selection > maxSelection) {
+        *selection = 0;
+      }
+    } else {
+      *selection-=1;
+      if (*selection < 0) {
+        *selection = maxSelection;
+      }
+    }
+    moved = true;
+  }
+  if (maxSelection>3 && !moved && abs(y)>0.2) {
+    if (y>0) {
+      if (*selection <= maxSelection-4) {
+        *selection+=4;
+      }
+    } else {
+      if (*selection >= 4) {
+        *selection-=4;
+      }
+    }
+    moved = true;
+  }
+  if (moved) {
+    if (abs(x)<=0.2 && abs(y)<=0.2) {
+      moved = false;
+    }
+  }
+  return (*selection>=0 && getJoystickButton());
+}
+
+void freeSelectionMetadata(boolean fully) {
+  for (int32_t i = 0; i < selectionNumberOfSlots; i++) {
+    free(selectionImagePaths[i]);
+    free(selectionNames[i]);
+  }
+  if (fully) {
+    free(selectionImagePaths);
+    free(selectionNames);
+  }
+}
+
 int16_t displayGameSelection(DISPLAY_T* display, uint16_t nr, uint32_t requiredTaskTypes, String* errorMessage) {
   uint16_t startNr = 0;
   uint32_t ms = millis();
   uint32_t lastMs = millis();
+  boolean joystickClickUnlocked = false;
+  int32_t joystickSelection = isJoystickPresent() ? 0 : -1;
 
-  for (uint32_t i = 0;i<2;i++) {
-    display->fillSprite(TFT_BLACK);
-    drawGameSelectionPage(display, startNr, _min(nr, 8), nr>8, requiredTaskTypes, errorMessage);
-    display->pushSpriteFast(0, 0);
+  if (selectionMode == SELECTION_MODE_PROFILE) {
+    selectionMode = SELECTION_MODE_GAME;
+    freeSelectionMetadata(false);
+    selectionNumberOfSlots = nr;
+    for (int32_t gameId = 0; gameId < nr; gameId++) {
+      GameConfig gameConfig;
+      String ignoreErrors;
+      String gamePath = getGamePath(gameId, requiredTaskTypes, errorMessage);
+      readGameConfig(gamePath, &gameConfig, &ignoreErrors);
+      String gameLogoPath = gamePath + "logo.bmp";
+      selectionImagePaths[gameId] = (char*)malloc((gameLogoPath.length()+1) * sizeof(char));
+      strcpy(selectionImagePaths[gameId], gameLogoPath.c_str());
+      selectionNames[gameId] = (char*)malloc((gameConfig.name.length()+1) * sizeof(char));
+      strcpy(selectionNames[gameId], gameConfig.name.c_str());
+    }
   }
 
   while (true) {
     lastMs = ms;
     ms = millis();
     handleSerial();
+    boolean joystickSelected = updateJoystickSelection(&joystickSelection, nr-1);
+    if (!joystickSelected) {
+      joystickClickUnlocked = true;
+    }
+    if (joystickClickUnlocked && joystickSelected) {
+      tft.fillScreen(TFT_BLACK);
+      freeSelectionMetadata(true);
+      return joystickSelection;
+    }
     int16_t selection = checkSelectionPageSelection(startNr, _min(nr, 8), nr>8, false, false, false);
     if (selection != -1 && selection<nr) {
+      freeSelectionMetadata(true);
       return selection;
     }
-    display->fillRect(0,0,100,20,TFT_BLACK);
+    display->fillSprite(TFT_BLACK);
+    drawGameSelectionPage(display, startNr, _min(nr, 8), nr>8, joystickSelection, joystickSelection, errorMessage);
     doSystemTasks();
     display->pushSpriteFast(0,0);
     if (millis()>GAME_SELECTION_POWEROFF_TIMEOUT) {
@@ -901,12 +992,23 @@ int16_t displayProfileSelection(DISPLAY_T* display, uint16_t nr, String* errorMe
   uint16_t startNr = 0;
   uint32_t ms = millis();
   uint32_t lastMs = millis();
+  int32_t joystickSelection = isJoystickPresent() ? 0 : -1;
 
   uint8_t systemupdateAvailableStatus = getSystemUpdateAvailableStatus();
-  for (uint32_t i = 0;i<2;i++) {
-    display->fillSprite(TFT_BLACK);
-    drawProfileSelectionPage(display, startNr, _min(nr, 8), nr>8, systemupdateAvailableStatus, errorMessage);
-    display->pushSpriteFast(0, 0);
+
+  if (selectionMode == SELECTION_MODE_NO_SELECTION) {
+    selectionMode = SELECTION_MODE_PROFILE;
+    selectionImagePaths = (char**)malloc(nr * sizeof(char*));
+    selectionNames = (char**)malloc(nr * sizeof(char*));
+    selectionNumberOfSlots = nr;
+    for (int32_t profileId = 0; profileId < nr; profileId++) {
+      ProfileData profileData;
+      readProfileData(profileId, &profileData, errorMessage);
+      selectionImagePaths[profileId] = (char*)malloc((profileData.imagePath.length()+1) * sizeof(char));
+      strcpy(selectionImagePaths[profileId], profileData.imagePath.c_str());
+      selectionNames[profileId] = (char*)malloc((profileData.name.length()+1) * sizeof(char));
+      strcpy(selectionNames[profileId], profileData.name.c_str());
+    }
   }
 
   while (true) {
@@ -931,22 +1033,18 @@ int16_t displayProfileSelection(DISPLAY_T* display, uint16_t nr, String* errorMe
       display->setTextDatum(BR_DATUM);
       display->drawString(throbber, SCREEN_WIDTH - 2, SCREEN_HEIGHT - 2);
 
-      uint8_t newSystemupdateAvailableStatus = getSystemUpdateAvailableStatus();
-      if (newSystemupdateAvailableStatus != systemupdateAvailableStatus) {
-        systemupdateAvailableStatus = newSystemupdateAvailableStatus;
-        for (uint32_t i = 0;i<2;i++) {
-          display->fillSprite(TFT_BLACK);
-          drawProfileSelectionPage(display, startNr, _min(nr, 8), nr>8, systemupdateAvailableStatus, errorMessage);
-          display->pushSpriteFast(0, 0);
-        }
-      }
+      systemupdateAvailableStatus = getSystemUpdateAvailableStatus();
     }
 
+    if (updateJoystickSelection(&joystickSelection, nr-1)) {
+      return joystickSelection;
+    }
     int16_t selection = checkSelectionPageSelection(startNr, _min(nr, 8), nr>8, true, true, systemupdateAvailableStatus);
     if (selection != -1 && (selection<nr || selection == PROGRESS_MENU_SELECTION_ID || selection == SYSTEM_UPDATE_SELECTION_ID || selection == EXECUTION_LIST_SELECTION_ID)) {
       return selection;
     }
-    display->fillRect(0,0,100,20,TFT_BLACK);
+    display->fillSprite(TFT_BLACK);
+    drawProfileSelectionPage(display, startNr, _min(nr, 8), nr>8, systemupdateAvailableStatus, joystickSelection, errorMessage);
     doSystemTasks();
     display->pushSpriteFast(0,0);
     if (millis()>GAME_SELECTION_POWEROFF_TIMEOUT) {
