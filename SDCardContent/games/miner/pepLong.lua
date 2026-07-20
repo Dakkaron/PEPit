@@ -19,14 +19,15 @@ else
   YDigOffset = 0
 end
 
-if (IsTouchInZone(0, 0, 100, 240)) then
+local joystickX = GetJoystickX()
+if (IsTouchInZone(0, 0, 100, 240) or joystickX<-0.8) then
   if (YDigOffset == 0 and PlayerX > 0 and not IsCurrentlyTouching and StepsLeft > 0 and WorldMapArray[PlayerX-1][1] ~= 7) then
     IsCurrentlyTouching = true
     PlayerX = PlayerX - 1
     MineTile(PlayerX, 1)
     StepsLeft = StepsLeft - 1
   end
-elseif (IsTouchInZone(220, 0, 100, 240)) then
+elseif (IsTouchInZone(220, 0, 100, 240) or joystickX>0.8) then
   if (YDigOffset == 0 and PlayerX < 7 and not IsCurrentlyTouching and StepsLeft > 0 and WorldMapArray[PlayerX+1][1] ~= 7) then
     IsCurrentlyTouching = true
     PlayerX = PlayerX + 1
