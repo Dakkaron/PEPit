@@ -6,6 +6,8 @@
 #include <SD_MMC.h>
 #include "driver/rtc_io.h"
 
+#define REGISTER_BUTTON_LISTENERS_AFTER_NUMBER_OF_CHECKS 50
+
 OneButton buttonPwr = OneButton(BUTTON2_PIN, false, false);
 OneButton buttonUsr = OneButton(BUTTON1_PIN, false, false);
 
@@ -14,6 +16,7 @@ static RTC_DATA_ATTR bool skipSplashScreen;
 static void configurePowerButtonWakeup();
 
 static SemaphoreHandle_t poweroffMutex = xSemaphoreCreateMutex();
+static SemaphoreHandle_t resetMutex = xSemaphoreCreateMutex();
 
 uint32_t readBatteryVoltage() {
     return (analogRead(BAT_ADC_PIN) * 162505) / 100000;
@@ -26,7 +29,7 @@ bool isSkipSplashScreen() {
 }
 
 void deepSleepReset() {
-    if (!xSemaphoreTake(poweroffMutex, 0)) {
+    if (!xSemaphoreTake(resetMutex, 0)) {
         return;
     }
     Serial.println("[power] deepSleepReset() start");
@@ -94,6 +97,7 @@ void power_off() {
         return;
     }
     Serial.println("[power] power_off() start");
+    boolean buttonListenerRegistered = false;
     buttonPwr.attachClick(nullptr);
     buttonPwr.attachLongPressStop(nullptr);
     buttonUsr.attachClick(nullptr);
@@ -106,6 +110,8 @@ void power_off() {
     spr.fillSprite(TFT_GREEN);
     spr.frameBuffer(2);
     spr.fillSprite(TFT_BLACK);
+    spr.pushSpriteFast(0,0);
+    int32_t numberOfChecksForButtonStable = 0;
 
     while (readBatteryVoltage()>4200) { // Charging display
         spr.fillSprite(TFT_BLACK);
@@ -115,6 +121,18 @@ void power_off() {
         spr.pushSpriteFast(0,0);
         handleSerial();
         vTaskDelay(1); // watchdog
+        if (!buttonListenerRegistered) {
+            if (rtc_gpio_get_level(GPIO_NUM_21)) {
+                numberOfChecksForButtonStable = 0;
+            } else {
+                numberOfChecksForButtonStable++;
+            }
+            if (numberOfChecksForButtonStable > REGISTER_BUTTON_LISTENERS_AFTER_NUMBER_OF_CHECKS) {
+                buttonListenerRegistered = true;
+                buttonPwr.attachClick(deepSleepReset);
+                buttonPwr.attachLongPressStop(deepSleepReset);
+            }
+        }
     }
     delay(50);
 
