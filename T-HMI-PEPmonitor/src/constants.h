@@ -79,6 +79,7 @@
 #define COLOR_BUTTON_PRIMARY       0x001F
 #define COLOR_BUTTON_PRIMARY_FRAME 0x94b2
 #define COLOR_BUTTON_PRIMARY_TEXT  0xFFFF
+#define COLOR_BUTTON_SELECTABLE    TFT_YELLOW
 
 struct GameConfig {
   String name;

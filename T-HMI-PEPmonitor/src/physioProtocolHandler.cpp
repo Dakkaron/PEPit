@@ -458,13 +458,14 @@ static void drawFinished() {
       tft.fillRect(25, 25, 270, 190, 0x001F);
       tft.fillRect(30, 30, 260, 180, 0x94b2);
       drawBmp("/gfx/systemupdate.bmp", 144, 35, false);
+      // TODO: Add joystick controls for the update/reboot buttons
       tft.setTextColor(0xFFFF);
       tft.setTextSize(2);
       tft.setTextDatum(1);
       tft.drawString("Update verfügbar", 160, 80);
-      tft.fillRect(60, 110, 200, 45, 0x001F);
+      tft.fillRect(60, 110, 200, 45, COLOR_BUTTON_PRIMARY);
       tft.drawString("Update jetzt starten", 160, 125);
-      tft.fillRect(60, 160, 200, 45, 0x001F);
+      tft.fillRect(60, 160, 200, 45, COLOR_BUTTON_PRIMARY);
       tft.drawString("Neustart", 160, 175);
       bool isUpdateStarted = false;
       winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
@@ -503,14 +504,19 @@ static void drawFinished() {
     } else {
       tft.setTextDatum(1);
       tft.setTextColor(COLOR_BUTTON_PRIMARY_TEXT);
-      tft.fillRect(55, 175, 210, 55, COLOR_BUTTON_PRIMARY_FRAME);
-      tft.fillRect(60, 180, 200, 45, COLOR_BUTTON_PRIMARY);
+      if (isJoystickPresent()) {
+        tft.fillRect(55, 175, 210, 55, TFT_YELLOW);
+        tft.fillRect(58, 172, 204, 49, COLOR_BUTTON_PRIMARY);
+      } else {
+        tft.fillRect(55, 175, 210, 55, COLOR_BUTTON_PRIMARY_FRAME);
+        tft.fillRect(60, 180, 200, 45, COLOR_BUTTON_PRIMARY);
+      }
       tft.drawString("Neustart", 160, 195);
     }
   } else if (millis() > winscreenTimeout) {
     power_off();
   }
-  if (getSystemUpdateAvailableStatus() != FIRMWARE_UPDATE_AVAILABLE && isTouchInZone(60, 160, 200, 45)) {
+  if (getSystemUpdateAvailableStatus() != FIRMWARE_UPDATE_AVAILABLE && (isTouchInZone(60, 160, 200, 45) || getJoystickButton())) {
     tft.fillScreen(TFT_BLACK);
     deepSleepReset();
   }
@@ -550,7 +556,12 @@ void displayPhysioRotateScreen() {
       drawBmp(profileData.taskChangeImagePath[currentTask], 0, 0);
       spr.setTextDatum(TL_DATUM);
       spr.drawString(profileData.taskChangeMessage[currentTask], 5, 5);
-      spr.fillRect(230, 170, 80, 60, 0x18db);
+      if (isJoystickPresent()) {
+        spr.fillRect(230, 170, 80, 60, TFT_YELLOW);
+        spr.fillRect(233, 173, 74, 54, 0x18db);
+      } else {
+        spr.fillRect(230, 170, 80, 60, 0x18db);
+      }
       spr.drawString("OK", 245, 185);
       spr.pushSpriteFast(0, 0);
       displayOkButtonMs = 0;

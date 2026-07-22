@@ -772,15 +772,10 @@ static void drawStringWordWrapped(DISPLAY_T* display, String string, uint32_t ch
     int32_t spacePos = 0;
     while (spacePos >= 0) {
       spacePos = string.indexOf(" ", spacePos+1);
-      Serial.print("Spacepos ");
-      Serial.println(spacePos);
       wordCount++;
     }
     spacePos = -1;
     for (int32_t i=1;i<=wordCount;i++) {
-      Serial.print(i);
-      Serial.print("/");
-      Serial.println(wordCount);
       int32_t nextSpacePos = string.indexOf(" ", spacePos+1);
       if (nextSpacePos==-1) {
         nextSpacePos = string.length();
