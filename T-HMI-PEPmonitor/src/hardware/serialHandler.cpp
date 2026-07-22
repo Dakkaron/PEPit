@@ -1,6 +1,7 @@
 #include <esp_rom_crc.h>
 #include "serialHandler.h"
 #include "prefsHandler.h"
+#include "powerHandler.h"
 
 #define FILE_BUFFER_BLOCK_SIZE 4096
 
@@ -414,7 +415,7 @@ void handleSerial() {
     } else if (strcasecmp(serialCommandBuffer, "clearprefs ") == 0) {
       clearPreferencesExceptSystem();
     } else if (strcasecmp(serialCommandBuffer, "reset ") == 0) {
-      ESP.restart();
+      deepSleepReset();
     }
 
     if (charRead == 32 || charRead == 0 || charRead == 10) { // Check for space, \n or \0

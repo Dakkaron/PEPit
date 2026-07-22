@@ -63,6 +63,8 @@ void setup() {
   pinMode(M5STACK_JOYSTICK2_POWER_PIN, OUTPUT); // Activate joystick power
   digitalWrite(M5STACK_JOYSTICK2_POWER_PIN, HIGH);
 
+  gpio_deep_sleep_hold_dis();
+  gpio_hold_dis(GPIO_NUM_14);
   gpio_deep_sleep_hold_en();
   gpio_hold_en(GPIO_NUM_14); // Make sure PWR_ON_PIN stays active even in deep sleep
 

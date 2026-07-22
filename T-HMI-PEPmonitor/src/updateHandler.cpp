@@ -5,6 +5,7 @@
 #include "hardware/gfxHandler.hpp"
 #include "SD_MMC.h"
 #include "systemStateHandler.h"
+#include "hardware/powerHandler.h"
 
 #define DEST_FS_USES_SD_MMC
 #include <ESP32-targz.h>
@@ -236,7 +237,7 @@ void checkForAndRunUpdateFromSD(String* errorMessage) {
     Serial.println("Update done");
     delay(2000);
     Serial.println("Resetting device");
-    ESP.restart();
+    deepSleepReset();
   } else {
     SD_MMC.rename(String("/")+FIRMWARE_FILE_NAME, "/FIRMWARE.ERR");
     SD_MMC.rename(String("/")+SDCARD_CONTENT_FILE_NAME, "/SDCARDCONTENT.ERR");

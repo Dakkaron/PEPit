@@ -3,6 +3,7 @@
 #include "gameRacing.h"
 #include "gameLua.h"
 #include "systemStateHandler.h"
+#include "hardware/powerHandler.h"
 
 #define EXECUTION_LOG_MAX_LINES 24
 
@@ -172,7 +173,7 @@ bool displayExecutionList(DISPLAY_T* display, char* executionLog, String* errorM
     spr.drawString("Zurück", 250, 215);
     spr.setTextSize(1);
     if (isTouchInZone(240, 200, 100, 40)) {
-      ESP.restart();
+      deepSleepReset();
     }
     return true;
   }
@@ -264,7 +265,7 @@ bool displayExecutionList(DISPLAY_T* display, char* executionLog, String* errorM
     spr.drawString("Zurück", 250, 215);
     spr.setTextSize(1);
   if (isTouchInZone(240, 200, 100, 40)) {
-    ESP.restart();
+    deepSleepReset();
   }
   return true;
 }
