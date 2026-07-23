@@ -920,15 +920,13 @@ boolean updateJoystickSelection(int32_t* selection, uint32_t maxSelection) {
   return (*selection>=0 && getJoystickButton());
 }
 
-void freeSelectionMetadata(boolean fully) {
+void freeSelectionMetadata() {
   for (int32_t i = 0; i < selectionNumberOfSlots; i++) {
     free(selectionImagePaths[i]);
     free(selectionNames[i]);
   }
-  if (fully) {
-    free(selectionImagePaths);
-    free(selectionNames);
-  }
+  free(selectionImagePaths);
+  free(selectionNames);
 }
 
 int16_t displayGameSelection(DISPLAY_T* display, uint16_t nr, uint32_t requiredTaskTypes, String* errorMessage) {
@@ -940,7 +938,9 @@ int16_t displayGameSelection(DISPLAY_T* display, uint16_t nr, uint32_t requiredT
 
   if (selectionMode == SELECTION_MODE_PROFILE) {
     selectionMode = SELECTION_MODE_GAME;
-    freeSelectionMetadata(false);
+    freeSelectionMetadata();
+    selectionImagePaths = (char**)malloc(nr * sizeof(char*));
+    selectionNames = (char**)malloc(nr * sizeof(char*));
     selectionNumberOfSlots = nr;
     for (int32_t gameId = 0; gameId < nr; gameId++) {
       GameConfig gameConfig;
@@ -965,12 +965,12 @@ int16_t displayGameSelection(DISPLAY_T* display, uint16_t nr, uint32_t requiredT
     }
     if (joystickClickUnlocked && joystickSelected) {
       tft.fillScreen(TFT_BLACK);
-      freeSelectionMetadata(true);
+      freeSelectionMetadata();
       return joystickSelection;
     }
     int16_t selection = checkSelectionPageSelection(startNr, _min(nr, 8), nr>8, false, false, false);
     if (selection != -1 && selection<nr) {
-      freeSelectionMetadata(true);
+      freeSelectionMetadata();
       return selection;
     }
     display->fillSprite(TFT_BLACK);
