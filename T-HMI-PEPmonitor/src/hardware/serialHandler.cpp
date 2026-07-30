@@ -414,6 +414,11 @@ void handleSerial() {
       dumpNamespaceContents();
     } else if (strcasecmp(serialCommandBuffer, "clearprefs ") == 0) {
       clearPreferencesExceptSystem();
+    } else if (strcasecmp(serialCommandBuffer, "backupprefs ") == 0) {
+      backupAllPrefs();
+    } else if (strcasecmp(serialCommandBuffer, "restoreprefs ") == 0) {
+      Serial.println("Called restoring prefs");
+      restorePrefsBackup();
     } else if (strcasecmp(serialCommandBuffer, "reset ") == 0) {
       deepSleepReset();
     }
