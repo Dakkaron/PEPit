@@ -7,6 +7,8 @@ extern Preferences prefs;
 
 void printNamespaces();
 void dumpNamespaceContents();
+bool backupAllPrefs();
+bool restorePrefsBackup();
 void setGamePrefsNamespace(String name);
 void applyGamePrefsNamespace();
 void clearPreferences();
