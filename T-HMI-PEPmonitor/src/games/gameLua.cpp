@@ -290,16 +290,12 @@ static int lua_wrapper_drawSprite(lua_State* luaState) {
   //Serial.println(handle);
   int16_t x = luaL_checknumber(luaState, 2);
   int16_t y = luaL_checknumber(luaState, 3);
+  float alpha = luaL_optnumber(luaState, 4, 1);
   if (!isHandleValid(handle)) {
     return 0;
   }
   int32_t maskingColor = spriteMetadata[handle].maskingColor;
-  if (maskingColor != -1) {
-    sprites[handle].pushToSprite(luaDisplay, x, y, spriteMetadata[handle].maskingColor);
-  } else {
-    sprites[handle].pushToSprite(luaDisplay, x, y);
-  }
-  
+  drawSprite(luaDisplay, &(sprites[handle]), x, y, spriteMetadata[handle].maskingColor, alpha);
   //Serial.println("Draw sprite done");
   return 0;
 }

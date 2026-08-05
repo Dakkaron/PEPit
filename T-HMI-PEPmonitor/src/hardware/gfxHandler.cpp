@@ -17,6 +17,9 @@
 #define GFXFF 1
 #define MYFONT5x7 &Font5x7Fixed
 
+#define SWAP_BYTES(a) (((a & 0xFF) << 8) | ((a & 0xFF00) >> 8))
+#define COMPOSE_RGB565(r, g, b) ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+
 #define BMP16_ALPHA_FLAG_OFFSET 0x43
 
 #define SELECTION_MODE_NO_SELECTION 0
@@ -81,23 +84,23 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
       r = *bptr++;
       a = *bptr++;
       if (a == 0 || (enableDitherTransparency && (col & 0x01) == oddRow)) {
-        *tptr++ = (maskingColor & 0x00FF) << 8 | (maskingColor & 0xFF00) >> 8;
+        *tptr++ = SWAP_BYTES(maskingColor);
       } else {
-        uint16_t res = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        uint16_t res = COMPOSE_RGB565(r,g,b);
         if (res == maskingColor) {
           res = (res & 0xFFDF) | (~res & 0x0020); // flip lowest green bit
         }
-        *tptr++ = (res & 0x00FF) << 8 | (res & 0xFF00) >> 8;
+        *tptr++ = SWAP_BYTES(res);
       }
     } else if (bytesPerPixel == 3) {
       if (enableDitherTransparency && (col & 0x01) == oddRow) {
-        *tptr++ = (maskingColor & 0x00FF) << 8 | (maskingColor & 0xFF00) >> 8;
+        *tptr++ = SWAP_BYTES(maskingColor);
       } else {
         b = *bptr++;
         g = *bptr++;
         r = *bptr++;
-        uint16_t res = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
-        *tptr++ = (res & 0x00FF) << 8 | (res & 0xFF00) >> 8;
+        uint16_t res = COMPOSE_RGB565(r,g,b);
+        *tptr++ = SWAP_BYTES(res);
       }
     } else if (bytesPerPixel == 2) {
       if (hasAlpha) {
@@ -105,7 +108,7 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
         color |= (*bptr++) << 8;
         a = (color & 0x8000) >> 15;
         if (a == 0 || (enableDitherTransparency && (col & 0x01) == oddRow)) {
-          *tptr++ = (maskingColor & 0x00FF) << 8 | (maskingColor & 0xFF00) >> 8;
+          *tptr++ = SWAP_BYTES(maskingColor);
         } else {
           r = (color & 0xFC00) >> 10;
           g = (color & 0x03E0) >> 5;
@@ -114,13 +117,13 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
             g = (g & 0xFFFE) | (~g & 0x1); // flip lowest green bit
           }
           uint16_t res = (r << 11) | (g << 6) | b;
-          *tptr++ = (res & 0x00FF) << 8 | (res & 0xFF00) >> 8;
+          *tptr++ = SWAP_BYTES(res);
         }
       } else {
         if (enableDitherTransparency && ((col & 0x01) == oddRow)) {
           bptr++;
           bptr++;
-          *tptr++ = (maskingColor & 0x00FF) << 8 | (maskingColor & 0xFF00) >> 8;
+          *tptr++ = SWAP_BYTES(maskingColor);
         } else {
           uint16_t color = (*bptr++) << 8;
           color |= (*bptr++);
@@ -399,7 +402,7 @@ static bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, ui
   }
 
   File bmpFS;
-  transp = (transp & 0x00FF) << 8 | (transp & 0xFF00) >> 8;
+  transp = SWAP_BYTES(transp);
 
   // Open requested file on SD card
   bmpFS = SD_MMC.open(filename);
@@ -538,6 +541,45 @@ void fillQuad(DISPLAY_T* display, int32_t x0, int32_t y0, int32_t x1, int32_t y1
   }
 }
 
+void drawSprite(DISPLAY_T* display, TFT_eSprite* sprite, int32_t x, int32_t y, int32_t maskingColor, float alpha) {
+  if (alpha >= 1) {
+    if (maskingColor != -1) {
+      sprite->pushToSprite(display, x, y, maskingColor);
+    } else {
+      sprite->pushToSprite(display, x, y);
+    }
+    return;
+  }
+  if (alpha <= 0) {
+    return;
+  }
+  uint32_t startX = _max(x, 0);
+  uint32_t startY = _max(y, 0);
+  uint32_t srcW = sprite->width();
+  uint32_t srcH = sprite->height();
+  uint32_t dstW = display->width();
+  uint32_t dstH = display->height();
+  uint32_t endX = _min(x+srcW, dstW);
+  uint32_t endY = _min(y+srcH, dstH);
+  float invAlpha = 1.0f-alpha;
+  uint16_t* srcBuffer = sprite->get16BitBuffer();
+  uint16_t* dstBuffer = display->get16BitBuffer();
+  for (int32_t dy = startY; dy < endY; dy++) {
+    for (int32_t dx = startX; dx < endX; dx++) {
+      uint32_t dstAddr = dy*dstW + dx;
+      uint32_t srcPixel = SWAP_BYTES(srcBuffer[(dy-y)*srcW + (dx-x)]);
+      
+      if (srcPixel != maskingColor) {
+        uint32_t origPixel = SWAP_BYTES(dstBuffer[dstAddr]);
+        uint32_t blendedPixel = ((uint32_t)(invAlpha * (origPixel & 0xF800) + alpha * (srcPixel & 0xF800)) & 0xF800) |
+                                ((uint32_t)(invAlpha * (origPixel & 0x07E0) + alpha * (srcPixel & 0x07E0)) & 0x07E0) | 
+                                ((uint32_t)(invAlpha * (origPixel & 0x001F) + alpha * (srcPixel & 0x001F)) & 0x001F);
+        dstBuffer[dstAddr] = SWAP_BYTES(blendedPixel);
+      }
+    }
+  }
+}
+
 void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* pos, Matrix2D* transform, uint32_t flags, uint16_t maskColor) {
   drawSpriteTransformed(display, sprite, pos, transform, flags, maskColor, sprite->width(), sprite->height(), 0);
 }
@@ -549,7 +591,7 @@ void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* po
   uint16_t* screenBuffer = display->get16BitBuffer();
   uint16_t* spriteBuffer = sprite->get16BitBuffer() + frameOffset;
 
-  maskColor = maskColor << 8 | maskColor >> 8;
+  maskColor = SWAP_BYTES(maskColor);
 
   int32_t xOffset = flags & ALIGN_H_CENTER ? -spriteWidth / 2 : (flags & ALIGN_H_RIGHT ? -spriteWidth : 0);
   int32_t yOffset = flags & ALIGN_V_CENTER ? -spriteHeight / 2 : (flags & ALIGN_V_BOTTOM ? -spriteHeight : 0);
@@ -634,7 +676,7 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
   int32_t toY = _min(drawPosY+spriteHScaled, displayH);
   float inverseScaleX = fabs(1/scale->x);
   float inverseScaleY = fabs(1/scale->y);
-  maskColor = maskColor << 8 | maskColor >> 8;
+  maskColor = SWAP_BYTES(maskColor);
   int32_t frameOffset = frameNr * frameHeight * frameWidth;
   for (int32_t y = _max(drawPosY, 0); y<toY; y++) {
     int32_t addYScreen = y * displayW;
@@ -1084,7 +1126,7 @@ void drawSystemStats() {
   static uint32_t lowBatteryWarningCount = 0;
   static uint32_t lastMs = millis();
   uint32_t ms = millis();
-  uint32_t batteryVoltage = readBatteryVoltage();
+  uint32_t batteryVoltage = readBatteryVoltageAveraged();
   if (batteryVoltage < 3600) {
     systemStatsSprites[0].pushToSprite(&spr, 0, 0, 0x0000);
   } else if (batteryVoltage < 3800) {
