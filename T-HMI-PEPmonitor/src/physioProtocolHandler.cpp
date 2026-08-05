@@ -506,7 +506,7 @@ static void drawFinished() {
       tft.setTextColor(COLOR_BUTTON_PRIMARY_TEXT);
       if (isJoystickPresent()) {
         tft.fillRect(55, 175, 210, 55, TFT_YELLOW);
-        tft.fillRect(58, 172, 204, 49, COLOR_BUTTON_PRIMARY);
+        tft.fillRect(58, 178, 204, 49, COLOR_BUTTON_PRIMARY);
       } else {
         tft.fillRect(55, 175, 210, 55, COLOR_BUTTON_PRIMARY_FRAME);
         tft.fillRect(60, 180, 200, 45, COLOR_BUTTON_PRIMARY);
