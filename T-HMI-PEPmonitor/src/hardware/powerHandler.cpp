@@ -22,6 +22,12 @@ uint32_t readBatteryVoltage() {
     return (analogRead(BAT_ADC_PIN) * 162505) / 100000;
 }
 
+uint32_t readBatteryVoltageAveraged() {
+    static float averagedVoltage = readBatteryVoltage();
+    averagedVoltage = 0.95*averagedVoltage + 0.05*readBatteryVoltage();
+    return (uint32_t)averagedVoltage;
+}
+
 bool isSkipSplashScreen() {
     esp_reset_reason_t reason = esp_reset_reason();
     Serial.printf("[power] reset reason=%d\n", reason);
