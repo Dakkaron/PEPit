@@ -267,10 +267,10 @@ def issueCommand(command, param):
     ser.reset_output_buffer()
     ser.write(b" "+command+b" "+param+b"\n")
     res = b""
-    time.sleep(0.1)
+    time.sleep(0.5)
     while ser.in_waiting > 0:
         res += ser.read(ser.in_waiting)
-        time.sleep(0.1)
+        time.sleep(0.5)
     return res
 
 def mkdir(path):
@@ -379,6 +379,19 @@ def checkDoublePath(param):
             path[1]
         ]
 
+def checkDoublePathDl(param):
+    path = param.split(" ")
+    if len(path) == 1:
+        return [
+            path[0],
+            path[0][1:]
+        ]
+    else:
+        return [
+            path[0],
+            path[1][1:]
+        ]
+
 def printHelp():
     print("ls [path]                   Lists directory content on PEPit. Path is optional")
     print("lsa [path]                  Like ls, but lists paths with absolute names")
@@ -397,6 +410,10 @@ def printHelp():
     print("ulsr [srcpath] [targetpath] Like ulr, but slow compatibility mode for PEPit versions <9.0.")
     print("dl [srcpath] [targetpath]   Downloads the given file from PEPit. Targetpath is optional")
     print("dlr [srcpath] [targetpath]  Downloads the given directory and all files in it from PEPit. Targetpath is optional")
+    print("clearprefs                  Permanently deletes the prefs on PEPit.")
+    print("backupprefs                 Backs up prefs to /prefsBackup.bin on SD card.")
+    print("restoreprefs                Restores prefs backup from /prefsBackup.bin on SD card.")
+    print("printprefs                  Prints the content of the prefs to the terminal.")
     print("delay                       Pauses the execution for a given amount of seconds.")
     print("monitor                     Shows serial output passively.")
     print("reset                       Reboots the PEPit and reconnects after boot")
@@ -429,6 +446,7 @@ def parseInput(inp, localRoot, pwd):
     elif cmd == "rm":
         rm(param)
     elif cmd == "cat":
+        print("cat: '"+param+"'")
         res = readFile(param)
         res = res.decode("utf-8")
         print("File content:")
@@ -454,10 +472,10 @@ def parseInput(inp, localRoot, pwd):
         print(path)
         ulbr(path[0], path[1])
     elif cmd == "dl":
-        path = checkDoublePath(param)
+        path = checkDoublePathDl(param)
         dl(path[0], path[1])
     elif cmd == "dlr":
-        path = checkDoublePath(param)
+        path = checkDoublePathDl(param)
         print(path)
         dlr(path[0], path[1])
     elif cmd == "cd":
@@ -473,16 +491,28 @@ def parseInput(inp, localRoot, pwd):
     elif cmd == "printprefs":
         res = issueCommand("dumpnamespaces", b"")
         if res:
-            print(res.decode("utf-8"))
+            print(res.decode("utf-8", "ignore"))
     elif cmd == "clearprefs":
         res = issueCommand("clearprefs", b"")
         if res:
-            print(res.decode("utf-8"))
+            print(res.decode("utf-8", "ignore"))
+    elif inp == "backupprefs":
+        res = issueCommand("backupprefs", b"")
+        if res:
+            print(res.decode("utf-8", "ignore"))
+    elif inp == "restoreprefs":
+        res = issueCommand("restoreprefs", b"")
+        if res:
+            print(res.decode("utf-8", "ignore"))
     elif inp == "monitor":
         monitor()
     elif inp == "exit":
         exit()
     elif inp == "reset":
+        res = issueCommand("reset", b"")
+        if res:
+            print(res.decode("utf-8", "ignore"))
+    elif inp == "hard-reset":
         reset()
     else:
         print(f"Unknown command: {inp}")
