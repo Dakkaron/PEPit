@@ -3,6 +3,7 @@
 #include <NimBLEDevice.h>
 #include "systemconfig.h"
 #include "gfxHandler.hpp"
+#include "systemStateHandler.h"
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
@@ -31,6 +32,7 @@ bool connectToTrampoline(bool blocking) {
     if (blocking) {
       Serial.print("Waiting for trampoline connection");
       while (!NuSerial.isConnected()) {
+        displayFullscreenMessage("Warte auf Verbindung...\nTrampolinsensor einschalten!");
         Serial.print(".");
         delay(500);
       }
@@ -80,7 +82,7 @@ void getJumpData(JumpData* jumpData, ProfileData* profileData, uint32_t currentT
       Serial.println(btSerialIncoming);
       if (btSerialIncoming.startsWith("Jump Height: ")) {
         uint32_t jumpHeight = btSerialIncoming.substring(13).toInt();
-        Serial.println("Jump detected!");
+        Serial.printf("Jump detected! Needs to be min %d and target %d, is %d\n", profileData->taskMinStrength[currentTask], profileData->taskTargetStrength[currentTask], jumpHeight);
         jumpData->currentlyJumping = true;
         if (jumpHeight > profileData->taskMinStrength[currentTask]) {
           jumpData->jumpCount++;

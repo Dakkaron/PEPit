@@ -11,7 +11,7 @@
 
 #define TRIGGER_HEIGHT_LOW 220
 #define TRIGGER_HEIGHT_HIGH 245
-#define MINIMUM_JUMP_HEIGHT 0.15
+#define MINIMUM_JUMP_HEIGHT 0.3
 #define MAXIMUM_JUMP_HEIGHT 2.0
 
 float minJumpHeight = MINIMUM_JUMP_HEIGHT;
@@ -92,9 +92,7 @@ void loop() {
       }
       String heightStr = String("Jump Height: ");
       sendLine(heightStr + ((int32_t)(height*1000.0))); // convert to mm for sending
-      Serial.print("Jump height: ");
-      Serial.print(height);
-      Serial.println(" m");
+      Serial.print(heightStr + ((int32_t)(height*1000.0)));
     } else if (!currentlyInAir && readValue > TRIGGER_HEIGHT_HIGH) {
       currentlyInAir = true;
       lastJumpStartMs = millis();

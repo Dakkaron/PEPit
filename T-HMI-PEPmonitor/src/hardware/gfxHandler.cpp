@@ -1314,6 +1314,7 @@ void checkSoftFailWithMessage(String message, uint8_t textSize) {
 
 void displayFullscreenMessage(String message, uint8_t textSize) {
   spr.fillSprite(TFT_BLACK);
+  doSystemTasks();
   spr.setCursor(1, 30);
   spr.setTextSize(textSize);
   spr.println(message);
