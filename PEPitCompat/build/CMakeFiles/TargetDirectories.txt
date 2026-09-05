@@ -1,0 +1,3 @@
+/home/david/Repos/PEPit/PEPitCompat/build/CMakeFiles/pepit_compat.dir
+/home/david/Repos/PEPit/PEPitCompat/build/CMakeFiles/edit_cache.dir
+/home/david/Repos/PEPit/PEPitCompat/build/CMakeFiles/rebuild_cache.dir
