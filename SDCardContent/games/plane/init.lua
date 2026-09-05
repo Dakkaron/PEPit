@@ -7,7 +7,9 @@ SPlane = {
 }
 SShip = {
   LoadSprite("gfx/ship1.bmp", 0, 0xf81f),
-  LoadSprite("gfx/ship2.bmp", 0, 0xf81f)
+  LoadSprite("gfx/ship2.bmp", 0, 0xf81f),
+  LoadSprite("gfx/ship3.bmp", 0, 0xf81f),
+  LoadSprite("gfx/ship4.bmp", 0, 0xf81f)
 }
 SDownArrow = LoadSprite("gfx/downArrow.bmp", 0, 0xf81f)
 SRing = LoadSprite("gfx/ring.bmp", 0, 0xf81f)
@@ -27,12 +29,15 @@ SUpgradeControl = LoadSprite("gfx/control.bmp", 0, 0xf81f)
 SButtonUp = LoadSprite("gfx/buttonUp.bmp", 0, 0xf81f)
 SButtonDown = LoadSprite("gfx/buttonDown.bmp", 0, 0xf81f)
 
+STurnLeft = LoadSprite("gfx/turnLeft.bmp")
+STurnRight = LoadSprite("gfx/turnRight.bmp")
+
 PlaneAngle = 0
 CameraAngle = 0
 CameraX = 0
 CameraY = 0
 CameraHeight = 1
-Speed = 100
+Speed = 200
 TopFlightHeight = 2
 
 DrowningStartMs = 0
@@ -66,25 +71,25 @@ Objects = {
 }
 
 
-function calcDistance2D(x1, y1, x2, y2)
+function CalcDistance2D(x1, y1, x2, y2)
   local dx = x1-x2
   local dy = y1-y2
   return math.sqrt(dx*dx + dy*dy)
 end
 
-function drawBillboard(sprite, worldX, worldY, worldHeight, baseScale, hflip)
-  local x,y,z = Mode7WorldToScreen(worldX,worldY, CameraX,CameraY,CameraHeight,CameraAngle, 1, HorizonHeight, 20,180)
+function DrawBillboard(sprite, worldX, worldY, worldHeight, baseScale, hflip)
+  local x,y,_ = Mode7WorldToScreen(worldX,worldY, CameraX,CameraY,CameraHeight,CameraAngle, 1, HorizonHeight, 20,180)
   local dx = worldX - CameraX
   local dy = worldY - CameraY
   local dz = -worldHeight * 35
   local distance = math.sqrt(dx*dx + dy*dy)
-  scale = 15/distance
+  local scale = 15/distance
   local sy = y + dz * scale + dz * scale
   DrawSpriteScaled(sprite, x, sy, hflip and -scale*baseScale or scale*baseScale, scale*baseScale, 0x05)
 end
 
-function drawShip(sprite, worldX, worldY)
-  local x,y,z = Mode7WorldToScreen(worldX,worldY, CameraX,CameraY,CameraHeight,CameraAngle, 1, HorizonHeight, 20,180)
+function DrawShip(sprite, worldX, worldY)
+  local x,y,_ = Mode7WorldToScreen(worldX,worldY, CameraX,CameraY,CameraHeight,CameraAngle, 1, HorizonHeight, 20,180)
   if (x==-1000 and y==-1000) then
     return
   end
@@ -92,7 +97,7 @@ function drawShip(sprite, worldX, worldY)
   local dy = CameraY - worldY
   local distance = math.sqrt(dx*dx + dy*dy)
   local distance3d = math.sqrt(dx*dx + dy*dy + CameraHeight*CameraHeight*5)
-  scale = 15/distance3d
+  local scale = 15/distance3d
   y = math.max(y, 70)
   if (distance<110) then
     DrawSpriteScaled(sprite, x, y, scale, scale, 0x09)
@@ -102,14 +107,14 @@ function drawShip(sprite, worldX, worldY)
   end
 end
 
-function drawTarget(worldX, worldY)
+function DrawTarget(worldX, worldY)
   local dx = CameraX - worldX
   local dy = CameraY - worldY
   local distance = math.sqrt(dx*dx + dy*dy)
   if (distance<50) then
-    drawBillboard(SRing, worldX, worldY, 2, 1, false)
+    DrawBillboard(SRing, worldX, worldY, 2, 1, false)
   else
-    local x,y,z = Mode7WorldToScreen(worldX,worldY, CameraX,CameraY,CameraHeight,CameraAngle, 1, HorizonHeight, 20,180)
+    local x,y,_ = Mode7WorldToScreen(worldX,worldY, CameraX,CameraY,CameraHeight,CameraAngle, 1, HorizonHeight, 20,180)
     if (x==-1000 and y==-1000) then
       return
     end
@@ -139,7 +144,7 @@ function DisplayEarnings(x, y)
   end
 end
 
-function getObjectRelativeDirection(x, y)
+function GetObjectRelativeDirection(x, y)
   local targetAngle = math.atan(y, x)
   local angleDiff = CameraAngle - targetAngle
   if (angleDiff<-math.pi) then
@@ -148,10 +153,10 @@ function getObjectRelativeDirection(x, y)
   return angleDiff
 end
 
-function getObjectMotionVector(object)
-  dx = object.targetX - object.x
-  dy = object.targetY - object.y
-  m = math.sqrt(dx*dx + dy*dy)
+function GetObjectMotionVector(object)
+  local dx = object.targetX - object.x
+  local dy = object.targetY - object.y
+  local m = math.sqrt(dx*dx + dy*dy)
   return dx/m, dy/m
 end
 
@@ -175,7 +180,7 @@ AllUpgrades = {
     id = 2,
     text = "Motor",
     img = SUpgradeEngine,
-    cost = 500,
+    cost = {500, 750},
     prop = "uengine",
     upto = 2,
     req = {}
@@ -184,7 +189,7 @@ AllUpgrades = {
     id = 3,
     text = "Klappen",
     img = SUpgradeControl,
-    cost = 550,
+    cost = {550, 850},
     prop = "usurf",
     upto = 2,
     req = {}
@@ -213,7 +218,7 @@ AllUpgrades = {
     id = 6,
     text = "Motor",
     img = SUpgradeEngine,
-    cost = 900,
+    cost = {0, 0, 900, 1200},
     prop = "uengine",
     upto = 4,
     req = {{4,1}}
@@ -222,22 +227,13 @@ AllUpgrades = {
     id = 7,
     text = "Klappen",
     img = SUpgradeControl,
-    cost = 950,
+    cost = {0, 0, 950, 1300},
     prop = "usurf",
     upto = 4,
     req = {{4,1}}
   },
   {
     id = 8,
-    text = "Schiffe",
-    img = SShip[ShipType+1],
-    cost = 800,
-    prop = "uship",
-    upto = 1,
-    req = {}
-  },
-  {
-    id = 9,
     text = "Flugzeug",
     img = SPlane[PlaneType+1],
     cost = 3500,
@@ -246,6 +242,15 @@ AllUpgrades = {
     req = {
       {5,2}, {6,4}, {7,4}
     }
+  },
+  {
+    id = 9,
+    text = "Schiffe",
+    img = SShip[ShipType+1],
+    cost = {1000, 2000, 4000},
+    prop = "uship",
+    upto = 3,
+    req = {}
   },
 }
 
@@ -304,13 +309,15 @@ function DisplayValidUpgrades()
   for i = 1, math.min(3,#upgrades) do
     local upgrade = upgrades[i + UpgradeMenuOffset]
     local yPos = 30 + (i-1)*64
-    if (Money < upgrade.cost) then
+    local upgradeLevel = PrefsGetInt(upgrade.prop, 0)+1
+    local upgradeCost = type(upgrade.cost) == "table" and upgrade.cost[upgradeLevel] or upgrade.cost
+    if (Money < upgradeCost) then
       FillRect(10, yPos, 220, 60, 0xF800)
     else
       FillRect(10, yPos, 220, 60, 0x001F)
       if IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
         TouchBlocked = true
-        Money = Money - upgrade.cost
+        Money = Money - upgradeCost
         PrefsSetInt("money", Money)
         PrefsSetInt(upgrade.prop, PrefsGetInt(upgrade.prop, 0) + 1)
         CachedValidUpdates = nil
@@ -323,8 +330,8 @@ function DisplayValidUpgrades()
     DrawSpriteScaled(upgrade.img, 42, yPos+30, scale, scale, 0x05)
     SetTextSize(2)
     DrawString(upgrade.text, 78, yPos+2)
-    DrawString("Stufe " .. (PrefsGetInt(upgrade.prop, 0)+1), 78, yPos+20)
-    DrawString("$"..upgrade.cost, 230 - #("$"..upgrade.cost)*12, yPos+40)
+    DrawString("Stufe " .. upgradeLevel, 78, yPos+20)
+    DrawString("$"..upgradeCost, 230 - #("$"..upgradeCost)*12, yPos+40)
     SetTextSize(1)
   end
 end

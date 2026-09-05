@@ -11,7 +11,8 @@
 #define SYSTEM_CONFIG_INI_PATH "/systemConfig.ini"
 #define PROFILE_DATA_INI_PATH "/profiles.ini"
 #define EXECUTION_LOG_PATH "/executionsLog.csv"
-#define INI_BUFFER_LEN 128
+#define INI_BUFFER_LEN 2048
+#define INI_LINE_BUFFER_LEN 512
 
 #define WIN_SCREEN_PATH "gfx/win"
 #define GAMES_ROOT_DIR "/games"
@@ -30,19 +31,20 @@ void readGameConfig(String gamePath, GameConfig* gameConfig, String* errorMessag
 
 void getIniSection(String iniPath, String section, char* resultBuffer, uint16_t len, String* errorMessage);
 bool isKeyInSection(char* sectionData, String key);
-String getIniValueFromSection(char* sectionData, String key, String* errorMessage);
-String getIniValue(String iniPath, String section, String key, String* errorMessage);
+void getIniValueFromSection(char* sectionData, String key, String* output, String* errorMessage);
+bool getBoolIniValueFromSection(char* sectionData, String key, String* errorMessage, bool def);
+int32_t getIntIniValueFromSection(char* sectionData, String key, String* errorMessage, int32_t def=0);
+void getIniValue(String iniPath, String section, String key, String* output, String* errorMessage);
 
 String getRandomWinScreenPath(String gamePath, String* errorMessage);
 
 char* readFileToNewPSBuffer(const char *path);
-String readFileToString(const char *path);
 String readFileLineToString(const char *path, uint32_t lineNr);
 void writeStringToFile(const char *path, String val);
 void writeIntToFile(const char *path, int32_t val);
 int32_t readIntFromFile(const char *path);
 int32_t readIntFromFile(const char *path, uint32_t lineNr);
 
-void logExecutionToSD(ProfileData* profileData, String ntpDateString, String ntpTimeString, String* errorMessage);
+void logExecutionToSD(ProfileData* profileData, String ntpDateString, String ntpTimeString, uint32_t successes, uint32_t fails, uint32_t time, String* errorMessage);
 
 #endif /* __SDHANDLER_H__*/

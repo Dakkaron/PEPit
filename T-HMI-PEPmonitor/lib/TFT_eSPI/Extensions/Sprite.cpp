@@ -795,6 +795,7 @@ bool TFT_eSprite::pushToSprite(TFT_eSprite *dspr, int32_t x, int32_t y, uint16_t
   if (_bpp ==  1 && ds_bpp !=  1) return false;
 
   bool oldSwapBytes = dspr->getSwapBytes();
+  dspr->setSwapBytes(false);
   uint16_t sline_buffer[width()];
 
   transp = transp>>8 | transp<<8;

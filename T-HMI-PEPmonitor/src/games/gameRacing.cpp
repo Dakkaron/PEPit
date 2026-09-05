@@ -69,7 +69,7 @@ void initGames_racing(String gamePath, GameConfig* gameConfig, String* errorMess
 static uint8_t currentTurnType;
 static int32_t roadXOffset = 0;
 static uint8_t enemySpriteId = 0;
-static void calculateRoad(float y, float speed, unsigned long ms, float* x, float* w, int32_t* roadYOffset) {
+static void legacy_calculateRoad(float y, float speed, unsigned long ms, float* x, float* w, int32_t* roadYOffset) {
   static float roadBaseOffset = 0;
   static uint32_t roadLastMs = 0;
   if (roadLastMs==0) {
@@ -107,7 +107,7 @@ static void drawEnemyCar(DISPLAY_T* display, int32_t x, int32_t y, int32_t w, in
   }
 }
 
-static void drawRace_desert(DISPLAY_T* display, float x, int32_t y, float w, int32_t roadYOffset, float lastX, float lastW) {
+static void legacy_drawRace_desert(DISPLAY_T* display, float x, int32_t y, float w, int32_t roadYOffset, float lastX, float lastW) {
   float railTopHeight = 0.15*w;
   float railThickness = 0.08*w;
   float lampHeight = 0.8*w;
@@ -125,10 +125,10 @@ static void drawRace_desert(DISPLAY_T* display, float x, int32_t y, float w, int
   // Draw lamp mast
   if (((roadYOffset) % 12) == 1) {
     for (int32_t dx = _min(dxTotal, 0); dx < _max(dxTotal + 1, 1); dx++) {
-      display->drawFastVLine(x-w*0.2 + dx, y-lampHeight, lampHeight, (roadYOffset/6) % 2 ? 0xbdf7 : 0xce59);
+      display->drawFastVLine(x-w*0.2 + dx, y-lampHeight, lampHeight, (roadYOffset/6) & 0x1 ? 0xbdf7 : 0xce59);
     }
-    for (uint32_t i=0;i<(w*0.02);i++) {
-      display->drawFastHLine(x-w*0.2, y-lampHeight+i, w*(0.2+0.5+0.125), (roadYOffset/6) % 2 ? 0xbdf7 : 0xce59);
+    for (int32_t i=0;i<(w*0.02);i++) {
+      display->drawFastHLine(x-w*0.2, y-lampHeight+i, w*(0.2+0.5+0.125), (roadYOffset/6) & 0x1 ? 0xbdf7 : 0xce59);
     }
   }
 
@@ -140,7 +140,7 @@ static void drawRace_desert(DISPLAY_T* display, float x, int32_t y, float w, int
   }
 }
 
-void drawRace_tunnel(DISPLAY_T* display, float x, int32_t y, float w, int32_t roadYOffset, int32_t lastX, int32_t lastW, bool drawMountain) {
+void legacy_drawRace_tunnel(DISPLAY_T* display, float x, int32_t y, float w, int32_t roadYOffset, int32_t lastX, int32_t lastW, bool drawMountain) {
   float wallHeight = w;
 
   // Draw roof
@@ -236,7 +236,7 @@ static void drawRace(DISPLAY_T* display, BlowData* blowData, int32_t animTime) {
   for (int32_t y=HORIZON_Y;y<190;y++) {
     lastX = x;
     lastW = w;
-    calculateRoad(y, speed, blowData->ms, &x, &w, &roadYOffset);
+    legacy_calculateRoad(y, speed, blowData->ms, &x, &w, &roadYOffset);
     if (y==50) {
       lastX = x;
       lastW = w;
@@ -252,9 +252,9 @@ static void drawRace(DISPLAY_T* display, BlowData* blowData, int32_t animTime) {
     }
 
     if (roadYOffset % 1000 < 500) {
-      drawRace_tunnel(display, x, y, w, roadYOffset, lastX, lastW, (roadYOffset % 1000) == 0);
+      legacy_drawRace_tunnel(display, x, y, w, roadYOffset, lastX, lastW, (roadYOffset % 1000) == 0);
     } else {
-      drawRace_desert(display, x, y, w, roadYOffset, lastX, lastW);
+      legacy_drawRace_desert(display, x, y, w, roadYOffset, lastX, lastW);
     }
 
     // Draw enemy car

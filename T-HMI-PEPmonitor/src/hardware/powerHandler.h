@@ -8,6 +8,10 @@ extern OneButton buttonPwr;
 extern OneButton buttonUsr;
 
 uint32_t readBatteryVoltage();
+uint32_t readBatteryVoltageAveraged();
+bool isSkipSplashScreen();
+void deepSleepReset();
+void restoreAfterDeepSleep();
 void power_off();
 
 #endif /*__POWER_HANDLER_H__*/

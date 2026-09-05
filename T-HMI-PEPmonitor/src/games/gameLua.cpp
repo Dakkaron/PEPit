@@ -1,17 +1,25 @@
 #include "gameLua.h"
 #include "hardware/sdHandler.h"
 #include "hardware/gfxHandler.hpp"
+#include "hardware/higherLevelGfxHandler.hpp"
 #include "hardware/prefsHandler.h"
+#include "hardware/joystickHandler.h"
 
 static String luaGamePath;
 lua_State* luaState;
 
 DISPLAY_T* luaDisplay;
 bool luaProgressionMenuRunning;
+bool luaWinScreenRunning;
 bool luaStrictMode = false;
 bool luaCacheGameCode = false;
+static GameConfig gameConfig;
 
-#define SPRITE_COUNT_LIMIT 100
+RoadColors roadColors;
+RoadDrawFlags roadDrawFlags;
+RoadDimensions roadDimensions;
+
+#define SPRITE_COUNT_LIMIT 200
 
 struct SpriteMetadata {
   uint32_t frameW;
@@ -282,16 +290,12 @@ static int lua_wrapper_drawSprite(lua_State* luaState) {
   //Serial.println(handle);
   int16_t x = luaL_checknumber(luaState, 2);
   int16_t y = luaL_checknumber(luaState, 3);
+  float alpha = luaL_optnumber(luaState, 4, 1);
   if (!isHandleValid(handle)) {
     return 0;
   }
   int32_t maskingColor = spriteMetadata[handle].maskingColor;
-  if (maskingColor != -1) {
-    sprites[handle].pushToSprite(luaDisplay, x, y, spriteMetadata[handle].maskingColor);
-  } else {
-    sprites[handle].pushToSprite(luaDisplay, x, y);
-  }
-  
+  drawSprite(luaDisplay, &(sprites[handle]), x, y, spriteMetadata[handle].maskingColor, alpha);
   //Serial.println("Draw sprite done");
   return 0;
 }
@@ -375,11 +379,14 @@ static int lua_wrapper_drawSpriteToSprite(lua_State* luaState) {
   int32_t maskingColor = spriteMetadata[srcHandle].maskingColor;
   Serial.print("PSTS: Masking color: ");
   Serial.println(maskingColor);
+  bool oldSwapBytes = sprites[srcHandle].getSwapBytes();
+  sprites[srcHandle].setSwapBytes(false);
   if (maskingColor != -1) {
     sprites[srcHandle].pushToSprite(&sprites[dstHandle], x, y, maskingColor);
   } else {
     sprites[srcHandle].pushToSprite(&sprites[dstHandle], x, y);
   }
+  sprites[srcHandle].setSwapBytes(oldSwapBytes);
   //Serial.println("Draw sprite done");
   return 0;
 }
@@ -464,6 +471,39 @@ static int lua_wrapper_drawSpriteScaledRotated(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_drawAnimSpriteScaledRotated(lua_State* luaState) {
+  int16_t handle = luaL_checkinteger(luaState, 1);
+  if (!isHandleValid(handle)) {
+    return 0;
+  }
+  int16_t sw = spriteMetadata[handle].frameW;
+  int16_t sh = spriteMetadata[handle].frameH;
+  Vector2D position;
+  position.x = luaL_checknumber(luaState, 2);
+  position.y = luaL_checknumber(luaState, 3);
+  Vector2D scale;
+  scale.x = luaL_checknumber(luaState, 4);
+  scale.y = luaL_checknumber(luaState, 5);
+  float angle = luaL_checknumber(luaState, 6);
+  int16_t frame = luaL_checknumber(luaState, 7);
+  uint32_t flags = luaL_optinteger(luaState, 8, ALIGN_H_CENTER | ALIGN_V_CENTER);
+  flags |= TRANSP_MASK;
+  float s = sin(angle);
+  float c = cos(angle);
+  Matrix2D scaleMatrix = {
+    scale.x, 0,
+    0, scale.y
+  };
+  Matrix2D rotateMatrix = {
+    c, -s,
+    s, c
+  };
+  Matrix2D transformMatrix;
+  multMMF(&rotateMatrix, &scaleMatrix, &transformMatrix);
+  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transformMatrix, flags, spriteMetadata[handle].maskingColor, sw, sh, frame);
+  return 0;
+}
+
 static int lua_wrapper_spriteHeight(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
   if (!isHandleValid(handle)) {
@@ -532,10 +572,19 @@ static int lua_wrapper_log(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawString(lua_State* luaState) {
-  String s = luaL_checkstring(luaState, 1);
-  int16_t x = luaL_checknumber(luaState, 2);
-  int16_t y = luaL_checknumber(luaState, 3);
-  luaDisplay->drawString(s, x, y);
+  const char* cs = luaL_checkstring(luaState, 1);
+  char* s = (char*)malloc(strlen(cs)+1);
+  strcpy(s, cs);
+  int32_t x = luaL_checknumber(luaState, 2);
+  int32_t y = luaL_checknumber(luaState, 3);
+  char* token = strtok(s, "\n");
+  int32_t fontHeight = luaDisplay->fontHeight();
+  while (token != NULL) {
+    luaDisplay->drawString(token, x, y);
+    y += fontHeight;
+    token = strtok(NULL, "\n");
+  }
+  free(s);
   return 0;
 }
 
@@ -717,6 +766,11 @@ static int lua_wrapper_closeProgressionMenu(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_closeWinScreen(lua_State* luaState) {
+  luaWinScreenRunning = false;
+  return 0;
+}
+
 static int lua_wrapper_isTouchInZone(lua_State* luaState) {
   int16_t x = luaL_checknumber(luaState, 1);
   int16_t y = luaL_checknumber(luaState, 2);
@@ -759,8 +813,203 @@ static int lua_wrapper_getFreeSpriteSlots(lua_State* luaState) {
       count++;
     }
   }
-  lua_pushinteger(luaState, count);
+  lua_pushinteger(luaState, SPRITE_COUNT_LIMIT-count);
   return 1;
+}
+
+static int lua_wrapper_setRoadColors(lua_State* luaState) {
+  roadColors.pavementA = luaL_checknumber(luaState, 1);
+  roadColors.pavementB = luaL_checknumber(luaState, 2);
+  roadColors.embankmentA = luaL_checknumber(luaState, 3);
+  roadColors.embankmentB = luaL_checknumber(luaState, 4);
+  roadColors.grassA = luaL_checknumber(luaState, 5);
+  roadColors.grassB = luaL_checknumber(luaState, 6);
+  roadColors.wallA = luaL_checknumber(luaState, 7);
+  roadColors.wallB = luaL_checknumber(luaState, 8);
+  roadColors.railA = luaL_checknumber(luaState, 9);
+  roadColors.railB = luaL_checknumber(luaState, 10);
+  roadColors.lamp = luaL_checknumber(luaState, 11);
+  roadColors.mountain = luaL_checknumber(luaState, 12);
+  roadColors.centerLine = luaL_checknumber(luaState, 13);
+  return 0;
+}
+
+static int lua_wrapper_setRoadDrawFlags(lua_State* luaState) {
+  roadDrawFlags.drawMountain = lua_toboolean(luaState, 1);
+  roadDrawFlags.drawLamps = lua_toboolean(luaState, 2);
+  roadDrawFlags.drawRails = lua_toboolean(luaState, 3);
+  roadDrawFlags.drawCenterLine = lua_toboolean(luaState, 4);
+  roadDrawFlags.drawTunnelDoors = lua_toboolean(luaState, 5);
+  return 0;
+}
+
+static int lua_wrapper_setRoadDimensions(lua_State* luaState) {
+  roadDimensions.roadWidth = luaL_checknumber(luaState, 1);
+  roadDimensions.embankmentWidth = luaL_checknumber(luaState, 2);
+  roadDimensions.centerlineWidth = luaL_checknumber(luaState, 3);
+  roadDimensions.railingDistance = luaL_checknumber(luaState, 4);
+  roadDimensions.railingHeight = luaL_checknumber(luaState, 5);
+  roadDimensions.railingThickness = luaL_checknumber(luaState, 6);
+  roadDimensions.lampHeight = luaL_checknumber(luaState, 7);
+  return 0;
+}
+
+static int lua_wrapper_drawRaceOutdoor(lua_State* luaState) {
+  drawRaceOutdoor(luaDisplay,
+    (int32_t)luaL_checknumber(luaState, 1), // x
+    (int32_t)luaL_checknumber(luaState, 2), // y
+    luaL_checknumber(luaState, 3),          // w
+    (int32_t)luaL_checknumber(luaState, 4), // roadYOffset
+    luaL_checknumber(luaState, 5),          // lastX
+    luaL_checknumber(luaState, 6),          // lastW
+    &roadColors,
+    &roadDrawFlags,
+    &roadDimensions
+  );
+  return 0;
+}
+
+static int lua_wrapper_drawRaceTunnel(lua_State* luaState) {
+  drawRaceTunnel(luaDisplay,
+    (int32_t)luaL_checknumber(luaState, 1), // x
+    (int32_t)luaL_checknumber(luaState, 2), // y
+    luaL_checknumber(luaState, 3),          // w
+    (int32_t)luaL_checknumber(luaState, 4), // roadYOffset
+    luaL_checknumber(luaState, 5),          // lastX
+    luaL_checknumber(luaState, 6),          // lastW
+    &roadColors,
+    &roadDrawFlags,
+    &roadDimensions
+  );
+  return 0;
+}
+
+static int lua_wrapper_calculateRoadProperties(lua_State* luaState) {
+  float x;
+  float w;
+  int32_t roadYOffset;
+  calculateRoadProperties(
+    luaL_checknumber(luaState, 1), // y
+    luaL_checknumber(luaState, 2), // distance
+    luaL_checknumber(luaState, 3), // horizonY
+    luaL_checknumber(luaState, 4), // baselineY
+    luaL_checknumber(luaState, 5), // roadXOffset
+    &x, &w, &roadYOffset
+  );
+  lua_pushnumber(luaState, x);
+  lua_pushnumber(luaState, w);
+  lua_pushinteger(luaState, roadYOffset);
+  return 3;
+}
+
+static int lua_wrapper_projectRoadPointToScreen(lua_State* luaState) {
+  float x;
+  float y;
+  float scale;
+  projectRoadPointToScreen(
+    luaL_checknumber(luaState, 1), // roadX
+    luaL_checknumber(luaState, 2), // roadZ
+    luaL_checknumber(luaState, 3), // horizonY
+    luaL_checknumber(luaState, 4), // baselineY
+    luaL_checknumber(luaState, 5), // roadXOffset
+    &x, &y, &scale
+  );
+  lua_pushnumber(luaState, x);
+  lua_pushnumber(luaState, y);
+  lua_pushnumber(luaState, scale);
+  return 3;
+}
+
+static int lua_wrapper_isJoystickPresent(lua_State* luaState) {
+  lua_pushnumber(luaState, isJoystickPresent());
+  return 1;
+}
+
+static int lua_wrapper_getJoystickXY(lua_State* luaState) {
+  float x;
+  float y;
+  getJoystickXY(&x, &y);
+  lua_pushnumber(luaState, x);
+  lua_pushnumber(luaState, y);
+  return 2;
+}
+
+static int lua_wrapper_getJoystickX(lua_State* luaState) {
+  float x;
+  float y;
+  getJoystickXY(&x, &y);
+  lua_pushnumber(luaState, x);
+  return 1;
+}
+
+static int lua_wrapper_getJoystickY(lua_State* luaState) {
+  float x;
+  float y;
+  getJoystickXY(&x, &y);
+  lua_pushnumber(luaState, y);
+  return 1;
+}
+
+static int lua_wrapper_getJoystickButton(lua_State* luaState) {
+  lua_pushboolean(luaState, getJoystickButton());
+  return 1;
+}
+
+static void *l_alloc_psram (void *ud, void *ptr, size_t osize, size_t nsize) {
+  (void)ud; (void)osize;  /* not used */
+  if (nsize == 0) {
+    free(ptr);
+    return NULL;
+  }
+  else
+    return heap_caps_realloc(ptr, nsize, MALLOC_CAP_SPIRAM);
+}
+
+static int panic (lua_State *L) {
+  const char *msg = (lua_type(L, -1) == LUA_TSTRING)
+                  ? lua_tostring(L, -1)
+                  : "error object is not a string";
+  lua_writestringerror("PANIC: unprotected error in call to Lua API (%s)\n",
+                        msg);
+  return 0;  /* return to Lua to abort */
+}
+
+static void warnfoff (void *ud, const char *message, int tocont);
+static void warnfon (void *ud, const char *message, int tocont);
+static void warnfcont (void *ud, const char *message, int tocont);
+
+static int checkcontrol (lua_State *L, const char *message, int tocont) {
+  if (tocont || *(message++) != '@')  /* not a control message? */
+    return 0;
+  else {
+    if (strcmp(message, "off") == 0)
+      lua_setwarnf(L, warnfoff, L);  /* turn warnings off */
+    else if (strcmp(message, "on") == 0)
+      lua_setwarnf(L, warnfon, L);   /* turn warnings on */
+    return 1;  /* it was a control message */
+  }
+}
+
+static void warnfcont (void *ud, const char *message, int tocont) {
+  lua_State *L = (lua_State *)ud;
+  lua_writestringerror("%s", message);  /* write message */
+  if (tocont)  /* not the last part? */
+    lua_setwarnf(L, warnfcont, L);  /* to be continued */
+  else {  /* last part */
+    lua_writestringerror("%s", "\n");  /* finish message with end-of-line */
+    lua_setwarnf(L, warnfon, L);  /* next call is a new message */
+  }
+}
+
+static void warnfon (void *ud, const char *message, int tocont) {
+  if (checkcontrol((lua_State *)ud, message, tocont))  /* control message? */
+    return;  /* nothing else to be done */
+  lua_writestringerror("%s", "Lua warning: ");  /* start a new warning */
+  warnfcont(ud, message, tocont);  /* finish processing */
+}
+
+static void warnfoff (void *ud, const char *message, int tocont) {
+  checkcontrol((lua_State *)ud, message, tocont);
 }
 
 void initLua() {
@@ -768,11 +1017,16 @@ void initLua() {
   if (bindingsInitiated) {
     return;
   }
-  luaState = luaL_newstate();
+  luaState = lua_newstate(l_alloc_psram, NULL);
+  lua_atpanic(luaState, &panic);
+  lua_setwarnf(luaState, warnfoff, luaState);
   luaopen_base(luaState);
   luaopen_table(luaState);
+  lua_setglobal(luaState, "table");
   luaopen_string(luaState);
+  lua_setglobal(luaState, "string");
   luaopen_math(luaState);
+  lua_setglobal(luaState, "math");
 
   sprites = (TFT_eSprite*) heap_caps_malloc(sizeof(TFT_eSprite) * SPRITE_COUNT_LIMIT, MALLOC_CAP_SPIRAM);
   if (!sprites) {
@@ -800,6 +1054,7 @@ void initLua() {
   lua_register(luaState, "DrawSpriteScaled", (lua_CFunction) &lua_wrapper_drawSpriteScaled);
   lua_register(luaState, "DrawAnimSpriteScaled", (lua_CFunction) &lua_wrapper_drawAnimSpriteScaled);
   lua_register(luaState, "DrawSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawSpriteScaledRotated);
+  lua_register(luaState, "DrawAnimSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawAnimSpriteScaledRotated);
   lua_register(luaState, "DrawSpriteTransformed", (lua_CFunction) &lua_wrapper_drawSpriteTransformed);
   lua_register(luaState, "SpriteWidth", (lua_CFunction) &lua_wrapper_spriteWidth);
   lua_register(luaState, "SpriteHeight", (lua_CFunction) &lua_wrapper_spriteHeight);
@@ -829,6 +1084,7 @@ void initLua() {
   lua_register(luaState, "PrefsSetNumber", (lua_CFunction) &lua_wrapper_prefsSetNumber);
   lua_register(luaState, "PrefsGetNumber", (lua_CFunction) &lua_wrapper_prefsGetNumber);
   lua_register(luaState, "CloseProgressionMenu", (lua_CFunction) &lua_wrapper_closeProgressionMenu);
+  lua_register(luaState, "CloseWinScreen", (lua_CFunction) &lua_wrapper_closeWinScreen);
   lua_register(luaState, "Constrain", (lua_CFunction) &lua_wrapper_constrain);
   lua_register(luaState, "IsTouchInZone", (lua_CFunction) &lua_wrapper_isTouchInZone);
   lua_register(luaState, "GetTouchX", (lua_CFunction) &lua_wrapper_getTouchX);
@@ -838,20 +1094,38 @@ void initLua() {
   lua_register(luaState, "GetFreePSRAM", (lua_CFunction) &lua_wrapper_getFreePSRAM);
   lua_register(luaState, "GetFreeSpriteSlots", (lua_CFunction) &lua_wrapper_getFreeSpriteSlots);
   lua_register(luaState, "DisableCaching", (lua_CFunction) &lua_wrapper_disableCaching);
+  lua_register(luaState, "SetRoadColors", (lua_CFunction) &lua_wrapper_setRoadColors);
+  lua_register(luaState, "SetRoadDrawFlags", (lua_CFunction) &lua_wrapper_setRoadDrawFlags);
+  lua_register(luaState, "SetRoadDimensions", (lua_CFunction) &lua_wrapper_setRoadDimensions);
+  lua_register(luaState, "DrawRaceOutdoor", (lua_CFunction) &lua_wrapper_drawRaceOutdoor);
+  lua_register(luaState, "DrawRaceTunnel", (lua_CFunction) &lua_wrapper_drawRaceTunnel);
+  lua_register(luaState, "CalculateRoadProperties", (lua_CFunction) &lua_wrapper_calculateRoadProperties);
+  lua_register(luaState, "ProjectRoadPointToScreen", (lua_CFunction) &lua_wrapper_projectRoadPointToScreen);
+  lua_register(luaState, "IsJoystickPresent", (lua_CFunction) &lua_wrapper_isJoystickPresent);
+  lua_register(luaState, "GetJoystickXY", (lua_CFunction) &lua_wrapper_getJoystickXY);
+  lua_register(luaState, "GetJoystickX", (lua_CFunction) &lua_wrapper_getJoystickX);
+  lua_register(luaState, "GetJoystickY", (lua_CFunction) &lua_wrapper_getJoystickY);
+  lua_register(luaState, "GetJoystickButton", (lua_CFunction) &lua_wrapper_getJoystickButton);
   bindingsInitiated = true;
 }
 
-void initGames_lua(String gamePath, GameConfig* gameConfig, String* errorMessage) {
+void initGames_lua(String gamePath, GameConfig* pGameConfig, String* errorMessage) {
   String ignoreErrorMessage;
+  readGameConfig(gamePath, &gameConfig, errorMessage);
   initLua();
-  String msString = "Ms="+String(millis());
-  lua_dostring(msString.c_str(), "initGames_lua()");
+  String variablesString = "Ms="+String(millis())+"\n"+\
+                    "LeftHandedMode="+String(systemConfig.leftHandMode ? "true\n" : "false\n");
+  lua_dostring(variablesString.c_str(), "initGames_lua()");
   luaGamePath = gamePath;
   String luaGameIniPath = gamePath + "gameconfig.ini";
-  luaStrictMode = getIniValue(luaGameIniPath, "[game]", "strictMode", &ignoreErrorMessage).equalsIgnoreCase("true");
-  luaCacheGameCode = !getIniValue(luaGameIniPath, "[game]", "caceGameCode", &ignoreErrorMessage).equalsIgnoreCase("false");
+  String output;
+  Serial.print("LUA GAME INI PATH: ");
+  Serial.println(luaGameIniPath);
+  getIniValue(luaGameIniPath, "[game]", "strictMode", &output, &ignoreErrorMessage);
+  luaStrictMode = output.equalsIgnoreCase("true");
+  luaCacheGameCode = true;
 
-  setGamePrefsNamespace(gameConfig->prefsNamespace.c_str());
+  setGamePrefsNamespace(gameConfig.prefsNamespace.c_str());
 
   lua_dofile(luaGamePath + "init.lua");
 }
@@ -862,7 +1136,7 @@ void updateBlowData(BlowData* blowData) {
   static uint32_t lastRepetition = 0;
   int32_t taskNumber = blowData->taskNumber + blowData->cycleNumber * blowData->totalTaskNumber;
   bool isNewTask = taskNumber != lastKnownTaskNumber;
-  String blowDataString = "CurrentlyBlowing="+String(blowData->currentlyBlowing ? "true" : "false")+"\n"+\
+  String blowDataString = "CurrentlyBlowing="+String(blowData->currentlyBlowing ? "true\n" : "false\n")+\
                           "Ms="+String(blowData->ms)+"\n"+\
                           "MsDelta="+String(isNewTask ? 1 : blowData->ms - lastMs)+"\n"+\
                           "BlowStartMs="+String(blowData->blowStartMs)+"\n"+\
@@ -884,9 +1158,10 @@ void updateBlowData(BlowData* blowData) {
                           "TaskStartMs="+String(blowData->taskStartMs)+"\n"+\
                           "CumulatedTaskNumber="+String(blowData->taskNumber + blowData->cycleNumber * blowData->totalTaskNumber)+"\n"+\
                           "TaskNumber="+String(taskNumber)+"\n"+\
-                          "TotalTaskNumber="+String(blowData->totalTaskNumber)+"\n"+
-                          "IsNewTask="+String(isNewTask ? "true" : "false")+"\n"+
-                          "BreathingScore="+String(blowData->breathingScore);
+                          "TotalTaskNumber="+String(blowData->totalTaskNumber)+"\n"+\
+                          "IsNewTask="+String(isNewTask ? "true\n" : "false\n")+\
+                          "BreathingScore="+String(blowData->breathingScore)+"\n"+\
+                          "LeftHandedMode="+String(systemConfig.leftHandMode ? "true\n" : "false\n");
   lastKnownTaskNumber = taskNumber;
   lua_dostring(blowDataString.c_str(), "updateBlowData()");
   lastMs = blowData->ms;
@@ -896,6 +1171,7 @@ void updateBlowData(BlowData* blowData) {
 void updateJumpData(JumpData* jumpData) {
   static uint32_t lastMs = 0;
   static uint32_t lastRepetition = 0;
+  static uint32_t lastBonusRepetition = 0;
   static uint32_t lastJumpMs = 0;
   int32_t taskNumber = jumpData->taskNumber + jumpData->cycleNumber * jumpData->totalTaskNumber;
   if (jumpData->jumpCount > lastRepetition) {
@@ -907,12 +1183,15 @@ void updateJumpData(JumpData* jumpData) {
                           "TotalCycleNumber="+String(jumpData->totalCycleNumber)+"\n"+\
                           "CumulatedTaskNumber="+String(jumpData->taskNumber + jumpData->cycleNumber * jumpData->totalTaskNumber)+"\n"+\
                           "TaskNumber="+String(taskNumber)+"\n"+\
-                          "TotalTaskNumber="+String(jumpData->totalTaskNumber)+"\n"+
+                          "TotalTaskNumber="+String(jumpData->totalTaskNumber)+"\n"+\
                           "CurrentRepetition="+String(jumpData->jumpCount)+"\n"+\
+                          "CurrentBonusRepetition="+String(jumpData->bonusJumpCount)+"\n"+\
                           "CurrentlyJumping="+String(jumpData->currentlyJumping ? "true" : "false")+"\n"+\
                           "NewRepetition="+String((jumpData->jumpCount>lastRepetition) ? "true" : "false")+"\n"+\
+                          "NewBonusRepetition="+String((jumpData->bonusJumpCount>lastBonusRepetition) ? "true" : "false")+"\n"+\
                           "MsLeft="+String(jumpData->msLeft)+"\n"+\
-                          "LastJumpMs="+String(lastJumpMs);
+                          "LastJumpMs="+String(lastJumpMs)+"\n"+\
+                          "LeftHandedMode="+String(systemConfig.leftHandMode ? "true\n" : "false\n");
   lua_dostring(jumpDataString.c_str(), "updateJumpData()");
   lastMs = jumpData->ms;
   lastRepetition = jumpData->jumpCount;
@@ -921,44 +1200,44 @@ void updateJumpData(JumpData* jumpData) {
 void drawShortBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
   luaDisplay = display;
   updateBlowData(blowData);
-  lua_dofile(luaGamePath + "shortBlow.lua");
+  lua_dofile(luaGamePath + gameConfig.pepShortScriptPath);
 }
 
 void drawLongBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
   luaDisplay = display;
   updateBlowData(blowData);
-  lua_dofile(luaGamePath + "longBlow.lua");
+  lua_dofile(luaGamePath + gameConfig.pepLongScriptPath);
 }
 
 void drawEqualBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
   luaDisplay = display;
   updateBlowData(blowData);
-  lua_dofile(luaGamePath + "equalBlow.lua");
+  lua_dofile(luaGamePath + gameConfig.pepEqualScriptPath);
 }
 
 void drawTrampolineGame_lua(DISPLAY_T* display, JumpData* jumpData, String* errorMessage) {
   luaDisplay = display;
   updateJumpData(jumpData);
-  lua_dofile(luaGamePath + "trampoline.lua");
+  lua_dofile(luaGamePath + gameConfig.trampolineScriptPath);
 }
 
 void drawInhalationGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
   luaDisplay = display;
   updateBlowData(blowData);
-  lua_dofile(luaGamePath + "inhalation.lua");
+  lua_dofile(luaGamePath + gameConfig.inhalationScriptPath);
 }
 
 void drawInhalationBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
   luaDisplay = display;
   updateBlowData(blowData);
-  lua_dofile(luaGamePath + "inhalationPep.lua");
+  lua_dofile(luaGamePath + gameConfig.inhalationPepScriptPath);
 }
 
 bool displayProgressionMenu_lua(DISPLAY_T *display, String *errorMessage) {
   luaProgressionMenuRunning = true;
   luaDisplay = display;
   lua_dostring(("Ms="+String(millis())).c_str(), "displayProgressionMenu_lua()");
-  String error = lua_dofile(luaGamePath + "progressionMenu.lua");
+  String error = lua_dofile(luaGamePath + gameConfig.progressionMenuScriptPath);
   if (!error.isEmpty()) {
     errorMessage->concat(error);
     return false;
@@ -973,4 +1252,21 @@ void endGame_lua(String *errorMessage) {
   lua_gc(luaState, LUA_GCCOLLECT, 0);
   Serial.print("Free RAM after: ");
   Serial.println(ESP.getFreeHeap());
+}
+
+bool displayWinScreen_lua(DISPLAY_T *display, String *errorMessage) {
+  if (gameConfig.winScreenScriptPath.isEmpty()) {
+    Serial.println("No win screen script defined, skipping...");
+    luaWinScreenRunning = false;
+    return false;
+  }
+  luaWinScreenRunning = true;
+  luaDisplay = display;
+  lua_dostring(("Ms="+String(millis())).c_str(), "displayWinScreen_lua()");
+  String error = lua_dofile(luaGamePath + gameConfig.winScreenScriptPath);
+  if (!error.isEmpty()) {
+    errorMessage->concat(error);
+    return false;
+  }
+  return luaWinScreenRunning;
 }

@@ -4,7 +4,6 @@
 #include <Arduino.h>
 
 struct SystemConfig {
-  String trampolineIp;
   String wifiSsid;
   String wifiPassword;
   String wifiSsid2;
@@ -19,6 +18,8 @@ struct SystemConfig {
   bool debugLogTrampoline;
   bool logExecutions;
   int32_t timezoneOffset;
+  bool leftHandMode;
+  bool manometerMode;
 };
 
 extern SystemConfig systemConfig;

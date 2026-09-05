@@ -10,11 +10,22 @@
 #include "hardware/powerHandler.h"
 #include "hardware/MyFont.h"
 #include "updateHandler.h"
+#include "systemStateHandler.h"
+#include "hardware/wifiHandler.h"
+#include "joystickHandler.h"
 
 #define GFXFF 1
 #define MYFONT5x7 &Font5x7Fixed
 
+#define SWAP_BYTES(a) (((a & 0xFF) << 8) | ((a & 0xFF00) >> 8))
+#define COMPOSE_RGB565(r, g, b) ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+
 #define BMP16_ALPHA_FLAG_OFFSET 0x43
+
+#define SELECTION_MODE_NO_SELECTION 0
+#define SELECTION_MODE_PROFILE 1
+#define SELECTION_MODE_GAME 2
+#define SELECTION_MODE_DONE 3
 
 #define swap(x, y) do \
   { unsigned char swap_temp[sizeof(x) == sizeof(y) ? (signed)sizeof(x) : -1]; \
@@ -25,10 +36,11 @@
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite spr = TFT_eSprite(&tft);
-TFT_eSprite batteryIcon[] = {TFT_eSprite(&tft), TFT_eSprite(&tft), TFT_eSprite(&tft)};
+#define SYSTEM_STATS_SPRITE_COUNT 5
+static TFT_eSprite* systemStatsSprites = nullptr;
 
 void initGfxHandler() {
-  tft.setTextColor(TFT_WHITE);
+  tft.writecommand(0x11);
   tft.fillScreen(TFT_BLACK);
   spr.setColorDepth(16);
   spr.createSprite(SCREEN_WIDTH, SCREEN_HEIGHT, 2);
@@ -72,22 +84,23 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
       r = *bptr++;
       a = *bptr++;
       if (a == 0 || (enableDitherTransparency && (col & 0x01) == oddRow)) {
-        *tptr++ = maskingColor;
+        *tptr++ = SWAP_BYTES(maskingColor);
       } else {
-        uint16_t res = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        uint16_t res = COMPOSE_RGB565(r,g,b);
         if (res == maskingColor) {
           res = (res & 0xFFDF) | (~res & 0x0020); // flip lowest green bit
         }
-        *tptr++ = res;
+        *tptr++ = SWAP_BYTES(res);
       }
     } else if (bytesPerPixel == 3) {
       if (enableDitherTransparency && (col & 0x01) == oddRow) {
-        *tptr++ = maskingColor;
+        *tptr++ = SWAP_BYTES(maskingColor);
       } else {
         b = *bptr++;
         g = *bptr++;
         r = *bptr++;
-        *tptr++ = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        uint16_t res = COMPOSE_RGB565(r,g,b);
+        *tptr++ = SWAP_BYTES(res);
       }
     } else if (bytesPerPixel == 2) {
       if (hasAlpha) {
@@ -95,7 +108,7 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
         color |= (*bptr++) << 8;
         a = (color & 0x8000) >> 15;
         if (a == 0 || (enableDitherTransparency && (col & 0x01) == oddRow)) {
-          *tptr++ = maskingColor;
+          *tptr++ = SWAP_BYTES(maskingColor);
         } else {
           r = (color & 0xFC00) >> 10;
           g = (color & 0x03E0) >> 5;
@@ -103,16 +116,17 @@ static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerP
           if (color == maskingColor) {
             g = (g & 0xFFFE) | (~g & 0x1); // flip lowest green bit
           }
-          *tptr++ = (r << 11) | (g << 6) | b;
+          uint16_t res = (r << 11) | (g << 6) | b;
+          *tptr++ = SWAP_BYTES(res);
         }
       } else {
         if (enableDitherTransparency && ((col & 0x01) == oddRow)) {
           bptr++;
           bptr++;
-          *tptr++ = maskingColor;
+          *tptr++ = SWAP_BYTES(maskingColor);
         } else {
-          uint16_t color = (*bptr++);
-          color |= (*bptr++) << 8;
+          uint16_t color = (*bptr++) << 8;
+          color |= (*bptr++);
           *tptr++ = color;
         }
       }
@@ -224,7 +238,7 @@ bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint
       bool hasAlpha = (bitDepth == 32);
       
       for (uint8_t i=0; i < animFrames; i++) {
-        displays[i]->setSwapBytes(true);
+        displays[i]->setSwapBytes(false);
         displays[i]->fillSprite(TFT_BLACK);
       }
       uint16_t padding = 0;
@@ -243,7 +257,7 @@ bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint
           displays[frameNr]->deleteSprite();
         }
         if (!displays[frameNr]->created()) {
-          displays[frameNr]->setSwapBytes(true);
+          displays[frameNr]->setSwapBytes(false);
           displays[frameNr]->setColorDepth(16);
           displays[frameNr]->createSprite(w, frameH);
         }
@@ -336,7 +350,6 @@ bool drawBmpSlice(String filename, int16_t x, int16_t y, int16_t maxH, bool debu
       uint8_t bytesPerPixel = bitDepth/8;
       bool hasAlpha = (bitDepth == 32);
       
-      tft.setSwapBytes(true);
       maxH = maxH == -1 ? h : maxH;
 
       uint16_t padding = 0;
@@ -357,7 +370,8 @@ bool drawBmpSlice(String filename, int16_t x, int16_t y, int16_t maxH, bool debu
         tft.pushImage(x, y + h - 1 - row, w, 1, (uint16_t*)lineBuffer, 0x0000);
       }
       if (debugLog) {
-        Serial.print("Loaded in "); Serial.print(millis() - startTime);
+        Serial.print("Loaded in ");
+        Serial.print(millis() - startTime);
         Serial.println(" ms");
       }
     } else {
@@ -388,6 +402,7 @@ static bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, ui
   }
 
   File bmpFS;
+  transp = SWAP_BYTES(transp);
 
   // Open requested file on SD card
   bmpFS = SD_MMC.open(filename);
@@ -422,7 +437,7 @@ static bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, ui
       uint8_t bytesPerPixel = bitDepth/8;
       bool hasAlpha = (bitDepth == 32);
       
-      sprite->setSwapBytes(true);
+      sprite->setSwapBytes(false);
       bmpFS.seek(seekOffset);
 
       uint16_t padding = 0;
@@ -445,13 +460,18 @@ static bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, ui
           for (uint16_t iX = 0; iX < w; iX++) {
             uint16_t color = ((uint16_t*)lineBuffer)[iX];
             if (color == transp) {
-              sprite->pushImage(x + currX, y + h - 1 - row, iX-currX, 1, (uint16_t*)lineBuffer + currX, transp);
-              currX = iX + 1;
+              Serial.println(currX +  "->" +iX);
+              if (currX == iX-1) {
+                currX = iX + 1;
+              } else {
+                sprite->pushImage(x + currX, y + h - 1 - row, 1, 1, (uint16_t*)lineBuffer + currX, bytesPerPixel);
+                currX = iX + 1;
+              }
             }
           }
-          sprite->pushImage(x + currX, y + h - 1 - row, w-currX, 1, (uint16_t*)lineBuffer + currX, transp);
+          sprite->pushImage(x + currX, y + h - 1 - row, w-currX, 1, (uint16_t*)lineBuffer + currX, bytesPerPixel);
         } else {
-          sprite->pushImage(x, y + h - 1 - row, w, 1, (uint16_t*)lineBuffer, 0x0000);
+          sprite->pushImage(x, y + h - 1 - row, w, 1, (uint16_t*)lineBuffer, bytesPerPixel);
         }
       }
       if (debugLog) {
@@ -521,312 +541,71 @@ void fillQuad(DISPLAY_T* display, int32_t x0, int32_t y0, int32_t x1, int32_t y1
   }
 }
 
-/*void drawMode7(DISPLAY_T* display, TFT_eSprite* background, Matrix2D* matrix, Vector2D* origin, uint32_t startY, uint32_t endY) {
-  Vector2Di targetPos;
-  Vector2Di tmp1;
-  Vector2Di tmp2;
-  Vector2Di screenCoordinate;
-  Matrix2Di matrixI;
-  Matrix2Di scaledMatrix;
-  matrixI.a = (int32_t)(matrix->a * 256);
-  matrixI.b = (int32_t)(matrix->b * 256);
-  matrixI.c = (int32_t)(matrix->c * 256);
-  matrixI.d = (int32_t)(matrix->d * 256);
-  Vector2Di originI;
-  originI.x = (int32_t)(origin->x * 256);
-  originI.y = (int32_t)(origin->y * 256);
-  uint32_t bgW = background->width();
-  uint32_t bgH = background->height();
-  uint16_t* screenBuffer = display->get16BitBuffer();
-  uint16_t* textureBuffer = background->get16BitBuffer();
-  uint32_t screenW = display->width();
-  uint32_t textureW = background->width();
-  int32_t tx=0;
-  int32_t ty=0;
-  startY = startY << 8;
-  endY = endY << 8;
-  uint32_t screenWShifted = screenW << 8;
-  scaledMatrix.b = matrixI.b;
-  scaledMatrix.c = matrixI.c;
-  for (screenCoordinate.y = startY; screenCoordinate.y <= endY; screenCoordinate.y += 256) {
-    for (screenCoordinate.x = 0; screenCoordinate.x < screenWShifted; screenCoordinate.x += 256) {
-      int32_t lineScale = (screenCoordinate.y-startY)/(endY-startY);
-      scaledMatrix.a = matrixI.a * lineScale / 256;
-      scaledMatrix.d = matrixI.d * lineScale / 256;
-      subVV(&screenCoordinate, &originI, &tmp1);
-      multMV(&scaledMatrix, &tmp1, &tmp2);
-      addVV(&tmp2, &originI, &targetPos);
-      tx = (((int32_t)targetPos.x) >> 8) & 0x1FF;//% bgW;
-      ty = (((int32_t)targetPos.y) >> 8) & 0x1FF;//% bgH;
-      screenBuffer[(((int32_t)screenCoordinate.x) >> 8) + screenW*(((int32_t)screenCoordinate.y) >> 8)] = textureBuffer[tx + ty * textureW];
-    }
-  }
-}*/
-
-/*void drawMode7(DISPLAY_T* display, TFT_eSprite* background, Matrix2D* matrix, Vector2D* origin, uint32_t startY, uint32_t endY, float cameraHeight, float zoom, float horizonHeight) {
-  Vector2D targetPos;
-  Vector2D tmp1;
-  Vector2D tmp2;
-  Vector2D screenCoordinate;
-  Matrix2D scaledMatrix;
-  scaledMatrix.a = matrix->a;
-  scaledMatrix.b = matrix->b;
-  scaledMatrix.c = matrix->c;
-  scaledMatrix.d = matrix->d;
-  uint32_t bgW = background->width();
-  uint32_t bgH = background->height();
-  uint16_t* screenBuffer = display->get16BitBuffer();
-  uint16_t* textureBuffer = background->get16BitBuffer();
-  uint32_t screenW = display->width();
-  uint32_t textureW = background->width();
-  int32_t tx=0;
-  int32_t ty=0;
-  origin->x = screenW/2;
-  origin->y = (endY-startY)/2 + startY;
-  Serial.println();
-  Serial.print(matrix->a);
-  Serial.print("|");
-  Serial.println(matrix->b);
-  Serial.print(matrix->c);
-  Serial.print("|");
-  Serial.println(matrix->d);
-  for (screenCoordinate.y = startY; screenCoordinate.y <= endY; screenCoordinate.y++) {
-    int32_t screenYAdd = screenW*((int32_t)screenCoordinate.y);
-    if (screenCoordinate.y < horizonHeight) {
-      for (screenCoordinate.x = 0; screenCoordinate.x < screenW; screenCoordinate.x++) {
-        screenBuffer[((int32_t)screenCoordinate.x) + screenYAdd] = 0x7e7d;
-      }
+void drawSprite(DISPLAY_T* display, TFT_eSprite* sprite, int32_t x, int32_t y, int32_t maskingColor, float alpha) {
+  if (alpha >= 1) {
+    if (maskingColor != -1) {
+      sprite->pushToSprite(display, x, y, maskingColor);
     } else {
-      float lineScale = cameraHeight*zoom / (screenCoordinate.y - horizonHeight);
-
-      //float lineScale = 1;//(endY-startY)/(screenCoordinate.y-startY);
-      scaledMatrix.a = matrix->a * lineScale;
-      scaledMatrix.b = matrix->b * lineScale;
-      scaledMatrix.c = matrix->c * lineScale;
-      scaledMatrix.d = matrix->d * lineScale;
-      //subVV(&screenCoordinate, origin, &tmp1);
-      tmp1.y = screenCoordinate.y - origin->y;
-      float tmpBY = scaledMatrix.b * tmp1.y;
-      float tmpDY = scaledMatrix.d * tmp1.y;
-      for (screenCoordinate.x = 0; screenCoordinate.x < screenW; screenCoordinate.x++) {
-        //subVV(&screenCoordinate, origin, &tmp1);
-        tmp1.x = screenCoordinate.x - origin->x;
-        //multMV(&scaledMatrix, &tmp1, &tmp2);
-        tmp2.x = scaledMatrix.a * tmp1.x + tmpBY;
-        tmp2.y = scaledMatrix.c * tmp1.x + tmpDY;
-        //addVV(&tmp2, origin, &targetPos);
-        targetPos.x = tmp2.x + origin->x;
-        targetPos.y = tmp2.y + origin->y;
-        tx = ((int32_t)targetPos.x) % bgW;
-        ty = ((int32_t)targetPos.y) % bgH;
-        screenBuffer[((int32_t)screenCoordinate.x) + screenYAdd] = textureBuffer[tx + ty * textureW];
+      sprite->pushToSprite(display, x, y);
+    }
+    return;
+  }
+  if (alpha <= 0) {
+    return;
+  }
+  uint32_t startX = _max(x, 0);
+  uint32_t startY = _max(y, 0);
+  uint32_t srcW = sprite->width();
+  uint32_t srcH = sprite->height();
+  uint32_t dstW = display->width();
+  uint32_t dstH = display->height();
+  uint32_t endX = _min(x+srcW, dstW);
+  uint32_t endY = _min(y+srcH, dstH);
+  float invAlpha = 1.0f-alpha;
+  uint16_t* srcBuffer = sprite->get16BitBuffer();
+  uint16_t* dstBuffer = display->get16BitBuffer();
+  for (int32_t dy = startY; dy < endY; dy++) {
+    for (int32_t dx = startX; dx < endX; dx++) {
+      uint32_t dstAddr = dy*dstW + dx;
+      uint32_t srcPixel = SWAP_BYTES(srcBuffer[(dy-y)*srcW + (dx-x)]);
+      
+      if (srcPixel != maskingColor) {
+        uint32_t origPixel = SWAP_BYTES(dstBuffer[dstAddr]);
+        uint32_t blendedPixel = ((uint32_t)(invAlpha * (origPixel & 0xF800) + alpha * (srcPixel & 0xF800)) & 0xF800) |
+                                ((uint32_t)(invAlpha * (origPixel & 0x07E0) + alpha * (srcPixel & 0x07E0)) & 0x07E0) | 
+                                ((uint32_t)(invAlpha * (origPixel & 0x001F) + alpha * (srcPixel & 0x001F)) & 0x001F);
+        dstBuffer[dstAddr] = SWAP_BYTES(blendedPixel);
       }
     }
   }
-}*/
-
-typedef struct {
-  TFT_eSprite* display;
-  TFT_eSprite* texture;
-  Vector2D* cameraPos;
-  float cameraHeight;
-  float yawAngle;
-  float zoom;
-  float horizonHeight;
-  int32_t startY;
-  int32_t endY;
-  volatile int32_t downwardsY;
-  volatile int32_t upwardsY;
-} Mode7TaskParameters;
-
-static volatile Mode7TaskParameters mode7TaskParameters;
-static TaskHandle_t mode7TaskHandle;
-
-void doDrawMode7(DISPLAY_T* display,
-  TFT_eSprite* texture,
-  Vector2D* cameraPos,
-  float cameraHeight,
-  float yawAngle,
-  float zoom,
-  float horizonHeight,
-  int32_t startY,
-  int32_t endY, // radians
-  bool drawDownwards
-) {
-  float cosYaw = std::cos(yawAngle);
-  float sinYaw = std::sin(yawAngle);
-  int32_t screenWidth = display->width();
-  int32_t screenHeight = endY - startY;
-  int32_t textureWidth = texture->width();
-
-  uint16_t* screenBuffer = display->get16BitBuffer();
-  uint16_t* textureBuffer = texture->get16BitBuffer();
-
-  int32_t centerXi = screenWidth / 2;
-  int32_t centerYi = screenHeight / 2;
-
-  uint32_t textureWidthMask = textureWidth - 1;
-  uint32_t textureHeightMask = texture->height() - 1;
-
-  float scaling = 10*cameraHeight;
-
-  for (int32_t iY = -centerYi; iY < centerYi; iY++) {
-    int32_t y = drawDownwards ? iY : -iY;
-    if (drawDownwards) {
-      mode7TaskParameters.downwardsY = y;
-    } else {
-      mode7TaskParameters.upwardsY = y;
-      if (mode7TaskParameters.downwardsY >= y) {
-        return;
-      }
-    }
-    int32_t screenY = y + centerYi + startY;
-    int32_t screenYAdd = screenY * screenWidth;
-
-    if (y + centerYi <= horizonHeight) {
-      // Fill sky above horizon
-      /*for (int32_t x = 0; x < screenWidth; x++) {
-        screenBuffer[x + screenYAdd] = 0x7E7D; // sky color
-      }*/
-    } else {
-      float fov = 120 / zoom;
-      float py = fov;
-      float pz = (y + horizonHeight);
-      float sy = py / pz;
-
-      float sYsin = -sy * sinYaw;
-      float sYcon = sy * cosYaw;
-
-      for (int32_t px = -centerXi; px < centerXi; px++) {
-        float sx = px / pz;
-
-        float worldX = sx * cosYaw + sYsin;
-        float worldY = sx * sinYaw + sYcon;
-
-        sx = worldX * scaling + cameraPos->x;
-        sy = worldY * scaling + cameraPos->y;
-
-        uint32_t texX = (uint32_t)sx & textureWidthMask;
-        uint32_t texY = (uint32_t)sy & textureHeightMask;
-        screenBuffer[px + centerXi + screenYAdd] = textureBuffer[texX + texY * textureWidth];
-      }
-    }
-    if (drawDownwards && mode7TaskParameters.upwardsY<=y) {
-      return;
-    }
-  }
-  Serial.println(drawDownwards ? "Downwards ran out" : "Upwards ran out");
-}
-
-void drawMode7Task(void* parameter) {
-  doDrawMode7(
-    mode7TaskParameters.display,
-    mode7TaskParameters.texture,
-    mode7TaskParameters.cameraPos,
-    mode7TaskParameters.cameraHeight,
-    mode7TaskParameters.yawAngle,
-    mode7TaskParameters.zoom,
-    mode7TaskParameters.horizonHeight,
-    mode7TaskParameters.startY,
-    mode7TaskParameters.endY,
-    false
-  );
-  vTaskDelete(NULL);
-}
-
-void drawMode7(DISPLAY_T* display,
-  TFT_eSprite* texture,
-  Vector2D* cameraPos,
-  float cameraHeight,
-  float yawAngle,
-  float zoom,
-  float horizonHeight,
-  int32_t startY,
-  int32_t endY // radians
-) {
-  mode7TaskParameters.display = display;
-  mode7TaskParameters.texture = texture;
-  mode7TaskParameters.cameraPos = cameraPos;
-  mode7TaskParameters.cameraHeight = cameraHeight;
-  mode7TaskParameters.yawAngle = yawAngle;
-  mode7TaskParameters.zoom = zoom;
-  mode7TaskParameters.horizonHeight = horizonHeight;
-  mode7TaskParameters.startY = startY;
-  mode7TaskParameters.endY = endY;
-  mode7TaskParameters.downwardsY = -10000;
-  mode7TaskParameters.upwardsY = +10000;
-  xTaskCreatePinnedToCore(drawMode7Task, "mode7draw", 10000, NULL, 23, &mode7TaskHandle, 0);
-  doDrawMode7(
-    display,
-    texture,
-    cameraPos,
-    cameraHeight,
-    yawAngle,
-    zoom,
-    horizonHeight,
-    startY,
-    endY,
-    true
-  );
-}
-
-void mode7WorldToScreen(
-                Vector2D* worldPos,
-                Vector2D* cameraPos,
-                float cameraHeight,
-                float yawAngle,
-                float zoom,
-                float horizonHeight,
-                int32_t startY,
-                int32_t endY,
-                Vector3D* output) {
-    float scaling = 1.0f/(10.0f*cameraHeight);
-
-    float dx = worldPos->x - cameraPos->x;
-    float dy = worldPos->y - cameraPos->y;
-    dx = dx * scaling;
-    dy = dy * scaling;
-
-    float cosYaw = std::cos(yawAngle);
-    float sinYaw = -std::sin(yawAngle);
-
-    // Rotate world position into camera space
-    float camX = dx * cosYaw - dy * sinYaw;
-    float camY = dx * sinYaw + dy * cosYaw;
-
-    // Perspective projection
-    float fov = 120.0f / zoom;
-    float px = camX;
-    float py = fov;
-    float pz = camY;
-
-    if (pz <= 0.1f){ // Behind camera or too close
-      output->x = -1000;
-      output->y = -1000;
-      output->z = -1000;
-      return;
-    }
-    output->x = (px / pz) * (float)SCREEN_WIDTH / 2.0f + (float)SCREEN_WIDTH / 2.0f;
-    output->y = (py / pz) + horizonHeight;
-    output->z = pz;
 }
 
 void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* pos, Matrix2D* transform, uint32_t flags, uint16_t maskColor) {
-  const int32_t spriteWidth = sprite->width();
-  const int32_t spriteHeight = sprite->height();
-  uint16_t* screenBuffer = display->get16BitBuffer();
-  uint16_t* spriteBuffer = sprite->get16BitBuffer();
+  drawSpriteTransformed(display, sprite, pos, transform, flags, maskColor, sprite->width(), sprite->height(), 0);
+}
 
-  maskColor = maskColor << 8 | maskColor >> 8;
+void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* pos, Matrix2D* transform, uint32_t flags, uint16_t maskColor, int16_t frameWidth, int16_t frameHeight, int16_t frameNr) {
+  const int32_t spriteWidth = frameWidth;
+  const int32_t spriteHeight = frameHeight;
+  int32_t frameOffset = frameNr * frameHeight * frameWidth;
+  uint16_t* screenBuffer = display->get16BitBuffer();
+  uint16_t* spriteBuffer = sprite->get16BitBuffer() + frameOffset;
+
+  maskColor = SWAP_BYTES(maskColor);
+
+  int32_t xOffset = flags & ALIGN_H_CENTER ? -spriteWidth / 2 : (flags & ALIGN_H_RIGHT ? -spriteWidth : 0);
+  int32_t yOffset = flags & ALIGN_V_CENTER ? -spriteHeight / 2 : (flags & ALIGN_V_BOTTOM ? -spriteHeight : 0);
+  int32_t xIndexOffset = xOffset - spriteWidth / 2;
+  int32_t yIndexOffset = yOffset - spriteHeight / 2;
 
   Matrix2D inv;
   invertM(transform, &inv);
 
   Vector2D corners[4] = {
-    {-spriteWidth / 2.0f, -spriteHeight / 2.0f},
-    { spriteWidth / 2.0f, -spriteHeight / 2.0f},
-    { spriteWidth / 2.0f,  spriteHeight / 2.0f},
-    {-spriteWidth / 2.0f,  spriteHeight / 2.0f}
+    { (float)xOffset, (float)yOffset },
+    { (float)(xOffset + spriteWidth), (float)yOffset },
+    { (float)(xOffset + spriteWidth), (float)(yOffset + spriteHeight) },
+    { (float)xOffset,  (float)(yOffset + spriteHeight) }
   };
 
   Vector2D screenCorners[4];
@@ -855,11 +634,11 @@ void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* po
     for (int32_t x = startX; x <= endX; ++x) {
       float dx = x - pos->x;
       float dy = y - pos->y;
-      float sx = inv.a * dx + inv.b * dy + spriteWidth / 2.0f;
-      float sy = inv.c * dx + inv.d * dy + spriteHeight / 2.0f;
+      float sx = inv.a * dx + inv.b * dy - xOffset;
+      float sy = inv.c * dx + inv.d * dy - yOffset;
 
       int32_t yAddScreen = y * SCREEN_WIDTH;
-      int32_t yAddSprite = (int32_t)sy * spriteWidth;
+      int32_t yAddSprite = (int32_t)(sy) * spriteWidth;
       if (sx >= 0 && sx < spriteWidth && sy >= 0 && sy < spriteHeight) {
         uint16_t color = spriteBuffer[yAddSprite + (int32_t)sx];
         if (!(flags & TRANSP_MASK && color == maskColor)) {
@@ -869,13 +648,14 @@ void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* po
     }
   }
 }
+
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor) {
   drawSpriteScaled(display, sprite, position, scale, flags, maskColor, sprite->width(), sprite->height(), 0);
 }
 
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor, int16_t frameWidth, int16_t frameHeight, int16_t frameNr) {
-  float spriteWScaled = std::abs(frameWidth * scale->x);
-  float spriteHScaled = std::abs(frameHeight * scale->y);
+  float spriteWScaled = fabs(frameWidth * scale->x);
+  float spriteHScaled = fabs(frameHeight * scale->y);
   float drawPosX = position->x;
   float drawPosY = position->y;
   uint16_t* screenBuffer = display->get16BitBuffer();
@@ -894,11 +674,9 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
   uint32_t displayH = display->height();
   int32_t toX = _min(drawPosX+spriteWScaled, displayW);
   int32_t toY = _min(drawPosY+spriteHScaled, displayH);
-  float inverseScaleX = std::abs(1/scale->x);
-  float inverseScaleY = std::abs(1/scale->y);
-  if (sprite->getSwapBytes()) {
-    maskColor = maskColor << 8 | maskColor >> 8;
-  }
+  float inverseScaleX = fabs(1/scale->x);
+  float inverseScaleY = fabs(1/scale->y);
+  maskColor = SWAP_BYTES(maskColor);
   int32_t frameOffset = frameNr * frameHeight * frameWidth;
   for (int32_t y = _max(drawPosY, 0); y<toY; y++) {
     int32_t addYScreen = y * displayW;
@@ -948,7 +726,9 @@ void drawProgressBar(DISPLAY_T* display, uint16_t percent, uint16_t greenOffset,
   display->setTextSize(1);
   display->setTextColor(TFT_WHITE);
   display->setCursor(x, y - 11);
-  printShaded(display, String(percent) + "%");
+  char spercent[10];
+  sprintf(spercent, "%d%%", percent);
+  printShaded(display, spercent);
 }
 
 void drawProgressBar(DISPLAY_T* display, uint16_t val, uint16_t maxVal, uint16_t greenOffset, int16_t x, int16_t y, int16_t w, int16_t h) {
@@ -988,7 +768,73 @@ void printShaded(DISPLAY_T* display, String text, uint8_t shadeStrength, uint16_
   display->print(text);
 }
 
-static void drawProfileSelectionPage(DISPLAY_T* display, uint16_t startNr, uint16_t nr, bool drawArrows, uint8_t systemUpdateAvailableStatus, String* errorMessage) {
+#define MENU_SPRITE_COUNT_LIMIT 11
+static String menuSpritePaths[MENU_SPRITE_COUNT_LIMIT];
+static TFT_eSprite* menuSprites = nullptr;
+
+static void refreshMenuSprites() {
+  if (menuSprites == nullptr) {
+    menuSprites = (TFT_eSprite*) heap_caps_malloc(sizeof(TFT_eSprite) * MENU_SPRITE_COUNT_LIMIT, MALLOC_CAP_SPIRAM);
+    if (!menuSprites) {
+      Serial.println("Failed to allocate sprites in PSRAM!");
+      checkFailWithMessage("init: Failed to allocate sprites in PSRAM!");
+      return;
+    }
+
+    for (size_t i = 0; i < MENU_SPRITE_COUNT_LIMIT; ++i) {
+      new (&menuSprites[i]) TFT_eSprite(&tft);
+      menuSprites[i].setColorDepth(16);
+    }
+  }
+}
+
+static void refreshAndDrawMenuSprite(DISPLAY_T* display, uint32_t slotId, String path, int32_t x, int32_t y) {
+  if (!menuSpritePaths[slotId].equals(path)) {
+    Serial.print("(Re-)loading menu sprite ");
+    Serial.print(path);
+    Serial.print(" to slot ");
+    Serial.print(slotId);
+    Serial.println(".");
+    if (menuSprites[slotId].created()) {
+      menuSprites[slotId].deleteSprite();
+    }
+    if (!loadBmp(&menuSprites[slotId], path, 0, 0xf81f)) {
+      Serial.println("Failed to load sprite " + path);
+    }
+    menuSpritePaths[slotId] = path;
+  }
+  menuSprites[slotId].pushToSprite(display, x - menuSprites[slotId].width()/2, y  - menuSprites[slotId].height()/2, 0xf81f);
+}
+
+static void drawStringWordWrapped(DISPLAY_T* display, String string, uint32_t charsPerLine, int32_t x, int32_t y) {
+  if (string.length()<=charsPerLine) {
+    display->drawString(string, x, y);
+  } else {
+    int32_t wordCount = 0;
+    int32_t spacePos = 0;
+    while (spacePos >= 0) {
+      spacePos = string.indexOf(" ", spacePos+1);
+      wordCount++;
+    }
+    spacePos = -1;
+    for (int32_t i=1;i<=wordCount;i++) {
+      int32_t nextSpacePos = string.indexOf(" ", spacePos+1);
+      if (nextSpacePos==-1) {
+        nextSpacePos = string.length();
+      }
+      display->drawString(string.substring(spacePos+1, nextSpacePos), x, y + (i - wordCount)*9);
+      spacePos = nextSpacePos;
+    }
+  }
+}
+
+static char** selectionImagePaths;
+static char** selectionNames;
+static uint32_t selectionNumberOfSlots = 0;
+static uint32_t selectionMode = SELECTION_MODE_NO_SELECTION;
+
+static void drawProfileSelectionPage(DISPLAY_T* display, uint16_t startNr, uint16_t nr, bool drawArrows, uint8_t systemUpdateAvailableStatus, int32_t joystickSelection, String* errorMessage) {
+  refreshMenuSprites();
   int32_t columns = _min(4, nr);
   int32_t rows = nr>4 ? 2 : 1;
   int32_t cWidth = (290 - 10*columns) / columns;
@@ -997,27 +843,28 @@ static void drawProfileSelectionPage(DISPLAY_T* display, uint16_t startNr, uint1
     for (int32_t r = 0; r<rows; r++) {
       int32_t profileId = c + r*columns;
       if (profileId < nr) {
-        ProfileData profileData;
-        readProfileData(profileId, &profileData, errorMessage);
-        display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_BLUE);
-        int16_t imgW, imgH;
-        getBmpDimensions(profileData.imagePath, &imgW, &imgH);
-        drawBmp(profileData.imagePath, 20 + c*(cWidth + 10) + cWidth/2 - imgW/2, 30+r*(cHeight+10) + cHeight/2 - imgH/2, false);
+        if (joystickSelection == c + r*columns) {
+          display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_YELLOW);
+          display->fillRect(23 + c*(cWidth + 10), 33+r*(cHeight+10), cWidth-6, cHeight-6, TFT_BLUE);
+        } else {
+          display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_BLUE);
+        }
+        refreshAndDrawMenuSprite(display, profileId, selectionImagePaths[profileId], 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight/2);
         uint8_t textDatumBackup = display->getTextDatum();
         display->setTextDatum(BC_DATUM);
         display->setTextSize(1);
-        display->drawString(profileData.name, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight - 3);
+        drawStringWordWrapped(display, selectionNames[profileId], 13, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight - 3);
         display->setTextDatum(textDatumBackup);
       }
     }
   }
-  drawBmp("/gfx/progressionmenu.bmp", SCREEN_WIDTH - 32, 0, false);
-  drawBmp("/gfx/executionlist.bmp", SCREEN_WIDTH - 80, 0, true);
+  refreshAndDrawMenuSprite(display, 8, "/gfx/progressionmenu.bmp", SCREEN_WIDTH - 16, 16);
+  refreshAndDrawMenuSprite(display, 9, "/gfx/executionlist.bmp", SCREEN_WIDTH - 64, 16);
   if (systemUpdateAvailableStatus == FIRMWARE_UPDATE_AVAILABLE) {
     display->setTextDatum(BR_DATUM);
     display->setTextSize(1);
     display->drawString("System-Update verfügbar", SCREEN_WIDTH - 35, SCREEN_HEIGHT - 1, GFXFF);
-    drawBmp("/gfx/systemupdate.bmp", SCREEN_WIDTH - 32, SCREEN_HEIGHT - 32, false);
+    refreshAndDrawMenuSprite(display, 10, "/gfx/systemupdate.bmp", SCREEN_WIDTH - 16, SCREEN_HEIGHT - 16);
   } else if (systemUpdateAvailableStatus == FIRMWARE_UPDATE_CHECK_RUNNING) {
     display->setTextDatum(BR_DATUM);
     display->setTextSize(1);
@@ -1025,22 +872,30 @@ static void drawProfileSelectionPage(DISPLAY_T* display, uint16_t startNr, uint1
   }
 }
 
-static void drawGameSelectionPage(DISPLAY_T* display, uint16_t startNr, uint16_t nr, bool drawArrows, uint32_t requiredTaskTypes, String* errorMessage) {
+static void drawGameSelectionPage(DISPLAY_T* display, uint16_t startNr, uint16_t nr, bool drawArrows, uint32_t requiredTaskTypes, uint32_t joystickSelection, String* errorMessage) {
   int32_t columns = _min(4, nr);
   int32_t rows = nr>4 ? 2 : 1;
   int32_t cWidth = (290 - 10*columns) / columns;
   int32_t cHeight = rows==1 ? 200 : 95; 
+  display->setTextDatum(BC_DATUM);
+  display->setTextSize(1);
+  String ignoreErrors;
   for (int32_t c = 0; c<columns; c++) {
     for (int32_t r = 0; r<rows; r++) {
       if (c + r*columns < nr) {
-        String gamePath = getGamePath(c + r*columns, requiredTaskTypes, errorMessage);
-        display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_BLUE);
-        int16_t imgW, imgH;
-        getBmpDimensions(gamePath + "logo.bmp", &imgW, &imgH);
-        drawBmp(gamePath + "logo.bmp", 20 + c*(cWidth + 10) + cWidth/2 - imgW/2, 30+r*(cHeight+10) + cHeight/2 - imgH/2, false);
+        uint32_t gameId = c + r*columns;
+        if (joystickSelection == c + r*columns) {
+          display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_YELLOW);
+          display->fillRect(23 + c*(cWidth + 10), 33+r*(cHeight+10), cWidth-6, cHeight-6, TFT_BLUE);
+        } else {
+          display->fillRect(20 + c*(cWidth + 10), 30+r*(cHeight+10), cWidth, cHeight, TFT_BLUE);
+        }
+        refreshAndDrawMenuSprite(display, gameId, selectionImagePaths[gameId], 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight/2);
+        drawStringWordWrapped(display, selectionNames[gameId], 13, 20 + c*(cWidth + 10) + cWidth/2, 30+r*(cHeight+10) + cHeight - 3);
       }
     }
   }
+  display->setTextDatum(TL_DATUM);
 }
 
 static int16_t checkSelectionPageSelection(uint16_t startNr, uint16_t nr, bool drawArrows, bool progressMenuIcon, bool executionListIcon, bool systemupdateAvailable) {
@@ -1068,29 +923,101 @@ static int16_t checkSelectionPageSelection(uint16_t startNr, uint16_t nr, bool d
   return -1;
 }
 
+boolean updateJoystickSelection(int32_t* selection, uint32_t maxSelection) {
+  static boolean moved = false;
+  float x;
+  float y;
+  getJoystickXY(&x, &y);
+  if (!moved && abs(x)>0.2) {
+    if (x>0) {
+      *selection+=1;
+      if (*selection > maxSelection) {
+        *selection = 0;
+      }
+    } else {
+      *selection-=1;
+      if (*selection < 0) {
+        *selection = maxSelection;
+      }
+    }
+    moved = true;
+  }
+  if (maxSelection>3 && !moved && abs(y)>0.2) {
+    if (y>0) {
+      if (*selection <= maxSelection-4) {
+        *selection+=4;
+      }
+    } else {
+      if (*selection >= 4) {
+        *selection-=4;
+      }
+    }
+    moved = true;
+  }
+  if (moved) {
+    if (abs(x)<=0.2 && abs(y)<=0.2) {
+      moved = false;
+    }
+  }
+  return (*selection>=0 && getJoystickButton());
+}
+
+void freeSelectionMetadata() {
+  for (int32_t i = 0; i < selectionNumberOfSlots; i++) {
+    free(selectionImagePaths[i]);
+    free(selectionNames[i]);
+  }
+  free(selectionImagePaths);
+  free(selectionNames);
+}
+
 int16_t displayGameSelection(DISPLAY_T* display, uint16_t nr, uint32_t requiredTaskTypes, String* errorMessage) {
   uint16_t startNr = 0;
   uint32_t ms = millis();
   uint32_t lastMs = millis();
+  boolean joystickClickUnlocked = false;
+  int32_t joystickSelection = isJoystickPresent() ? 0 : -1;
 
-  for (uint32_t i = 0;i<2;i++) {
-    display->fillSprite(TFT_BLACK);
-    drawGameSelectionPage(display, startNr, _min(nr, 8), nr>8, requiredTaskTypes, errorMessage);
-    display->pushSpriteFast(0, 0);
+  if (selectionMode == SELECTION_MODE_PROFILE) {
+    selectionMode = SELECTION_MODE_GAME;
+    freeSelectionMetadata();
+    selectionImagePaths = (char**)malloc(nr * sizeof(char*));
+    selectionNames = (char**)malloc(nr * sizeof(char*));
+    selectionNumberOfSlots = nr;
+    for (int32_t gameId = 0; gameId < nr; gameId++) {
+      GameConfig gameConfig;
+      String ignoreErrors;
+      String gamePath = getGamePath(gameId, requiredTaskTypes, errorMessage);
+      readGameConfig(gamePath, &gameConfig, &ignoreErrors);
+      String gameLogoPath = gamePath + "logo.bmp";
+      selectionImagePaths[gameId] = (char*)malloc((gameLogoPath.length()+1) * sizeof(char));
+      strcpy(selectionImagePaths[gameId], gameLogoPath.c_str());
+      selectionNames[gameId] = (char*)malloc((gameConfig.name.length()+1) * sizeof(char));
+      strcpy(selectionNames[gameId], gameConfig.name.c_str());
+    }
   }
 
   while (true) {
-    buttonPwr.tick();
-    buttonUsr.tick();
     lastMs = ms;
     ms = millis();
     handleSerial();
+    boolean joystickSelected = updateJoystickSelection(&joystickSelection, nr-1);
+    if (!joystickSelected) {
+      joystickClickUnlocked = true;
+    }
+    if (joystickClickUnlocked && joystickSelected) {
+      tft.fillScreen(TFT_BLACK);
+      freeSelectionMetadata();
+      return joystickSelection;
+    }
     int16_t selection = checkSelectionPageSelection(startNr, _min(nr, 8), nr>8, false, false, false);
     if (selection != -1 && selection<nr) {
+      freeSelectionMetadata();
       return selection;
     }
-    display->fillRect(0,0,70,20,TFT_BLACK);
-    drawSystemStats(ms, lastMs);
+    display->fillSprite(TFT_BLACK);
+    drawGameSelectionPage(display, startNr, _min(nr, 8), nr>8, joystickSelection, joystickSelection, errorMessage);
+    doSystemTasks();
     display->pushSpriteFast(0,0);
     if (millis()>GAME_SELECTION_POWEROFF_TIMEOUT) {
       power_off();
@@ -1102,17 +1029,26 @@ int16_t displayProfileSelection(DISPLAY_T* display, uint16_t nr, String* errorMe
   uint16_t startNr = 0;
   uint32_t ms = millis();
   uint32_t lastMs = millis();
+  int32_t joystickSelection = isJoystickPresent() ? 0 : -1;
 
   uint8_t systemupdateAvailableStatus = getSystemUpdateAvailableStatus();
-  for (uint32_t i = 0;i<2;i++) {
-    display->fillSprite(TFT_BLACK);
-    drawProfileSelectionPage(display, startNr, _min(nr, 8), nr>8, systemupdateAvailableStatus, errorMessage);
-    display->pushSpriteFast(0, 0);
+
+  if (selectionMode == SELECTION_MODE_NO_SELECTION) {
+    selectionMode = SELECTION_MODE_PROFILE;
+    selectionImagePaths = (char**)malloc(nr * sizeof(char*));
+    selectionNames = (char**)malloc(nr * sizeof(char*));
+    selectionNumberOfSlots = nr;
+    for (int32_t profileId = 0; profileId < nr; profileId++) {
+      ProfileData profileData;
+      readProfileData(profileId, &profileData, errorMessage);
+      selectionImagePaths[profileId] = (char*)malloc((profileData.imagePath.length()+1) * sizeof(char));
+      strcpy(selectionImagePaths[profileId], profileData.imagePath.c_str());
+      selectionNames[profileId] = (char*)malloc((profileData.name.length()+1) * sizeof(char));
+      strcpy(selectionNames[profileId], profileData.name.c_str());
+    }
   }
 
   while (true) {
-    buttonPwr.tick();
-    buttonUsr.tick();
     lastMs = ms;
     ms = millis();
     handleSerial();
@@ -1134,24 +1070,19 @@ int16_t displayProfileSelection(DISPLAY_T* display, uint16_t nr, String* errorMe
       display->setTextDatum(BR_DATUM);
       display->drawString(throbber, SCREEN_WIDTH - 2, SCREEN_HEIGHT - 2);
 
-      uint8_t newSystemupdateAvailableStatus = getSystemUpdateAvailableStatus();
-      if (newSystemupdateAvailableStatus != systemupdateAvailableStatus) {
-        systemupdateAvailableStatus = newSystemupdateAvailableStatus;
-        for (uint32_t i = 0;i<2;i++) {
-          display->fillSprite(TFT_BLACK);
-          drawProfileSelectionPage(display, startNr, _min(nr, 8), nr>8, systemupdateAvailableStatus, errorMessage);
-          display->fillRect(SCREEN_WIDTH - 15, SCREEN_HEIGHT - 19, 15, 19, TFT_BLACK);
-          display->pushSpriteFast(0, 0);
-        }
-      }
+      systemupdateAvailableStatus = getSystemUpdateAvailableStatus();
     }
 
+    if (updateJoystickSelection(&joystickSelection, nr-1)) {
+      return joystickSelection;
+    }
     int16_t selection = checkSelectionPageSelection(startNr, _min(nr, 8), nr>8, true, true, systemupdateAvailableStatus);
     if (selection != -1 && (selection<nr || selection == PROGRESS_MENU_SELECTION_ID || selection == SYSTEM_UPDATE_SELECTION_ID || selection == EXECUTION_LIST_SELECTION_ID)) {
       return selection;
     }
-    display->fillRect(0,0,70,20,TFT_BLACK);
-    drawSystemStats(ms, lastMs);
+    display->fillSprite(TFT_BLACK);
+    drawProfileSelectionPage(display, startNr, _min(nr, 8), nr>8, systemupdateAvailableStatus, joystickSelection, errorMessage);
+    doSystemTasks();
     display->pushSpriteFast(0,0);
     if (millis()>GAME_SELECTION_POWEROFF_TIMEOUT) {
       power_off();
@@ -1160,35 +1091,54 @@ int16_t displayProfileSelection(DISPLAY_T* display, uint16_t nr, String* errorMe
 }
 
 static String leftPad(String s, uint16_t len, String c) {
-  while (s.length()<len) {
+  uint32_t charsToAdd = len - s.length();
+  for (uint32_t i=0; i<charsToAdd; i++) {
     s = c + s;
   }
   return s;
 }
 
+static void initSystemStatsSprites() {
+  if (systemStatsSprites == nullptr) {
+    systemStatsSprites = (TFT_eSprite*) heap_caps_malloc(sizeof(TFT_eSprite)*SYSTEM_STATS_SPRITE_COUNT, MALLOC_CAP_SPIRAM);
+    if (!systemStatsSprites) {
+      Serial.println("Failed to allocate sprites in PSRAM!");
+      checkFailWithMessage("init: Failed to allocate sprites in PSRAM!");
+      return;
+    }
+    for (uint32_t i=0; i<SYSTEM_STATS_SPRITE_COUNT; i++) {
+      new (&systemStatsSprites[i]) TFT_eSprite(&tft);
+      systemStatsSprites[i].setColorDepth(16);
+    }
+
+    loadBmp(&systemStatsSprites[0], "/gfx/battery_low.bmp");
+    loadBmp(&systemStatsSprites[1], "/gfx/battery_half.bmp");
+    loadBmp(&systemStatsSprites[2], "/gfx/battery_full.bmp");
+    loadBmp(&systemStatsSprites[3], "/gfx/wifi.bmp");
+    loadBmp(&systemStatsSprites[4], "/gfx/nowifi.bmp");
+  }
+}
+
 // Draws battery icon, battery voltage, FPS
-void drawSystemStats(uint32_t ms, uint32_t lastMs) {
+void drawSystemStats() {
+  initSystemStatsSprites();
   static int32_t lowBatteryCount = -1;
   static uint32_t lowBatteryWarningCount = 0;
-  uint32_t batteryVoltage = readBatteryVoltage();
-  if (lowBatteryCount == -1) { //check to run only once
-    lowBatteryCount = 0;
-    loadBmp(&batteryIcon[0], "/gfx/battery_low.bmp");
-    loadBmp(&batteryIcon[1], "/gfx/battery_half.bmp");
-    loadBmp(&batteryIcon[2], "/gfx/battery_full.bmp");
-  }
+  static uint32_t lastMs = millis();
+  uint32_t ms = millis();
+  uint32_t batteryVoltage = readBatteryVoltageAveraged();
   if (batteryVoltage < 3600) {
-    batteryIcon[0].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[0].pushToSprite(&spr, 0, 0, 0x0000);
   } else if (batteryVoltage < 3800) {
-    batteryIcon[1].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[1].pushToSprite(&spr, 0, 0, 0x0000);
   } else if (batteryVoltage < 4200) {
-    batteryIcon[2].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[2].pushToSprite(&spr, 0, 0, 0x0000);
   } else if (batteryVoltage < 4400) {
-    batteryIcon[0].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[0].pushToSprite(&spr, 0, 0, 0x0000);
   } else if (batteryVoltage < 4600) {
-    batteryIcon[1].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[1].pushToSprite(&spr, 0, 0, 0x0000);
   } else {
-    batteryIcon[2].pushToSprite(&spr, 1, 1, 0x0000);
+    systemStatsSprites[2].pushToSprite(&spr, 0, 0, 0x0000);
   }
   if (batteryVoltage<BATTERY_LOW_WARNING_VOLTAGE ) {
     lowBatteryWarningCount++;
@@ -1196,7 +1146,7 @@ void drawSystemStats(uint32_t ms, uint32_t lastMs) {
     lowBatteryWarningCount = 0;
   }
   if (lowBatteryWarningCount>100 && batteryVoltage<BATTERY_LOW_WARNING_VOLTAGE && (ms/1000)&0x01) {
-    batteryIcon[0].pushToSprite(&spr, 144, 110, 0x0000);
+    systemStatsSprites[0].pushToSprite(&spr, 144, 110, 0x0000);
   }
   if (batteryVoltage<BATTERY_LOW_SHUTDOWN_VOLTAGE) {
     lowBatteryCount++;
@@ -1206,10 +1156,32 @@ void drawSystemStats(uint32_t ms, uint32_t lastMs) {
   if (lowBatteryCount>100) {
     power_off();
   }
+  if (getWifiStatus() == WIFI_CONNECTION_OK) {
+    systemStatsSprites[3].pushToSprite(&spr, 34, 0, 0xf81f);
+  } else if (getWifiStatus() == WIFI_CONNECTION_NOWIFI) {
+    systemStatsSprites[4].pushToSprite(&spr, 34, 0, 0xf81f);
+  } else if ((millis() >> 10) & 0x01) { // WIFI_CONNECTION_SEARCHING, blink once per second
+    systemStatsSprites[3].pushToSprite(&spr, 34, 0, 0xf81f);
+  }
   spr.setTextDatum(TL_DATUM);
   spr.setTextSize(1);
-  spr.drawString(String(1000L/_max(1,ms-lastMs)), 34, 1); //FPS counter
-  spr.drawString(String(batteryVoltage/1000) + "." + leftPad(String(batteryVoltage%1000), 3, "0") + "V", 34, 11); // Battery voltage
+  spr.drawString(String(1000L/_max(1,ms-lastMs)), 64, 11); //FPS counter
+  if ((millis()>>12)&0x01) { // switch between battery voltage and time every 4 seconds
+    spr.drawString(String(batteryVoltage/1000) + "." + leftPad(String((batteryVoltage/10)%100), 2, "0") + "V", 64, 1); // Battery voltage
+  } else {
+    String timeString;
+    String dateString;
+    String errorMessage;
+    getFormattedTime(&dateString, &timeString, &errorMessage);
+    if (timeString.equals("N/A")) {
+      if (!((millis()>>9)&0x01)) { // blink 2x per second
+        spr.drawString("00:00", 64, 1); // Clock
+      }
+    } else {
+      spr.drawString(timeString, 64, 1); // Clock
+    }
+  }
+  lastMs = ms;
 }
 
 void drawImageButton(DISPLAY_T* display, String path, int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color, uint16_t textColor) {
@@ -1314,13 +1286,14 @@ void checkKeyboard(DISPLAY_T* display, String* output, uint32_t maxCharacters, u
 void checkFailWithMessage(String message) {
   if (!message.isEmpty()) {
     tft.fillScreen(TFT_BLACK);
-    spr.fillSprite(TFT_BLACK);
-    spr.setCursor(1, 16);
-    spr.setTextSize(1);
-    spr.println("FEHLER:");
-    spr.println(message);
-    spr.pushSprite(0, 0);
     while (true) {
+      spr.fillSprite(TFT_BLACK);
+      spr.setCursor(1, 32);
+      spr.setTextSize(1);
+      spr.println("FEHLER:");
+      spr.println(message);
+      doSystemTasks();
+      spr.pushSprite(0, 0);
       handleSerial();
     };
   }
@@ -1341,8 +1314,112 @@ void checkSoftFailWithMessage(String message, uint8_t textSize) {
 
 void displayFullscreenMessage(String message, uint8_t textSize) {
   spr.fillSprite(TFT_BLACK);
+  doSystemTasks();
   spr.setCursor(1, 30);
   spr.setTextSize(textSize);
   spr.println(message);
   spr.pushSpriteFast(0, 0);
+}
+
+static bool touchPressed = false;
+static void displayDigitSelector(int32_t* digit, int32_t min, int32_t max, uint32_t digits, int32_t x, int32_t y) {
+  *digit = _max(_min(*digit, max), min);
+  String digitString = String(*digit);
+  leftPad(digitString, digits, "0");
+  spr.setTextDatum(CC_DATUM);
+  spr.setTextSize(2);
+  spr.setTextColor(COLOR_BUTTON_PRIMARY_TEXT);
+  spr.fillRect(x, y, 50, 50, COLOR_BUTTON_PRIMARY_FRAME);
+  spr.fillRect(x+2, y+2, 46, 46, COLOR_BUTTON_PRIMARY);
+  spr.drawString(digitString, x+25, y+17);
+  if (*digit < max) {
+    spr.fillTriangle(x, y-5, x+25, y-35, x+50, y-5, COLOR_BUTTON_PRIMARY_FRAME);
+    spr.fillTriangle(x+4, y-7, x+25, y-32, x+46, y-7, COLOR_BUTTON_PRIMARY);
+    if (!touchPressed && isTouchInZone(x, y-35, 50, 25)) {
+      (*digit)++;
+      touchPressed = true;
+    }
+  }
+  if (*digit > min) {
+    spr.fillTriangle(x, y+55, x+25, y+80, x+50, y+55, COLOR_BUTTON_PRIMARY_FRAME);
+    spr.fillTriangle(x+4, y+57, x+25, y+78, x+46, y+57, COLOR_BUTTON_PRIMARY);
+    if (!touchPressed && isTouchInZone(x, y+55, 50, 25)) {
+      (*digit)--;
+      touchPressed = true;
+    }
+  }
+}
+
+static uint32_t getDaysInMonth(int32_t month, int32_t year) {
+  if (month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12) {
+    return 31;
+  } else if (month == 2) {
+    if (year % 400 == 0) {
+      return 29;
+    } else if (year % 100 == 0) {
+      return 28;
+    } else if (year % 4 == 0) {
+      return 29;
+    } else {
+      return 28;
+    }
+  } else {
+    return 30;
+  }
+}
+
+void displayDateTimeSelection() {
+  int32_t hour = 0;
+  int32_t minute = 0;
+  int32_t day = 1;
+  int32_t month = 1;
+  int32_t year = 2026;
+  while (true) {
+    spr.fillSprite(TFT_BLACK);
+    doSystemTasks();
+    displayDigitSelector(&hour, 0, 23, 2, 10, 105);
+    displayDigitSelector(&minute, 0, 59, 2, 65, 105);
+
+    displayDigitSelector(&day, 1, getDaysInMonth(month, year), 2, 140, 105);
+    displayDigitSelector(&month, 1, 12, 2, 195, 105);
+    displayDigitSelector(&year, 2026, 2100, 4, 250, 105);
+
+    spr.setTextDatum(CC_DATUM);
+    spr.setTextSize(2);
+    spr.drawString("Uhrzeit", 60, 40);
+    spr.drawString("Datum", 220, 40);
+    spr.setTextColor(COLOR_BUTTON_PRIMARY_TEXT);
+    spr.fillRect(120, 200, 80, 40, COLOR_BUTTON_PRIMARY_FRAME);
+    spr.fillRect(125, 205, 70, 30, COLOR_BUTTON_PRIMARY);
+    spr.drawString("OK", 160, 212);
+    
+    if (isTouchInZone(120, 200, 80, 40)) {
+      break;
+    } else if (!isTouchInZone(0, 0, 320, 240)) {
+      touchPressed = false;
+    }
+    
+    spr.pushSpriteFast(0, 0);
+  }
+  struct tm tm;
+  tm.tm_hour = hour;
+  tm.tm_min = minute;
+  tm.tm_mday = day;
+  tm.tm_mon = month-1;
+  tm.tm_year = year-1900;
+  tm.tm_isdst = -1;
+  time_t t = mktime(&tm);
+  if (t == (time_t)-1) {
+    Serial.println("mktime failed!");
+    return;
+  }
+  
+  struct timeval tv;
+  tv.tv_sec = t;
+  tv.tv_usec = 0;
+  if (settimeofday(&tv, NULL) != 0) {
+    Serial.println("settimeofday failed!");
+    return;
+  }
+  spr.setTextDatum(TL_DATUM);
 }

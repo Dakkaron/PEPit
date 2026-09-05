@@ -2,7 +2,7 @@
 #define __GAME_LUA_H__
 
 #define LUA_USE_C89
-#include "lua/lua.hpp"
+#include "lua-5.4.7/src/lua.hpp"
 
 #include "constants.h"
 #include "hardware/gfxHandler.hpp"
@@ -20,6 +20,7 @@ void drawInhalationGame_lua(DISPLAY_T* display, BlowData* blowData, String* erro
 void drawInhalationBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage);
 bool displayProgressionMenu_lua(DISPLAY_T *display, String *errorMessage);
 void endGame_lua(String* errorMessage);
+bool displayWinScreen_lua(DISPLAY_T *display, String *errorMessage);
 String lua_dofile(const String path);
 String lua_dostring(const char* script, String marker);
 String lua_dostring(const char* script, String marker, bool strictMode);

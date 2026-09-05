@@ -51,4 +51,6 @@ void multMF(Matrix2Di* matrix, int32_t value, Matrix2Di* output);
 void addVV(Vector2Di* vector1, Vector2Di* vector2, Vector2Di* output);
 void subVV(Vector2Di* vector1, Vector2Di* vector2, Vector2Di* output);
 
+void multMMF(Matrix2D* matrix1, Matrix2D* matrix2, Matrix2D* output);
+
 #endif /*__MATRIX_H__*/

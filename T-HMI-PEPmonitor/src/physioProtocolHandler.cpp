@@ -1,14 +1,16 @@
 #include "physioProtocolHandler.h"
 #include "hardware/sdHandler.h"
+#include "hardware/bluetoothHandler.h"
 #include "hardware/wifiHandler.h"
 #include "hardware/powerHandler.h"
 #include "hardware/touchHandler.h"
 #include "hardware/pressuresensor.h"
-#include "hardware/wifiHandler.h"
 #include "hardware/serialHandler.h"
 #include "games/games.h"
 #include "constants.h"
 #include "updateHandler.h"
+#include "systemStateHandler.h"
+#include "hardware/joystickHandler.h"
 
 #define INHALE_ICON_PATH "/gfx/inhale.bmp"
 #define EXHALE_ICON_PATH "/gfx/exhale.bmp"
@@ -70,13 +72,14 @@ uint32_t runProfileSelection() {
         checkFailWithMessage(errorMessage);
         lastMs = ms;
         ms = millis();
-        drawSystemStats(ms, lastMs);
+        doSystemTasks();
         spr.pushSpriteFast(0,0);
         spr.fillSprite(TFT_BLACK);
         handleSerial();
         vTaskDelay(1); // watchdog
       }
-      ESP.restart(); // Todo: don't restart, just go back to profile selection, but clear running game data
+      tft.fillScreen(TFT_BLACK);
+      deepSleepReset(); // Todo: don't restart, just go back to profile selection, but clear running game data
       
       profileSuccessfullyLoaded = false;
       continue;
@@ -84,21 +87,25 @@ uint32_t runProfileSelection() {
       spr.fillSprite(TFT_BLACK);
       spr.pushSpriteFast(0,0);
       tft.fillScreen(TFT_BLACK);
-      String executionLog = "";
+      char* executionLog;
       if (SD_MMC.exists(EXECUTION_LOG_PATH)) {
-        executionLog = readFileToString(EXECUTION_LOG_PATH);
+        executionLog = readFileToNewPSBuffer(EXECUTION_LOG_PATH);
+      } else {
+        executionLog = new char[1];
+        executionLog[0] = '\0';
       }
-      while (displayExecutionList(&spr, &executionLog, &errorMessage)) {
+      while (displayExecutionList(&spr, executionLog, &errorMessage)) {
         uint32_t ms = millis();
         checkFailWithMessage(errorMessage);
         lastMs = ms;
         ms = millis();
-        drawSystemStats(ms, lastMs);
+        doSystemTasks();
         spr.pushSpriteFast(0,0);
         spr.fillSprite(TFT_BLACK);
         handleSerial();
         vTaskDelay(1); // watchdog
       }
+      delete(executionLog);
     } else if (selectedProfileId == SYSTEM_UPDATE_SELECTION_ID) {
       spr.fillSprite(TFT_BLACK);
       spr.pushSpriteFast(0,0);
@@ -128,25 +135,10 @@ uint32_t runProfileSelection() {
         spr.pushSpriteFast(0,0);
         spr.fillSprite(TFT_BLACK);
         tft.fillScreen(TFT_BLACK);
-        spr.setTextSize(2);
-        spr.setTextColor(TFT_WHITE);
-        spr.setCursor(1, 16);
-        spr.print("Verbinde...");
-        spr.pushSpriteFast(0,0);
-        uint32_t trampolineConnectionStatus = connectToTrampoline();
-        Serial.print("-1> CONN STAT: ");
-        Serial.println(trampolineConnectionStatus);
-        if (trampolineConnectionStatus != CONNECTION_OK) {
-          Serial.println("Trampoline failed: no connection");
-          Serial.println("Not changing mode");
-          spr.fillSprite(TFT_BLACK);
-          spr.setTextSize(2);
-          spr.setTextColor(TFT_WHITE);
-          spr.drawString("Keine Verbindung zum Trampolin!", 1, 16);
-          spr.pushSpriteFast(0,0);
-          delay(5000);
-          profileSuccessfullyLoaded = false;
+        if (!connectToTrampoline(false)) {
+          displayFullscreenMessage("Verbinde mit Trampolin...\nTrampolinsensor einschalten!");
         }
+        connectToTrampoline(true);
         break;
       }
     }
@@ -166,6 +158,9 @@ uint32_t runProfileSelection() {
   blowData.totalTaskNumber = profileData.tasks;
   jumpData.totalCycleNumber = profileData.cycles;
   jumpData.totalTaskNumber = profileData.tasks;
+  while (touch.pressed()) {
+    vTaskDelay(1);
+  }
   return requiredTaskTypes;
 }
 
@@ -173,11 +168,82 @@ inline static unsigned long getTaskDurationUntilLastAction() {
   return _max(1, (blowData.blowEndMs!=0 ? blowData.blowEndMs : blowData.taskStartMs) - blowData.taskStartMs);
 }
 
+inline static bool isTrampolineTask() {
+  return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_TRAMPOLINE;
+}
+
+inline static bool isInhalationPEPTask() {
+  return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_INHALATIONPEP;
+}
+
+inline static bool isInhalationPEPTaskActingLikePEP(BlowData* blowData) {
+  return blowData->blowCount & 0x01;
+}
+
+inline static bool isInhalationTask() {
+  return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_INHALATION;
+}
+
+static void drawManometerModeDisplay() {
+  spr.fillSprite(TFT_BLACK);
+  if (isTrampolineTask()) {
+    if (jumpData.msLeft > 0) {
+
+      spr.setCursor(45, 100);
+      spr.setTextSize(3);
+      spr.print("Übrige Zeit: ");
+      int32_t secondsLeft = _max(0, jumpData.msLeft/1000);
+      spr.print(secondsLeft / 60);
+      spr.print(":");
+      if ((secondsLeft % 60) < 10) {
+        spr.print("0");
+      }
+      spr.print(secondsLeft % 60);
+    }
+  } else {
+    spr.drawCircle(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, 100, 0xffff);
+    spr.setTextDatum(CC_DATUM);
+    spr.setTextSize(2);
+    for (int32_t i=-30; i<=30; i+=1) {
+      float angleInRadians = i*0.025*PI - PI*0.5;
+      float cosI = cos(angleInRadians);
+      float sinI = sin(angleInRadians);
+      if (i % 10 == 0) {
+        spr.drawString(String(i), SCREEN_WIDTH/2 + cosI*60, SCREEN_HEIGHT/2 + sinI*60);
+        spr.drawLine(SCREEN_WIDTH/2 + cosI*100, SCREEN_HEIGHT/2 + sinI*100, SCREEN_WIDTH/2 + cosI*80, SCREEN_HEIGHT/2 + sinI*80, 0xffff);
+      } else if (i % 5 == 0) {
+        spr.drawLine(SCREEN_WIDTH/2 + cosI*100, SCREEN_HEIGHT/2 + sinI*100, SCREEN_WIDTH/2 + cosI*80, SCREEN_HEIGHT/2 + sinI*80, 0xffff);
+      } else {
+        spr.drawLine(SCREEN_WIDTH/2 + cosI*100, SCREEN_HEIGHT/2 + sinI*100, SCREEN_WIDTH/2 + cosI*90, SCREEN_HEIGHT/2 + sinI*90, 0xffff);
+      }
+    }
+    spr.setTextSize(1);
+    spr.setTextDatum(TL_DATUM);
+    float angleInRadians = (float)(blowData.pressure)*0.025*PI - PI*0.5;
+    float cosI = cos(angleInRadians);
+    float sinI = sin(angleInRadians);
+    if (cosI>-0.01 && cosI<0.01) {
+      cosI = 0.0;
+    }
+    spr.drawLine(SCREEN_WIDTH*0.5, SCREEN_HEIGHT*0.5, SCREEN_WIDTH*0.5 + cosI*60.0, SCREEN_HEIGHT*0.5 + sinI*60.0, 0xffff);
+
+    spr.fillRect(240, 210, 80, 30, TFT_BLUE);
+    spr.setTextSize(2);
+    if (blowData.cycleNumber >= blowData.totalCycleNumber-1 && blowData.taskNumber >= blowData.totalTaskNumber-1) {
+      spr.drawString("Fertig", 255, 220);
+    } else {
+      spr.drawString("Weiter", 255, 220);
+    }
+  }
+  doSystemTasks();
+  spr.pushSpriteFast(0, 0);
+}
+
 static void drawInhalationDisplay() {
   spr.fillSprite(TFT_BLACK);
   String errorMessage;
   drawInhalationGame(&spr, &blowData, &errorMessage);
-  drawProgressBar(&spr, blowData.breathingScore, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
+  drawProgressBar(&spr, blowData.currentlyBlowing ? (100 * (blowData.ms - blowData.blowStartMs) / blowData.targetDurationMs) : 0, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
   checkFailWithMessage(errorMessage);
   
   drawProgressBar(&spr, blowData.pressure, 10, PRESSURE_BAR_X, PRESSURE_BAR_Y, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
@@ -199,7 +265,7 @@ static void drawInhalationDisplay() {
     spr.drawString("Fertig", 255, 220);
   }
 
-  drawSystemStats(blowData.ms, lastMs);
+  doSystemTasks();
   spr.pushSpriteFast(0, 0);
 }
 
@@ -253,7 +319,7 @@ static void drawPEPDisplay() {
     }
   }
 
-  drawSystemStats(blowData.ms, lastMs);
+  doSystemTasks();
   spr.pushSpriteFast(0, 0);
 }
 
@@ -276,44 +342,47 @@ static void drawTrampolineDisplay() {
     }
     spr.print(secondsLeft % 60);
   }
-  drawSystemStats(blowData.ms, lastMs);
+  doSystemTasks();
   spr.pushSpriteFast(0, 0);
 }
 
 static void handleLogExecutions() {
   uint32_t textDatumBak = tft.getTextDatum();
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextDatum(TC_DATUM);
-  tft.setTextSize(2);
-  tft.drawString("Schreibe Log auf SD-Karte", 160, 120);
-  tft.drawString("NICHT AUSSCHALTEN!", 160, 140);
-  tft.setTextDatum(textDatumBak);
 
-  bool wifiExists = false;
-  for (uint32_t i=0;i<3;i++) {
-    wifiExists = startFetchingNTPTime();
-    if (wifiExists) {
-      break;
-    }
-  }
+  spr.fillSprite(TFT_BLACK);
+  spr.setTextSize(2);
+  spr.setTextDatum(TL_DATUM);
+  spr.drawString("Datum und Uhrzeit", 20, 100);
+  spr.drawString("werden abgerufen.", 20, 120);
+  spr.drawString("Bitte warten...", 20, 140);
+  spr.pushSpriteFast(0,0);
 
   String errorMessage;
   String ntpDateString, ntpTimeString;
-  Serial.println("Wifi exists: " + String(wifiExists));
-  if (wifiExists) {
-    getNTPTime(&ntpDateString, &ntpTimeString, &errorMessage);
+  getFormattedTime(&ntpDateString, &ntpTimeString, &errorMessage);
+  checkSoftFailWithMessage(errorMessage);
+  if (!errorMessage.isEmpty()) {
+    displayDateTimeSelection();
+    errorMessage = "";
+    getFormattedTime(&ntpDateString, &ntpTimeString, &errorMessage);
     checkSoftFailWithMessage(errorMessage);
-    if (!errorMessage.isEmpty()) {
+    if (!errorMessage.isEmpty()) { // Should never happen
       ntpDateString = "N/A";
       ntpTimeString = "N/A";
       errorMessage = "";
     }
-  } else {
-    ntpDateString = "N/A";
-    ntpTimeString = "N/A";
   }
   Serial.println("NTP Time: " + ntpDateString + " " + ntpTimeString);
-  logExecutionToSD(&profileData, ntpDateString, ntpTimeString, &errorMessage);
+
+  spr.fillSprite(TFT_BLACK);
+  spr.setTextDatum(TC_DATUM);
+  spr.setTextSize(2);
+  spr.drawString("Schreibe Log auf SD-Karte", 160, 120);
+  spr.drawString("NICHT AUSSCHALTEN!", 160, 140);
+  spr.setTextDatum(textDatumBak);
+  spr.pushSpriteFast(0,0);
+
+  logExecutionToSD(&profileData, ntpDateString, ntpTimeString, blowData.successes, blowData.fails, blowData.totalTimeSpentBreathing, &errorMessage);
   checkFailWithMessage(errorMessage);
 }
 
@@ -321,31 +390,138 @@ static void drawFinished() {
   static uint32_t winscreenTimeout = 0;
   static String winScreenPath = "";
   if (winscreenTimeout == 0) { // Only runs on first execution
+    Serial.print("##### Start drawFinished(): ");
+    Serial.println(millis());
     String errorMessage;
+    Serial.print("##### Start handleLogExecutions(): ");
+    Serial.println(millis());
+    if (systemConfig.logExecutions) {
+      handleLogExecutions();
+    }
+    Serial.print("##### initializing win screen: ");
+    Serial.println(millis());
     endGame(&errorMessage);
     checkFailWithMessage(errorMessage);
     winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
-    winScreenPath = getRandomWinScreenPathForCurrentGame(&errorMessage);
-    Serial.println("Win screen path: "+winScreenPath);
-    checkFailWithMessage(errorMessage);
+    spr.frameBuffer(1); // Clearing both frame buffers to get rid of old content
+    spr.fillSprite(TFT_GREEN);
+    spr.frameBuffer(2);
+    spr.fillSprite(TFT_GREEN);
     spr.frameBuffer(1);
     spr.fillSprite(TFT_BLACK);
     spr.frameBuffer(2);
     spr.fillSprite(TFT_BLACK);
-    if (systemConfig.logExecutions) {
-      handleLogExecutions();
+    spr.pushSpriteFast(0,0);
+    tft.fillScreen(TFT_BLACK);
+    Serial.print("##### start displaying win screen: ");
+    Serial.println(millis());
+    while (displayWinScreen(&spr, &errorMessage) && millis() < winscreenTimeout) {
+      checkFailWithMessage(errorMessage);
+      spr.pushSpriteFast(0,0);
+      spr.fillSprite(TFT_BLACK);
+      handleSerial();
+      doSystemTasks();
+      vTaskDelay(1); // watchdog
+      if (isTouchInZone(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)) {
+        winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
+      }
+    }
+    Serial.print("##### Display winscreen done: ");
+    Serial.println(millis());
+    if (systemConfig.manometerMode) {
+      winScreenPath = MANOMETER_WINSCREEN_PATH;
+    } else {
+      winScreenPath = getRandomWinScreenPathForCurrentGame(&errorMessage);
+      Serial.println("Win screen path: "+winScreenPath);
+      checkFailWithMessage(errorMessage);
     }
     spr.frameBuffer(1);
     spr.fillSprite(TFT_BLACK);
     spr.frameBuffer(2);
     spr.fillSprite(TFT_BLACK);
-    tft.fillRect(32,0,38,20,TFT_BLACK);
+    tft.fillScreen(TFT_BLACK);
     drawBmp(winScreenPath, 0, 0);
+    if (getSystemUpdateAvailableStatus() == FIRMWARE_UPDATE_AVAILABLE) {
+      uint32_t beforeShowUpdateTimeout = millis() + SHOW_SYSTEM_UPDATE_ON_WINSCREEN_TIMEOUT;
+      Serial.print("Starting update timeout: ");
+      Serial.print(beforeShowUpdateTimeout);
+      Serial.print(" . ");
+      Serial.println(millis());
+      while (millis() < beforeShowUpdateTimeout) {
+        spr.fillRect(32,0,66,20,TFT_BLACK);
+        doSystemTasks();
+        spr.pushSpriteFast(0,0);
+        vTaskDelay(1); // watchdog
+      }
+      Serial.println("Ending update timeout.");
+
+      tft.fillRect(25, 25, 270, 190, 0x001F);
+      tft.fillRect(30, 30, 260, 180, 0x94b2);
+      drawBmp("/gfx/systemupdate.bmp", 144, 35, false);
+      // TODO: Add joystick controls for the update/reboot buttons
+      tft.setTextColor(0xFFFF);
+      tft.setTextSize(2);
+      tft.setTextDatum(1);
+      tft.drawString("Update verfügbar", 160, 80);
+      tft.fillRect(60, 110, 200, 45, COLOR_BUTTON_PRIMARY);
+      tft.drawString("Update jetzt starten", 160, 125);
+      tft.fillRect(60, 160, 200, 45, COLOR_BUTTON_PRIMARY);
+      tft.drawString("Neustart", 160, 175);
+      bool isUpdateStarted = false;
+      winscreenTimeout = millis() + WIN_SCREEN_TIMEOUT;
+      Serial.print("Starting winscreen timeout: ");
+      Serial.print(winscreenTimeout);
+      Serial.print(" . ");
+      Serial.println(millis());
+      while (millis() < winscreenTimeout && !isUpdateStarted) {
+        isUpdateStarted = isTouchInZone(60, 110, 200, 45);
+        if (isTouchInZone(60, 160, 200, 45)) {
+          tft.fillScreen(TFT_BLACK);
+          deepSleepReset();
+        }
+        Serial.print(winscreenTimeout);
+        Serial.print(" . ");
+        Serial.print(millis());
+        Serial.print(" - ");
+        Serial.println(isUpdateStarted);
+        spr.fillRect(32,0,66,20,TFT_BLACK);
+        doSystemTasks();
+        spr.pushSpriteFast(0,0);
+        vTaskDelay(1); // watchdog
+      }
+      Serial.print("Ending winscreen timeout: ");
+      Serial.println(isUpdateStarted);
+      if (isUpdateStarted) {
+        Serial.println("Starting update.");
+        String errorMessage;
+        tft.fillScreen(TFT_BLACK);
+        downloadAndRunSystemUpdate(&errorMessage);
+        checkFailWithMessage(errorMessage);
+      } else {
+        Serial.println("Power off.");
+        power_off();
+      }
+    } else {
+      tft.setTextDatum(1);
+      tft.setTextColor(COLOR_BUTTON_PRIMARY_TEXT);
+      if (isJoystickPresent()) {
+        tft.fillRect(55, 175, 210, 55, TFT_YELLOW);
+        tft.fillRect(58, 178, 204, 49, COLOR_BUTTON_PRIMARY);
+      } else {
+        tft.fillRect(55, 175, 210, 55, COLOR_BUTTON_PRIMARY_FRAME);
+        tft.fillRect(60, 180, 200, 45, COLOR_BUTTON_PRIMARY);
+      }
+      tft.drawString("Neustart", 160, 195);
+    }
   } else if (millis() > winscreenTimeout) {
     power_off();
   }
-  spr.fillRect(32,0,38,20,TFT_BLACK);
-  drawSystemStats(blowData.ms, lastMs);
+  if (getSystemUpdateAvailableStatus() != FIRMWARE_UPDATE_AVAILABLE && (isTouchInZone(60, 160, 200, 45) || getJoystickButton())) {
+    tft.fillScreen(TFT_BLACK);
+    deepSleepReset();
+  }
+  spr.fillRect(32,0,66,20,TFT_BLACK);
+  doSystemTasks();
   spr.pushSpriteFast(0,0);
 }
 
@@ -362,8 +538,16 @@ void displayPhysioRotateScreen() {
   spr.drawString(profileData.taskChangeMessage[currentTask], 5, 5);
   spr.pushSpriteFast(0, 0);
   uint32_t displayOkButtonMs = millis() + 5000;
+  boolean joystickLocked = getJoystickButton();
 
-  while (!isTouchInZone(230, 170, 80, 60)) {
+  while (!isTouchInZone(230, 170, 80, 60) && (joystickLocked || !getJoystickButton())) {
+    Serial.print("Jockstick locked: ");
+    Serial.print(joystickLocked);
+    Serial.println(", clicked: ");
+    Serial.println(getJoystickButton());
+    if (joystickLocked && !getJoystickButton()) {
+      joystickLocked = false;
+    }
     if (displayOkButtonMs!=0 && millis() > displayOkButtonMs) {
       spr.fillSprite(TFT_BLACK);
       spr.pushSpriteFast(0, 0);
@@ -372,12 +556,18 @@ void displayPhysioRotateScreen() {
       drawBmp(profileData.taskChangeImagePath[currentTask], 0, 0);
       spr.setTextDatum(TL_DATUM);
       spr.drawString(profileData.taskChangeMessage[currentTask], 5, 5);
-      spr.fillRect(230, 170, 80, 60, 0x18db);
+      if (isJoystickPresent()) {
+        spr.fillRect(230, 170, 80, 60, TFT_YELLOW);
+        spr.fillRect(233, 173, 74, 54, 0x18db);
+      } else {
+        spr.fillRect(230, 170, 80, 60, 0x18db);
+      }
       spr.drawString("OK", 245, 185);
       spr.pushSpriteFast(0, 0);
       displayOkButtonMs = 0;
     }
     handleSerial();
+    doSystemTasks();
     vTaskDelay(1); // watchdog
   }
   
@@ -385,6 +575,10 @@ void displayPhysioRotateScreen() {
   spr.fillScreen(TFT_BLACK);
   spr.pushSpriteFast(0, 0);
   delay(200);
+}
+
+inline static unsigned long getLastBlowEvent() {
+  return blowData.currentlyBlowing ? blowData.blowStartMs : blowData.blowEndMs;
 }
 
 inline static bool isPepTask() {
@@ -398,31 +592,16 @@ inline static bool isPepTask() {
     }
 }
 
-inline static bool isInhalationPEPTask() {
-  return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_INHALATIONPEP;
-}
-
-inline static bool isInhalationPEPTaskActingLikePEP(BlowData* blowData) {
-  return blowData->blowCount & 0x01;
-}
-
-inline static bool isInhalationTask() {
-  return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_INHALATION;
-}
-
-inline static unsigned long getLastBlowEvent() {
-  return blowData.currentlyBlowing ? blowData.blowStartMs : blowData.blowEndMs;
-}
-
 void handlePhysioTask() {
   static uint32_t taskFinishedTimeout = 0;
+  static bool touchBlocked = false;
   lastMs = blowData.ms;
   blowData.ms = millis();
   jumpData.ms = blowData.ms;
   if (blowData.taskStartMs == 0) {
     blowData.taskStartMs = blowData.ms;
   }
-  if (profileData.taskType[currentTask] == PROFILE_TASK_TYPE_TRAMPOLINE) {
+  if (isTrampolineTask()) {
     if (jumpData.msLeft < -5000) {
       currentCycle++;
       drawFinished(); //Todo: Make jump task compatible with multi-task configs
@@ -433,8 +612,7 @@ void handlePhysioTask() {
     jumpData.taskNumber = currentTask;
     jumpData.totalTime = profileData.taskTime[currentTask];
 
-    getJumpData(&jumpData);
-    drawTrampolineDisplay();
+    getJumpData(&jumpData, &profileData, currentTask);
   } else {
     blowData.taskNumber = currentTask;
     blowData.cycleNumber = currentCycle;
@@ -475,6 +653,7 @@ void handlePhysioTask() {
       if (blowData.ms-blowData.blowStartMs > blowData.targetDurationMs) {
         blowData.blowCount++;
         blowData.lastBlowStatus = LAST_BLOW_SUCCEEDED;
+        blowData.successes++;
         Serial.println(F(" successfully"));
         Serial.print(F(" Blowstart:       "));
         Serial.println(blowData.blowStartMs);
@@ -483,7 +662,7 @@ void handlePhysioTask() {
         Serial.print(F(" Target Duration: "));
         Serial.println(blowData.targetDurationMs);
         // Check for task end on PEP tasks
-        if (isPepTask() && taskFinishedTimeout==0 && blowData.blowCount >= blowData.totalBlowCount) {
+        if (!systemConfig.manometerMode && isPepTask() && taskFinishedTimeout==0 && blowData.blowCount >= blowData.totalBlowCount) {
           taskFinishedTimeout = blowData.ms + 2000;
         }
       } else {
@@ -505,6 +684,12 @@ void handlePhysioTask() {
         tft.invertDisplay(0);
       }
     }
+    if (systemConfig.manometerMode && !touchBlocked && isTouchInZone(240, 210, 80, 30)) {
+      if (isTouchInZone(240, 210, 80, 30)) {
+        taskFinishedTimeout = blowData.ms;
+        tft.invertDisplay(0);
+      }
+    }
     blowData.peakPressure = _max(blowData.peakPressure, blowData.pressure);
     if (taskFinishedTimeout!=0 && blowData.ms > taskFinishedTimeout) {
       Serial.println();
@@ -522,7 +707,7 @@ void handlePhysioTask() {
         case PROFILE_TASK_TYPE_INHALATION:
           Serial.print("Inhalation");break;
         case PROFILE_TASK_TYPE_INHALATIONPEP:
-          Serial.print("Inhalation blows");break;
+          Serial.print("Inhalation+PEP");break;
       }
       Serial.println();
       currentTask++;
@@ -538,10 +723,18 @@ void handlePhysioTask() {
         displayPhysioRotateScreen();
       }
     }
-    if (isPepTask() || isInhalationPEPTask()) {
-      drawPEPDisplay();
-    } else if (isInhalationTask()) {
-      drawInhalationDisplay();
-    }
+  }
+
+  if (systemConfig.manometerMode) {
+    drawManometerModeDisplay();
+  } else if (isPepTask() || isInhalationPEPTask()) {
+    drawPEPDisplay();
+  } else if (isInhalationTask()) {
+    drawInhalationDisplay();
+  } else if (isTrampolineTask()) {
+    drawTrampolineDisplay();
+  }
+  if (!isTouchInZone(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)) {
+    touchBlocked = false;
   }
 }

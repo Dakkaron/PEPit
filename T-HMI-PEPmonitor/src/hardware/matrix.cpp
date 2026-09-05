@@ -62,6 +62,13 @@ void multMF(Matrix2Di* matrix, int32_t value, Matrix2Di* output) {
   output->d = (matrix->d * value) >> 8;
 }
 
+void multMMF(Matrix2D* matrix1, Matrix2D* matrix2, Matrix2D* output) {
+  output->a = matrix1->a * matrix2->a + matrix1->b * matrix2->c;
+  output->b = matrix1->a * matrix2->b + matrix1->b * matrix2->d;
+  output->c = matrix1->c * matrix2->a + matrix1->d * matrix2->c;
+  output->d = matrix1->c * matrix2->b + matrix1->d * matrix2->d;
+}
+
 void addVV(Vector2Di* vector1, Vector2Di* vector2, Vector2Di* output) {
   output->x = vector1->x + vector2->x;
   output->y = vector1->y + vector2->y;

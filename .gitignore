@@ -41,3 +41,4 @@ release/
 PEPitCompat/build/
 TrampolineSensor/
 PepItEmulator/
+.vscode/

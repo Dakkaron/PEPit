@@ -2,7 +2,7 @@
 #define __CONSTANTS_H__
 #include <Arduino.h>
 
-#define VERSION "4.2"
+#define VERSION "10.0"
 
 #define LAST_BLOW_SUCCEEDED 0B00000001
 #define LAST_BLOW_FAILED    0B00000010
@@ -14,9 +14,10 @@
 #define PRESSURE_BAR_Y 190
 
 #define PRESSURE_SENSOR_DIVISOR 65L
-#define PRESSURE_SENSOR_CUTOFF_LIMIT 500
+#define PRESSURE_SENSOR_CUTOFF_LIMIT 200
 #define PRESSURE_SENSOR_SMOOTHING_NUM_READINGS 10
-#define PRESSURE_SENSOR_MAX_SKIPS 10;
+#define PRESSURE_SENSOR_MAX_SKIPS 10
+#define PRESSURE_TARE_TOLERANCE 1
 
 #define PRESSURE_SENSOR_CUMULATIVE_ERROR_FACTOR 16
 
@@ -24,6 +25,8 @@
 #define SCREEN_ROTATION 3
 #define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 240
+
+#define M5STACK_JOYSTICK2_POWER_PIN 43
 
 #define HX7711_DATA_PIN 17
 #define HX7711_CLOCK_PIN 18
@@ -46,6 +49,7 @@
 #define PROFILE_TASK_TYPE_EQUALBLOWS 3
 #define PROFILE_TASK_TYPE_TRAMPOLINE 4
 #define PROFILE_TASK_TYPE_INHALATION 5
+#define PROFILE_TASK_TYPE_INHALATIONPEP 6
 
 #define INHALATION_TASK_WARN_TIMEOUT 10000L
 #define INHALATION_TASK_END_TIMEOUT 15000L
@@ -60,18 +64,35 @@
 
 #define GAME_SELECTION_POWEROFF_TIMEOUT 3L*60L*1000L // Power off device if it spends >3 minutes on game selection screen
 #define WIN_SCREEN_TIMEOUT 3L*60L*1000L
+#define SHOW_SYSTEM_UPDATE_ON_WINSCREEN_TIMEOUT 3L*1000L
+
+#define MANOMETER_WINSCREEN_PATH "/gfx/manometerWinscreen.bmp"
 
 #define REQUIRED_TASK_TYPE_SHORTBLOWS       0b00000001
 #define REQUIRED_TASK_TYPE_LONGBLOWS        0b00000010
 #define REQUIRED_TASK_TYPE_EQUALBLOWS       0b00000100
 #define REQUIRED_TASK_TYPE_TRAMPOLINE       0b00001000
 #define REQUIRED_TASK_TYPE_INHALATION       0b00010000
-#define REQUIRED_TASK_TYPE_PROGRESSION_MENU 0b00100000
+#define REQUIRED_TASK_TYPE_INHALATIONPEP    0b00100000
+#define REQUIRED_TASK_TYPE_PROGRESSION_MENU 0b01000000
+
+#define COLOR_BUTTON_PRIMARY       0x001F
+#define COLOR_BUTTON_PRIMARY_FRAME 0x94b2
+#define COLOR_BUTTON_PRIMARY_TEXT  0xFFFF
+#define COLOR_BUTTON_SELECTABLE    TFT_YELLOW
 
 struct GameConfig {
   String name;
   String templateName;
   String prefsNamespace;
+  String pepShortScriptPath;
+  String pepLongScriptPath;
+  String pepEqualScriptPath;
+  String inhalationPepScriptPath;
+  String inhalationScriptPath;
+  String trampolineScriptPath;
+  String progressionMenuScriptPath;
+  String winScreenScriptPath;
 };
 
 struct ProfileData {
@@ -87,6 +108,10 @@ struct ProfileData {
   uint32_t taskMinStrength[10];
   bool taskNegativeStrength[10];
   uint32_t taskTargetStrength[10];
+  uint32_t taskTime2[10];
+  uint32_t taskMinStrength2[10];
+  bool taskNegativeStrength2[10];
+  uint32_t taskTargetStrength2[10];
 };
 
 
@@ -105,13 +130,14 @@ struct BlowData {
   uint8_t totalTaskNumber = 0;
   uint8_t blowCount = 0;
   uint8_t totalBlowCount = 0;
-  int32_t pressure = 0;
+  float pressure = 0;
   bool negativePressure = false;
   int32_t peakPressure = 0;
   int32_t minPressure = 0;
   int32_t targetPressure = 0;
   uint32_t cumulativeError = 0;
-  uint8_t fails = 0;
+  uint32_t successes = 0;
+  uint32_t fails = 0;
   uint32_t taskType;
   uint8_t lastBlowStatus = 0;
   uint32_t totalLongBlowRepetitions = 0;
@@ -121,19 +147,20 @@ struct BlowData {
 
 
 struct JumpData {
-  unsigned long ms;
+  unsigned long ms = 0;
+  unsigned long startMs = 0;
+  int32_t msLeft = 0;
   uint8_t cycleNumber = 0;
   uint8_t totalCycleNumber = 0;
   uint8_t taskNumber = 0;
   uint8_t totalTaskNumber = 0;
   uint16_t jumpCount = 0;
+  uint16_t bonusJumpCount = 0;
   bool currentlyJumping = false;
-  int32_t msLeft = 0;
   int32_t totalTime = 0;
   uint16_t misses = 0;
   uint16_t highscore = 0;
   bool newHighscore = false;
-  bool lastReadSuccessful = false;
 };
 
 #endif /* __CONSTANTS_H__ */
