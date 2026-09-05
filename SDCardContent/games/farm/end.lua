@@ -1,0 +1,1 @@
+PrefsSetInt("money", Money)
