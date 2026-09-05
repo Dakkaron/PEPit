@@ -38,3 +38,6 @@ release/
 
 
 .idea/
+PEPitCompat/build/
+TrampolineSensor/
+PepItEmulator/
