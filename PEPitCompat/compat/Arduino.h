@@ -87,6 +87,8 @@ public:
     void concat(int num);
     void trim();
     void toLowerCase();
+    void replace(char find, char with);
+    void replace(const String& find, const String& with);
     void clear() { data.clear(); }
 
     // Search
@@ -293,15 +295,8 @@ inline int analogRead(uint8_t pin) {
 #define PI 3.14159265358979323846f
 #endif
 
-template<typename T, typename U>
-inline auto _min(T a, U b) -> decltype(a < b ? a : b) {
-    return a < b ? a : b;
-}
-
-template<typename T, typename U>
-inline auto _max(T a, U b) -> decltype(a > b ? a : b) {
-    return a > b ? a : b;
-}
+#define _min(a, b) ((a) < (b) ? (a) : (b))
+#define _max(a, b) ((a) > (b) ? (a) : (b))
 
 // constrain as macro (like Arduino) to handle mixed types without template deduction issues
 #define constrain(AMOUNT, LOW, HIGH) \

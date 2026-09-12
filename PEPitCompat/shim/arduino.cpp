@@ -363,6 +363,46 @@ void String::toLowerCase() {
     }
 }
 
+void String::replace(char find, char with) {
+    for (auto& c : data) {
+        if (c == find) c = with;
+    }
+}
+
+// Mirrors Arduino's WString.cpp String::replace(const String&, const String&).
+// Replaces every non-overlapping occurrence of `find` with `with`, in place.
+void String::replace(const String& find, const String& with) {
+    if (data.empty() || find.data.empty()) return;
+
+    int diff = static_cast<int>(with.data.size()) - static_cast<int>(find.data.size());
+
+    if (diff == 0) {
+        // Same length: overwrite each match in place, scanning forward.
+        size_t pos = 0;
+        while ((pos = data.find(find.data, pos)) != std::string::npos) {
+            data.replace(pos, find.data.size(), with.data);
+            pos += with.data.size();
+        }
+    } else if (diff < 0) {
+        // Replacement is shorter: overwrite each match and let the string compact.
+        size_t pos = 0;
+        while ((pos = data.find(find.data, pos)) != std::string::npos) {
+            data.replace(pos, find.data.size(), with.data);
+            pos += with.data.size();
+        }
+    } else {
+        // Replacement is longer: process right-to-left so that inserting (which
+        // grows the string) does not invalidate indices to the left.
+        int index = static_cast<int>(data.size()) - 1;
+        while (index >= 0) {
+            size_t found = data.rfind(find.data, static_cast<size_t>(index));
+            if (found == std::string::npos) break;
+            data.replace(found, find.data.size(), with.data);
+            index = static_cast<int>(found) - 1;
+        }
+    }
+}
+
 // ============================================================
 // Random Numbers
 // ============================================================
