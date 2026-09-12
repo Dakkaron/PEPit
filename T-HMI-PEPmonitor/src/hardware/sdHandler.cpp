@@ -109,6 +109,7 @@ void readProfileData(uint32_t profileId, ProfileData* profileData, String* error
       profileData->taskType[taskId] = PROFILE_TASK_TYPE_INHALATIONPEP;
     } else {
       errorMessage->concat("Unknown task type "+taskType+". Needs to be either of pepShort, pepLong, pepEqual or trampoline.\n");
+      checkFailWithMessage(*errorMessage);
     }
     String ignoreErrors;
     if (profileData->taskType[taskId] == PROFILE_TASK_TYPE_LONGBLOWS ||
