@@ -11,21 +11,21 @@ if GameMode == GAME_MODE_OVERVIEW then
     JoystickSelection = JoystickSelection % JOYSTICK_SELECTION_OVERVIEW_LIMIT
 
     if JoystickSelection == 2 then
-        DrawSprite(SFieldSelection, 0, 78, 0.1)--math.sin(Ms/100)*0.5+0.5)
+        DrawSprite(SFieldSelection, 0, 78, math.sin(Ms/100)*0.5+0.5)
     else
-        DrawSprite(SFieldSelection, 0, 78, 0.1)
+        DrawSprite(SFieldSelection, 0, 78, 0.7)
     end
 
     if JoystickSelection == 0 then
         DrawSprite(SBerrySelection, 0, 87, math.sin(Ms/100)*0.5+0.5)
     elseif Energy>=0.2 then
-        DrawSprite(SBerrySelection, 0, 87, 0.5)
+        DrawSprite(SBerrySelection, 0, 87, 0.7)
     end
 
     if JoystickSelection == 1 then
         DrawSprite(SFishSelection, 174, 127, math.sin(Ms/100)*0.5+0.5)
     elseif Energy>=0.2 then
-        DrawSprite(SFishSelection, 174, 127, 0.5)
+        DrawSprite(SFishSelection, 174, 127, 0.7)
     end
 
     local joystickX = GetJoystickX()
@@ -39,7 +39,7 @@ if GameMode == GAME_MODE_OVERVIEW then
             ShowEarningSpriteScaleX = 0.5
             ShowEarningSpriteScaleY = 0.5
             ShowEarningSpriteFrame = -1
-            ShowEarningsText = "+10"
+            ShowEarningsText = "+€10"
             Money = Money + 10
         elseif (IsTouchInZone(175, 145, 146, 35) or (JoystickSelection==1 and GetJoystickButton())) and Energy >= 0.2 then --Fishing
             Energy = Energy - 0.2
@@ -52,26 +52,27 @@ if GameMode == GAME_MODE_OVERVIEW then
             local fishResult = math.random()
             if fishResult < 0.2 then
                 ShowEarningSpriteFrame = 0
-                ShowEarningsText = "+0"
+                ShowEarningsText = "+€0"
             elseif fishResult < 0.5 then
                 ShowEarningSpriteFrame = 1
-                ShowEarningsText = "+5"
+                ShowEarningsText = "+€5"
                 Money = Money + 5
             elseif fishResult < 0.75 then
                 ShowEarningSpriteFrame = 2
-                ShowEarningsText = "+12"
+                ShowEarningsText = "+€12"
                 Money = Money + 12
             elseif fishResult < 0.95 then
                 ShowEarningSpriteFrame = 3
-                ShowEarningsText = "+20"
+                ShowEarningsText = "+€20"
                 Money = Money + 20
             else
                 ShowEarningSpriteFrame = 4
-                ShowEarningsText = "+30"
+                ShowEarningsText = "+€30"
                 Money = Money + 30
             end
-        elseif (IsTouchInZone(0, 79, 170, 17) or IsTouchInZone(110, 79, 60, 34) or (JoystickSelection==1 and GetJoystickButton())) and Energy >= 0.2 then --Field
+        elseif IsTouchInZone(0, 79, 170, 17) or IsTouchInZone(110, 79, 60, 34) or (JoystickSelection==2 and GetJoystickButton()) then --Field
             GameMode = GAME_MODE_FIELD
+            fieldItemSelection = 0
         end
 
         if joystickX < -0.5 then
@@ -83,9 +84,81 @@ if GameMode == GAME_MODE_OVERVIEW then
 
     Touched = IsTouchInZone(0,0,320,240) or GetJoystickButton() or math.abs(joystickX) > 0.5
 elseif GameMode == GAME_MODE_FIELD then
-    DrawSprite(SField_fallow, 0, 0)
-    DrawSprite(SField_tilled, 0, 0)
     DrawSprite(SField_watered, 0, 0)
+    DrawSprite(SField_tilled, 11, 20)
+    DrawSprite(SField_fallow, 8, 16)
+    
+    local fieldItemAlpha = 1
+    if Energy < FIELD_ACTION_ENERGY then
+        fieldItemAlpha = 0.5
+    end
+    local fieldItemSeedBagAlpha = 1
+    if Energy < FIELD_ACTION_ENERGY or Money < FIELD_ACTION_SEEDBAG_WHEAT_PRICE then
+        fieldItemSeedBagAlpha = 0.5
+    end
+    if fieldItemSelection == FIELD_ITEM_SELECTION_PLOW then
+        DrawSpriteScaledRotated(SIconPlow, 290, 20, 1, 1, math.sin(Ms*0.005)*.3, 0, fieldItemAlpha)
+    else
+        DrawSprite(SIconPlow, 290, 20, fieldItemAlpha)
+    end
+    if fieldItemSelection == FIELD_ITEM_SELECTION_WATERING_CAN then
+        DrawSpriteScaledRotated(SIconWateringCan, 320, 86, 1, 1, math.sin(Ms*0.005)*.3, 0xA, fieldItemAlpha)
+    else
+        DrawSprite(SIconWateringCan, 283, 60, fieldItemAlpha)
+    end
+    if fieldItemSelection == FIELD_ITEM_SELECTION_SEEDBAG then
+        DrawSpriteScaledRotated(SIconSeedbag, 304, 115, 1, 1, math.sin(Ms*0.005)*.3, 0x5, fieldItemSeedBagAlpha)
+    else
+        DrawSprite(SIconSeedbag, 287, 100, fieldItemSeedBagAlpha)
+    end
+    DrawString("-€10", 295, 125)
+    DrawSpriteScaled(SIconBackArrow, 278, 190, 2, 2)
+    DrawString("Zurück", 288, 217)
+
+    if not IsTouchInZone(0,0,320,240) then
+        Touched = false
+        LastFieldGridUpdateX = -1
+        LastFieldGridUpdateY = -1
+    end
+    if IsTouchInZone(287, 20, 35, 29) and Touched == false then
+        Touched = true
+        fieldItemSelection = FIELD_ITEM_SELECTION_PLOW
+    elseif IsTouchInZone(287, 60, 35, 26) and Touched == false then
+        Touched = true
+        fieldItemSelection = FIELD_ITEM_SELECTION_WATERING_CAN
+    elseif IsTouchInZone(287, 100, 35, 26) and Touched == false then
+        Touched = true
+        fieldItemSelection = FIELD_ITEM_SELECTION_SEEDBAG
+    elseif IsTouchInZone(278, 190, 40, 225) and Touched == false then
+        Touched = true
+        GameMode = GAME_MODE_OVERVIEW
+    elseif IsTouchInZone(22, 10, 274, 130) and Energy >= FIELD_ACTION_ENERGY then
+        Touched = true
+        local touchX = GetTouchX()
+        local touchY = GetTouchY()
+        if fieldItemSelection == FIELD_ITEM_SELECTION_PLOW then
+            UpdateFieldGrid(touchX, touchY, FIELD_GRID_ACTION_PLOW)
+        elseif fieldItemSelection == FIELD_ITEM_SELECTION_WATERING_CAN then
+            UpdateFieldGrid(touchX, touchY, FIELD_GRID_ACTION_WATER)
+        elseif fieldItemSelection == FIELD_ITEM_SELECTION_SEEDBAG then
+            UpdateFieldGrid(touchX, touchY, FIELD_GRID_ACTION_SEED_WHEAT)
+        end
+    end
+    for col=1,#FieldGrid do
+        for row=1,#(FieldGrid[1]) do
+            fg = FieldGrid[col][row]
+            if fg.plowed == false then
+                
+            elseif fg.watered == false then
+                DrawAnimSprite(SField_dirt, 4+col*23, 5+row*23, 0, 0x5)
+            elseif fg.plant == FIELD_GRID_PLANT_NONE then
+                DrawAnimSprite(SField_dirt, 4+col*23, 5+row*23, 1, 0x5)
+            end
+            if fg.plant == FIELD_GRID_PLANT_WHEAT then
+                DrawAnimSprite(SField_plantWheat, 4+col*23, 5+row*23, fg.growStage, 0x5)
+            end
+        end
+    end
 end
 
 if Energy < 0.95 then
@@ -113,5 +186,4 @@ end
 
 SetTextSize(2)
 SetTextColor(0xFFFF)
-DrawString("$" .. Money, 190, 220)
-DrawString("Ms " .. math.sin(Ms/100)*0.5+0.5, 10, 20)
+DrawString("€" .. Money, 190, 220)
