@@ -309,45 +309,38 @@ static int lua_wrapper_drawSpriteRegion(lua_State* luaState) {
   int16_t sy = luaL_checknumber(luaState, 5);
   int16_t sw = luaL_checknumber(luaState, 6);
   int16_t sh = luaL_checknumber(luaState, 7);
+  float alpha = luaL_optnumber(luaState, 8, 1);
   if (!isHandleValid(handle)) {
     return 0;
   }
-  int32_t maskingColor = spriteMetadata[handle].maskingColor;
-  if (maskingColor != -1) {
-    sprites[handle].pushToSprite(luaDisplay, tx, ty, sx, sy, sw, sh, maskingColor);
-  } else {
-    sprites[handle].pushToSprite(luaDisplay, tx, ty, sx, sy, sw, sh);
-  }
+  drawSprite(luaDisplay, &(sprites[handle]), tx, ty, spriteMetadata[handle].maskingColor, alpha, sx, sy, sw, sh);
   //Serial.println("Draw sprite region done");
   return 0;
 }
 
 static int lua_wrapper_drawAnimSprite(lua_State* luaState) {
   //Serial.print("Draw anim sprite ");
-  int16_t handle = luaL_checkinteger(luaState, 1);
+  int32_t handle = luaL_checkinteger(luaState, 1);
   //Serial.println(handle);
-  int16_t tx = luaL_checknumber(luaState, 2);
-  int16_t ty = luaL_checknumber(luaState, 3);
-  int16_t frame = luaL_checknumber(luaState, 4);
+  int32_t tx = luaL_checknumber(luaState, 2);
+  int32_t ty = luaL_checknumber(luaState, 3);
+  int32_t frame = luaL_checknumber(luaState, 4);
+  int32_t flags = luaL_optnumber(luaState, 5, 0);
+  float alpha = luaL_optnumber(luaState, 6, 1.0f);
 
   if (!isHandleValid(handle)) {
+    Serial.println("ERROR: Invalid handle.");
     return 0;
   }
   
-  int16_t sw = spriteMetadata[handle].frameW;
-  int16_t sh = spriteMetadata[handle].frameH;
+  int32_t sw = spriteMetadata[handle].frameW;
+  int32_t sh = spriteMetadata[handle].frameH;
 
-  int16_t cols = sprites[handle].width() / sw;
+  int32_t cols = sprites[handle].width() / sw;
 
-  int16_t col = frame % cols;
-  int16_t row = frame / cols;
-
-  int32_t maskingColor = spriteMetadata[handle].maskingColor;
-  if (maskingColor != -1) {
-    sprites[handle].pushToSprite(luaDisplay, tx, ty, sw*col, sh*row, sw, sh, maskingColor);
-  } else {
-    sprites[handle].pushToSprite(luaDisplay, tx, ty, sw*col, sh*row, sw, sh);
-  }
+  int32_t col = frame % cols;
+  int32_t row = frame / cols;
+  drawSprite(luaDisplay, &(sprites[handle]), tx, ty, spriteMetadata[handle].maskingColor, alpha, sw*col, sh*row, sw, sh, flags);
   
   //Serial.println("Draw anim sprite done");
   return 0;
@@ -423,8 +416,9 @@ static int lua_wrapper_drawAnimSpriteScaled(lua_State* luaState) {
   scale.y = luaL_checknumber(luaState, 5);
   int16_t frame = luaL_checknumber(luaState, 6);
   uint32_t flags = luaL_optinteger(luaState, 7, 0);
+  float alpha = luaL_optnumber(luaState, 8, 1);
   flags |= TRANSP_MASK;
-  drawSpriteScaled(luaDisplay, &sprites[handle], &position, &scale, flags, spriteMetadata[handle].maskingColor, sw, sh, frame);
+  drawSpriteScaled(luaDisplay, &sprites[handle], &position, &scale, flags, spriteMetadata[handle].maskingColor, sw, sh, frame, alpha);
   return 0;
 }
 
