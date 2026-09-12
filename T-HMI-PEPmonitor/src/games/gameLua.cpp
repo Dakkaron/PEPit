@@ -362,44 +362,6 @@ static int lua_wrapper_drawAnimSprite(lua_State* luaState) {
   return 0;
 }
 
-static int lua_wrapper_drawSpriteToSprite(lua_State* luaState) {
-  //Serial.print("Draw sprite ");
-  int16_t srcHandle = luaL_checkinteger(luaState, 1);
-  int16_t dstHandle = luaL_checkinteger(luaState, 2);
-  //Serial.println(handle);
-  int16_t x = luaL_checknumber(luaState, 3);
-  int16_t y = luaL_checknumber(luaState, 4);
-
-  if ((srcHandle<0) || (srcHandle>=SPRITE_COUNT_LIMIT) || (!sprites[srcHandle].created())) {
-    Serial.println("ERROR: Could not draw sprite to sprite: invalid src sprite handle!");
-    if (luaStrictMode) {
-      checkFailWithMessage("ERROR: Could not draw sprite to sprite: invalid src sprite handle!");
-    }
-    return 0;
-  }
-  if ((dstHandle<0) || (dstHandle>=SPRITE_COUNT_LIMIT) || (!sprites[dstHandle].created())) {
-    Serial.println("ERROR: Could not draw sprite to sprite: invalid dst sprite handle!");
-    if (luaStrictMode) {
-      checkFailWithMessage("ERROR: Could not draw sprite to sprite: invalid dst sprite handle!");
-    }
-    return 0;
-  }
-
-  int32_t maskingColor = spriteMetadata[srcHandle].maskingColor;
-  Serial.print("PSTS: Masking color: ");
-  Serial.println(maskingColor);
-  bool oldSwapBytes = sprites[srcHandle].getSwapBytes();
-  sprites[srcHandle].setSwapBytes(false);
-  if (maskingColor != -1) {
-    sprites[srcHandle].pushToSprite(&sprites[dstHandle], x, y, maskingColor);
-  } else {
-    sprites[srcHandle].pushToSprite(&sprites[dstHandle], x, y);
-  }
-  sprites[srcHandle].setSwapBytes(oldSwapBytes);
-  //Serial.println("Draw sprite done");
-  return 0;
-}
-
 static int lua_wrapper_drawSpriteScaled(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
   if (!isHandleValid(handle)) {
@@ -1080,7 +1042,6 @@ void initLua() {
   lua_register(luaState, "DrawSprite", (lua_CFunction) &lua_wrapper_drawSprite);
   lua_register(luaState, "DrawSpriteRegion", (lua_CFunction) &lua_wrapper_drawSpriteRegion);
   lua_register(luaState, "DrawAnimSprite", (lua_CFunction) &lua_wrapper_drawAnimSprite);
-  lua_register(luaState, "DrawSpriteToSprite", (lua_CFunction) &lua_wrapper_drawSpriteToSprite);
   lua_register(luaState, "DrawSpriteScaled", (lua_CFunction) &lua_wrapper_drawSpriteScaled);
   lua_register(luaState, "DrawAnimSpriteScaled", (lua_CFunction) &lua_wrapper_drawAnimSpriteScaled);
   lua_register(luaState, "DrawSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawSpriteScaledRotated);

@@ -7,7 +7,6 @@ function FreeSprite(handle) end
 function DrawSprite(handle, x, y) end
 function DrawSpriteRegion(handle, tx, ty, sx, sy, sw, sh) end
 function DrawAnimSprite(handle, x, y, frame) end
-function DrawSpriteToSprite(srcHandle, dstHandle, x, y) end
 function DrawSpriteScaled(handle, x, y, scaleX, scaleY, flags) end
 function DrawAnimSpriteScaled(handle, x, y, scaleX, scaleY, frame, flags) end
 function DrawSpriteScaledRotated(handle, x, y, scaleX, scaleY, angle, flags) end

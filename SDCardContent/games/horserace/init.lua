@@ -48,7 +48,8 @@ function CreateHorseSprite(colorHorse, colorCoat, colorHelmet)
   elseif colorCoat == COAT_Y then
     addSprite = LoadAnimSprite("gfx/coat/yellow.bmp", 23, 81, 0, 0xf81f)
   end
-  DrawSpriteToSprite(addSprite, sprite, 0, 0)
+  SetDrawTargetSprite(sprite)
+  DrawSprite(addSprite, 0, 0)
   FreeSprite(addSprite)
   if colorHelmet == HELMET_R then
     addSprite = LoadAnimSprite("gfx/helmet/red.bmp", 23, 81, 0, 0xf81f)
@@ -57,11 +58,12 @@ function CreateHorseSprite(colorHorse, colorCoat, colorHelmet)
   elseif colorHelmet == HELMET_B then
     addSprite = LoadAnimSprite("gfx/helmet/blue.bmp", 23, 81, 0, 0xf81f)
   end
-  DrawSpriteToSprite(addSprite, sprite, 0, 0)
+  DrawSprite(addSprite, 0, 0)
   FreeSprite(addSprite)
   addSprite = LoadAnimSprite("gfx/horse_extra.bmp", 23, 81, 0, 0xf81f)
-  DrawSpriteToSprite(addSprite, sprite, 0, 0)
+  DrawSprite(addSprite, 0, 0)
   FreeSprite(addSprite)
+  SetDrawTargetFramebuffer()
   return sprite
 end
 
