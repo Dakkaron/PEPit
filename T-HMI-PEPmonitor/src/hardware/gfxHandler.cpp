@@ -20,6 +20,10 @@
 #define SWAP_BYTES(a) (((a & 0xFF) << 8) | ((a & 0xFF00) >> 8))
 #define COMPOSE_RGB565(r, g, b) ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
 
+#define ALPHA_BLEND_PIXEL(origP, newP, alpha, invAlpha) ((uint32_t)(invAlpha * (origP & 0xF800) + alpha * (newP & 0xF800)) & 0xF800) | \
+                                                        ((uint32_t)(invAlpha * (origP & 0x07E0) + alpha * (newP & 0x07E0)) & 0x07E0) | \
+                                                        ((uint32_t)(invAlpha * (origP & 0x001F) + alpha * (newP & 0x001F)) & 0x001F)
+
 #define BMP16_ALPHA_FLAG_OFFSET 0x43
 
 #define SELECTION_MODE_NO_SELECTION 0
@@ -541,43 +545,47 @@ void fillQuad(DISPLAY_T* display, int32_t x0, int32_t y0, int32_t x1, int32_t y1
   }
 }
 
-void drawSprite(DISPLAY_T* display, TFT_eSprite* sprite, int32_t x, int32_t y, int32_t maskingColor, float alpha) {
+void drawSprite(DISPLAY_T* display, TFT_eSprite* sprite, int32_t dstX, int32_t dstY, int32_t maskingColor, float alpha, int32_t srcX, int32_t srcY, int32_t frameW, int32_t frameH, int32_t flags) {
+  //Serial.printf("drawSprite(dstX=%d, dstY=%d, maskingColor=%d, alpha=%f, srcX=%d, srcY=%d, frameW=%d, frameH=%d, flags=%d)\n", dstX, dstY, maskingColor, alpha, srcX, srcY, frameW, frameH, flags);
+  int32_t srcW = sprite->width();
+  int32_t srcH = sprite->height();
+  dstX += flags & ALIGN_H_CENTER ? -frameW / 2 : (flags & ALIGN_H_RIGHT ? -frameW : 0);
+  dstY += flags & ALIGN_V_CENTER ? -frameH / 2 : (flags & ALIGN_V_BOTTOM ? -frameH : 0);
+  frameW = frameW>=0 && frameW+srcX<=sprite->width()  ? frameW : sprite->width()-srcX;
+  frameH = frameH>=0 && frameH+srcY<=sprite->height() ? frameH : sprite->height()-srcY;
+  //Serial.printf("drawSprite(frameW=%d, frameH=%d)\n", frameW, frameH);
   if (alpha >= 1) {
     if (maskingColor != -1) {
       sprite->pushToSprite(display, x, y, maskingColor);
     } else {
-      sprite->pushToSprite(display, x, y);
+      sprite->pushToSprite(display, dstX, dstY, srcX, srcY, frameW, frameH);
     }
     return;
-  }
-  if (alpha <= 0) {
+  } else if (alpha <= 0) {
     return;
   }
-  uint32_t startX = _max(x, 0);
-  uint32_t startY = _max(y, 0);
-  uint32_t srcW = sprite->width();
-  uint32_t srcH = sprite->height();
-  uint32_t dstW = display->width();
-  uint32_t dstH = display->height();
-  uint32_t endX = _min(x+srcW, dstW);
-  uint32_t endY = _min(y+srcH, dstH);
+  int32_t dstW = display->width();
+  int32_t dstH = display->height();
+  int32_t w = _min(frameW, dstW-dstX);
+  int32_t h = _min(frameH, dstH-dstY);
   float invAlpha = 1.0f-alpha;
   uint16_t* srcBuffer = sprite->get16BitBuffer();
   uint16_t* dstBuffer = display->get16BitBuffer();
-  for (int32_t dy = startY; dy < endY; dy++) {
-    for (int32_t dx = startX; dx < endX; dx++) {
-      uint32_t dstAddr = dy*dstW + dx;
-      uint32_t srcPixel = SWAP_BYTES(srcBuffer[(dy-y)*srcW + (dx-x)]);
+  for (int32_t y = 0; y < h; y++) {
+    for (int32_t x = 0; x < w; x++) {
+      uint32_t dstAddr = (dstY+y)*dstW + (dstX+x);
+      uint32_t srcPixel = SWAP_BYTES(srcBuffer[(srcY+y)*srcW + (srcX+x)]);
       
       if (srcPixel != maskingColor) {
         uint32_t origPixel = SWAP_BYTES(dstBuffer[dstAddr]);
-        uint32_t blendedPixel = ((uint32_t)(invAlpha * (origPixel & 0xF800) + alpha * (srcPixel & 0xF800)) & 0xF800) |
-                                ((uint32_t)(invAlpha * (origPixel & 0x07E0) + alpha * (srcPixel & 0x07E0)) & 0x07E0) | 
-                                ((uint32_t)(invAlpha * (origPixel & 0x001F) + alpha * (srcPixel & 0x001F)) & 0x001F);
-        dstBuffer[dstAddr] = SWAP_BYTES(blendedPixel);
+        dstBuffer[dstAddr] = SWAP_BYTES(ALPHA_BLEND_PIXEL(origPixel, srcPixel, alpha, invAlpha));
       }
     }
   }
+}
+
+void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* pos, Matrix2D* transform, uint32_t flags, uint16_t maskColor, float alpha) {
+  drawSpriteTransformed(display, sprite, pos, transform, flags, maskColor, sprite->width(), sprite->height(), 0, alpha);
 }
 
 void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* pos, Matrix2D* transform, uint32_t flags, uint16_t maskColor) {
@@ -585,6 +593,10 @@ void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* po
 }
 
 void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* pos, Matrix2D* transform, uint32_t flags, uint16_t maskColor, int16_t frameWidth, int16_t frameHeight, int16_t frameNr) {
+  drawSpriteTransformed(display, sprite, pos, transform, flags, maskColor, frameWidth, frameHeight, frameNr, 1);
+}
+
+void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* pos, Matrix2D* transform, uint32_t flags, uint16_t maskColor, int16_t frameWidth, int16_t frameHeight, int16_t frameNr, float alpha) {
   const int32_t spriteWidth = frameWidth;
   const int32_t spriteHeight = frameHeight;
   int32_t frameOffset = frameNr * frameHeight * frameWidth;
@@ -614,6 +626,8 @@ void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* po
     screenCorners[i].y = transform->c * corners[i].x + transform->d * corners[i].y + pos->y;
   }
 
+  float invAlpha = 1-alpha;
+
   float minX = screenCorners[0].x;
   float maxX = screenCorners[0].x;
   float minY = screenCorners[0].y;
@@ -642,7 +656,8 @@ void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* po
       if (sx >= 0 && sx < spriteWidth && sy >= 0 && sy < spriteHeight) {
         uint16_t color = spriteBuffer[yAddSprite + (int32_t)sx];
         if (!(flags & TRANSP_MASK && color == maskColor)) {
-          screenBuffer[yAddScreen + x] = color;
+          uint32_t origPixel = SWAP_BYTES(screenBuffer[yAddScreen + x]);
+          screenBuffer[yAddScreen + x] = SWAP_BYTES(ALPHA_BLEND_PIXEL(origPixel, SWAP_BYTES(color), alpha, invAlpha));
         }
       }
     }
@@ -650,10 +665,23 @@ void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* po
 }
 
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor) {
-  drawSpriteScaled(display, sprite, position, scale, flags, maskColor, sprite->width(), sprite->height(), 0);
+  drawSpriteScaled(display, sprite, position, scale, flags, maskColor, sprite->width(), sprite->height(), 0, 1);
+}
+
+void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor, float alpha) {
+  drawSpriteScaled(display, sprite, position, scale, flags, maskColor, sprite->width(), sprite->height(), 0, alpha);
 }
 
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor, int16_t frameWidth, int16_t frameHeight, int16_t frameNr) {
+  drawSpriteScaled(display, sprite, position, scale, flags, maskColor, frameWidth, frameHeight, frameNr, 1);
+}
+
+void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor, int16_t frameWidth, int16_t frameHeight, int16_t frameNr, float alpha) {
+  if (alpha <= 0.0f) {
+    return;
+  }
+  alpha = _min(alpha, 1.0f);
+  float inverseAlpha = 1.0f - alpha;
   float spriteWScaled = fabs(frameWidth * scale->x);
   float spriteHScaled = fabs(frameHeight * scale->y);
   float drawPosX = position->x;
@@ -696,7 +724,12 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
         color = spriteBuffer[frameWidth - scaledSpriteX - 1 + addYSprite];
       }
       if (!(flags & TRANSP_MASK && color == maskColor)) {
-        screenBuffer[x + addYScreen] = color;
+        if (alpha == 1) {
+          screenBuffer[x + addYScreen] = color;
+        } else {
+          uint32_t origPixel = screenBuffer[x + addYScreen];
+          screenBuffer[x + addYScreen] = SWAP_BYTES(ALPHA_BLEND_PIXEL(SWAP_BYTES(origPixel), SWAP_BYTES(color), alpha, inverseAlpha));
+        }
       }
     }
   }
