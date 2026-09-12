@@ -572,9 +572,11 @@ static int lua_wrapper_log(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawString(lua_State* luaState) {
-  const char* cs = luaL_checkstring(luaState, 1);
-  char* s = (char*)malloc(strlen(cs)+1);
-  strcpy(s, cs);
+  String str = luaL_checkstring(luaState, 1);
+  str.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
+                         // unicode table, so ¶ is used as a stand-in for € to save space.
+  char* s = (char*)malloc(strlen(str.c_str())+1);
+  strcpy(s, str.c_str());
   int32_t x = luaL_checknumber(luaState, 2);
   int32_t y = luaL_checknumber(luaState, 3);
   char* token = strtok(s, "\n");
@@ -687,6 +689,8 @@ static int lua_wrapper_setCursor(lua_State* luaState) {
 
 static int lua_wrapper_print(lua_State* luaState) {
   String s = luaL_checkstring(luaState, 1);
+  s.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
+                       // unicode table, so ¶ is used as a stand-in for € to save space.
   luaDisplay->print(s);
   return 0;
 }
