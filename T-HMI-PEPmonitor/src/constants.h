@@ -96,10 +96,10 @@ struct GameConfig {
 };
 
 struct ProfileData {
-  String name;
-  String imagePath;
-  uint8_t cycles;
-  uint8_t tasks;
+  String name = "";
+  String imagePath = "";
+  uint8_t cycles = 0;
+  uint8_t tasks = 0;
   uint8_t taskType[10];
   uint8_t taskRepetitions[10];
   String taskChangeImagePath[10];
