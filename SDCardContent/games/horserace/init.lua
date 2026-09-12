@@ -357,7 +357,7 @@ function DisplayHorseShop(offset)
     DrawString(shopHorse.name, 85, yPos+2)
     DrawString("Tempo: " .. shopHorse.speed, 85, yPos+20)
     SetTextDatum(2)
-    DrawString("$"..shopHorse.cost, 225, yPos+40)
+    DrawString("€"..shopHorse.cost, 225, yPos+40)
     SetTextDatum(0)
   end
   for i = 1, #ShopHorses - ShopMenuOffset do
@@ -366,7 +366,7 @@ function DisplayHorseShop(offset)
     if Money > shopHorse.cost and IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
       TouchBlocked = true
       ConfirmDialogOpen = true
-      ConfirmDialogText = "Willst du " .. shopHorse.name .. "\n\nfür $" .. shopHorse.cost .." kaufen?\n \nDein Kontostand beträgt\n$" .. Money  
+      ConfirmDialogText = "Willst du " .. shopHorse.name .. "\n\nfür €" .. shopHorse.cost .." kaufen?\n \nDein Kontostand beträgt\n€" .. Money  
       ConfirmDialogItemNr = i + ShopMenuOffset
       break
     end
@@ -467,7 +467,7 @@ function DisplayItemShop()
     elseif isOwned then
       DrawString("Im Besitz", 225, yPos+40)
     else
-      DrawString("$"..shopItem.cost, 225, yPos+40)
+      DrawString("€"..shopItem.cost, 225, yPos+40)
     end
     SetTextDatum(0)
   end
@@ -490,7 +490,7 @@ function DisplayItemShop()
       elseif not isOwned and Money > shopItem.cost then
         TouchBlocked = true
         ConfirmDialogOpen = true
-        ConfirmDialogText = "Willst du " .. shopItem.name .. "\n\nfür $" .. shopItem.cost .." kaufen?\n \nDein Kontostand beträgt\n$" .. Money  
+        ConfirmDialogText = "Willst du " .. shopItem.name .. "\n\nfür €" .. shopItem.cost .." kaufen?\n \nDein Kontostand beträgt\n€" .. Money  
         ConfirmDialogItemNr = i + ShopMenuOffset
         break
       end

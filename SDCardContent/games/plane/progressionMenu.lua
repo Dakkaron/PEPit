@@ -1,7 +1,7 @@
 SetTextSize(3)
 DrawString("Shop", 70, 5)
 SetTextSize(2)
-DrawString("Geld: $" .. Money, 170, 10)
+DrawString("Geld: €" .. Money, 170, 10)
 
 SetTextSize(2)
 

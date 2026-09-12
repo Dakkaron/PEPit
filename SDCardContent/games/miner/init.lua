@@ -494,7 +494,7 @@ function DisplayBuyStage(price)
   end
 
   SetTextSize(2)
-  DrawString("Tiefer graben: $" .. price, 15, 65)
+  DrawString("Tiefer graben: €" .. price, 15, 65)
   if (Money >= price and IsTouchInZone(10, 60, 220, 35)) then
     Money = Money - price
     Stage = Stage + 1

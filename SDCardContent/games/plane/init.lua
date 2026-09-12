@@ -331,7 +331,7 @@ function DisplayValidUpgrades()
     SetTextSize(2)
     DrawString(upgrade.text, 78, yPos+2)
     DrawString("Stufe " .. upgradeLevel, 78, yPos+20)
-    DrawString("$"..upgradeCost, 230 - #("$"..upgradeCost)*12, yPos+40)
+    DrawString("€"..upgradeCost, 230 - #("€"..upgradeCost)*12, yPos+40)
     SetTextSize(1)
   end
 end

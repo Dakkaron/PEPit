@@ -108,8 +108,8 @@ if (StepsLeft > 0) then
 end
 
 SetTextSize(2)
-DrawString("$" .. Money, 190, 188)
+DrawString("€" .. Money, 190, 188)
 DrawString("Schritte: " .. StepsLeft, 190, 213)
 
 DrawSprite(SItemLantern, 120, 10)
-DrawString("$2", 130, 10)
+DrawString("€2", 130, 10)
