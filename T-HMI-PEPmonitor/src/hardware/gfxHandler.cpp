@@ -77,6 +77,7 @@ static uint32_t read32(fs::File &f) {
 
 static void parseBitmapLine(File* bmpFS, uint8_t* lineBuffer, uint16_t bytesPerPixel, uint16_t w, bool hasAlpha, uint16_t padding, uint16_t maskingColor, bool enableDitherTransparency, bool oddRow) {
   uint8_t r, g, b, a;
+  memset(lineBuffer, 0, w * bytesPerPixel);
   bmpFS->read(lineBuffer, w * bytesPerPixel);
   uint8_t*  bptr = lineBuffer;
   uint16_t* tptr = (uint16_t*)lineBuffer;
@@ -254,7 +255,7 @@ bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint
         padding = (4 - ((w * 3) & 0b11)) & 0b11;
       }
       bmpFS.seek(seekOffset);
-      uint8_t lineBuffer[w * bytesPerPixel];
+      uint8_t lineBuffer[w * bytesPerPixel + padding];
 
       for (frameNr = 0; frameNr < animFrames; frameNr++) {
         if (displays[frameNr]->created() && (displays[frameNr]->width()!=w || displays[frameNr]->height()!=frameH)) {
@@ -365,7 +366,7 @@ bool drawBmpSlice(String filename, int16_t x, int16_t y, int16_t maxH, bool debu
         padding = (4 - ((w * 3) & 0b11)) & 0b11;
       }
       bmpFS.seek(seekOffset);
-      uint8_t lineBuffer[w * bytesPerPixel];
+      uint8_t lineBuffer[w * bytesPerPixel + padding];
 
       for (row = h-maxH; row < h; row++) {
         parseBitmapLine(&bmpFS, lineBuffer, bytesPerPixel, w, hasAlpha, padding, TFT_BLACK, false, row & 0x01);
@@ -453,7 +454,7 @@ static bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, ui
         padding = (4 - ((w * 3) & 0b11)) & 0b11;
       }
       bmpFS.seek(seekOffset);
-      uint8_t lineBuffer[w * bytesPerPixel];
+      uint8_t lineBuffer[w * bytesPerPixel + padding];
 
       for (row = 0; row < h; row++) {
         parseBitmapLine(&bmpFS, lineBuffer, bytesPerPixel, w, hasAlpha, padding, transp, false, row & 0x01);
@@ -556,7 +557,7 @@ void drawSprite(DISPLAY_T* display, TFT_eSprite* sprite, int32_t dstX, int32_t d
   //Serial.printf("drawSprite(frameW=%d, frameH=%d)\n", frameW, frameH);
   if (alpha >= 1) {
     if (maskingColor != -1) {
-      sprite->pushToSprite(display, x, y, maskingColor);
+      sprite->pushToSprite(display, dstX, dstY, srcX, srcY, frameW, frameH, maskingColor);
     } else {
       sprite->pushToSprite(display, dstX, dstY, srcX, srcY, frameW, frameH);
     }
@@ -1074,6 +1075,9 @@ int16_t displayProfileSelection(DISPLAY_T* display, uint16_t nr, String* errorMe
     for (int32_t profileId = 0; profileId < nr; profileId++) {
       ProfileData profileData;
       readProfileData(profileId, &profileData, errorMessage);
+      if (!errorMessage->isEmpty()) {
+        return 0;
+      }
       selectionImagePaths[profileId] = (char*)malloc((profileData.imagePath.length()+1) * sizeof(char));
       strcpy(selectionImagePaths[profileId], profileData.imagePath.c_str());
       selectionNames[profileId] = (char*)malloc((profileData.name.length()+1) * sizeof(char));
