@@ -8,7 +8,8 @@
 static String luaGamePath;
 lua_State* luaState;
 
-DISPLAY_T* luaDisplay;
+DISPLAY_T* luaFramebuffer = nullptr;
+DISPLAY_T* luaDisplay = nullptr;
 bool luaProgressionMenuRunning;
 bool luaWinScreenRunning;
 bool luaStrictMode = false;
@@ -234,6 +235,9 @@ static int lua_wrapper_freeSprite(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
   Serial.println(handle);
   if (sprites[handle].created()) {
+    if (luaDisplay == &sprites[handle]) {
+      luaDisplay = luaFramebuffer;
+    }
     sprites[handle].deleteSprite();
   }
   return 0;
@@ -263,6 +267,18 @@ static int lua_wrapper_loadAnimSprite(lua_State* luaState) {
       Serial.println(i);
       spriteMetadata[i].frameW = luaL_checknumber(luaState, 2);
       spriteMetadata[i].frameH = luaL_checknumber(luaState, 3);
+      if (spriteMetadata[i].frameW > sprites[i].width()) {
+        Serial.printf("ERROR: Frame width (%d) is larger than sprite width (%d)!", spriteMetadata[i].frameW, sprites[i].width());
+        sprites[i].deleteSprite();
+        lua_pushinteger(luaState, -1);
+        return 1;
+      }
+      if (spriteMetadata[i].frameH > sprites[i].height()) {
+        Serial.printf("ERROR: Frame height (%d) is larger than sprite height (%d)!", spriteMetadata[i].frameH, sprites[i].height());
+        sprites[i].deleteSprite();
+        lua_pushinteger(luaState, -1);
+        return 1;
+      }
       spriteMetadata[i].maskingColor = maskingColor;
       lua_pushinteger(luaState, i);
       return 1;
@@ -441,6 +457,21 @@ static int lua_wrapper_drawSpriteTransformed(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_setDrawTargetSprite(lua_State* luaState) {
+  int16_t handle = luaL_checkinteger(luaState, 1);
+  if (!isHandleValid(handle)) {
+    luaDisplay = luaFramebuffer;
+    return 0;
+  }
+  luaDisplay = &sprites[handle];
+  return 0;
+}
+
+static int lua_wrapper_setDrawTargetFramebuffer(lua_State* luaState) {
+  luaDisplay = luaFramebuffer;
+  return 0;
+}
+
 static int lua_wrapper_drawSpriteScaledRotated(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
   if (!isHandleValid(handle)) {
@@ -454,6 +485,7 @@ static int lua_wrapper_drawSpriteScaledRotated(lua_State* luaState) {
   scale.y = luaL_checknumber(luaState, 5);
   float angle = luaL_checknumber(luaState, 6);
   uint32_t flags = luaL_optinteger(luaState, 7, 0);
+  float alpha = luaL_optnumber(luaState, 8, 1);
   flags |= TRANSP_MASK;
   float s = sin(angle);
   float c = cos(angle);
@@ -461,7 +493,7 @@ static int lua_wrapper_drawSpriteScaledRotated(lua_State* luaState) {
     c * scale.x, -s,
     s, c * scale.y
   };
-  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transform, flags, spriteMetadata[handle].maskingColor);
+  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transform, flags, spriteMetadata[handle].maskingColor, alpha);
   return 0;
 }
 
@@ -1054,6 +1086,8 @@ void initLua() {
   lua_register(luaState, "DrawSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawSpriteScaledRotated);
   lua_register(luaState, "DrawAnimSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawAnimSpriteScaledRotated);
   lua_register(luaState, "DrawSpriteTransformed", (lua_CFunction) &lua_wrapper_drawSpriteTransformed);
+  lua_register(luaState, "SetDrawTargetSprite", (lua_CFunction) &lua_wrapper_setDrawTargetSprite);
+  lua_register(luaState, "SetDrawTargetFramebuffer", (lua_CFunction) &lua_wrapper_setDrawTargetFramebuffer);
   lua_register(luaState, "SpriteWidth", (lua_CFunction) &lua_wrapper_spriteWidth);
   lua_register(luaState, "SpriteHeight", (lua_CFunction) &lua_wrapper_spriteHeight);
   lua_register(luaState, "DrawMode7", (lua_CFunction) &lua_wrapper_drawMode7);
@@ -1196,44 +1230,65 @@ void updateJumpData(JumpData* jumpData) {
 }
 
 void drawShortBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateBlowData(blowData);
   lua_dofile(luaGamePath + gameConfig.pepShortScriptPath);
 }
 
 void drawLongBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateBlowData(blowData);
   lua_dofile(luaGamePath + gameConfig.pepLongScriptPath);
 }
 
 void drawEqualBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateBlowData(blowData);
   lua_dofile(luaGamePath + gameConfig.pepEqualScriptPath);
 }
 
 void drawTrampolineGame_lua(DISPLAY_T* display, JumpData* jumpData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateJumpData(jumpData);
   lua_dofile(luaGamePath + gameConfig.trampolineScriptPath);
 }
 
 void drawInhalationGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateBlowData(blowData);
   lua_dofile(luaGamePath + gameConfig.inhalationScriptPath);
 }
 
 void drawInhalationBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateBlowData(blowData);
   lua_dofile(luaGamePath + gameConfig.inhalationPepScriptPath);
 }
 
 bool displayProgressionMenu_lua(DISPLAY_T *display, String *errorMessage) {
   luaProgressionMenuRunning = true;
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   lua_dostring(("Ms="+String(millis())).c_str(), "displayProgressionMenu_lua()");
   String error = lua_dofile(luaGamePath + gameConfig.progressionMenuScriptPath);
   if (!error.isEmpty()) {
@@ -1259,7 +1314,10 @@ bool displayWinScreen_lua(DISPLAY_T *display, String *errorMessage) {
     return false;
   }
   luaWinScreenRunning = true;
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   lua_dostring(("Ms="+String(millis())).c_str(), "displayWinScreen_lua()");
   String error = lua_dofile(luaGamePath + gameConfig.winScreenScriptPath);
   if (!error.isEmpty()) {
