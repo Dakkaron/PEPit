@@ -1085,10 +1085,12 @@ void updateBlowData(BlowData* blowData) {
 
 void updateJumpData(JumpData* jumpData) {
   static uint32_t lastMs = 0;
+  static int32_t lastKnownTaskNumber = -1;
   static uint32_t lastRepetition = 0;
   static uint32_t lastBonusRepetition = 0;
   static uint32_t lastJumpMs = 0;
   int32_t taskNumber = jumpData->taskNumber + jumpData->cycleNumber * jumpData->totalTaskNumber;
+  bool isNewTask = taskNumber != lastKnownTaskNumber;
   if (jumpData->jumpCount > lastRepetition) {
     lastJumpMs = jumpData->ms;
   }
@@ -1107,6 +1109,7 @@ void updateJumpData(JumpData* jumpData) {
                           "MsLeft="+String(jumpData->msLeft)+"\n"+\
                           "LastJumpMs="+String(lastJumpMs)+"\n"+\
                           "LeftHandedMode="+String(systemConfig.leftHandMode ? "true\n" : "false\n");
+  lastKnownTaskNumber = taskNumber;
   lua_dostring(jumpDataString.c_str(), "updateJumpData()");
   lastMs = jumpData->ms;
   lastRepetition = jumpData->jumpCount;
