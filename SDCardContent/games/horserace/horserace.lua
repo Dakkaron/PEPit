@@ -152,37 +152,37 @@ SetTextSize(1)
 
 if LeftHandedMode then
   if IsTouchInZone(0, 0, 50, 69) then
-    DrawSpriteScaledRotated(SJump, 27, 46, 1, 1, -0.5, 0x05)
+    DrawSprite(SJump, 27, 46, {angle=-0.5, flags=0x05})
   else
     DrawSprite(SJump, 5, 25)
   end
 
   if IsTouchInZone(0, 80, 50, 44) then
-    DrawSpriteScaledRotated(STurnLeft, 27, 101, 1, 1, -0.5, 0x05)
+    DrawSprite(STurnLeft, 27, 101, {angle=-0.5, flags=0x05})
   else
     DrawSprite(STurnLeft, 5, 80)
   end
 
   if IsTouchInZone(0, 135, 50, 44) then
-    DrawSpriteScaledRotated(STurnRight, 27, 156, 1, 1, 0.5, 0x05)
+    DrawSprite(STurnRight, 27, 156, {angle=0.5, flags=0x05})
   else
     DrawSprite(STurnRight, 5, 135)
   end
 else
   if IsTouchInZone(270, 0, 50, 69) then
-    DrawSpriteScaledRotated(SJump, 293, 46, 1, 1, -0.5, 0x05)
+    DrawSprite(SJump, 293, 46, {angle=-0.5, flags=0x05})
   else
     DrawSprite(SJump, 271, 25)
   end
 
   if IsTouchInZone(270, 80, 50, 44) then
-    DrawSpriteScaledRotated(STurnLeft, 293, 101, 1, 1, -0.5, 0x05)
+    DrawSprite(STurnLeft, 293, 101, {angle=-0.5, flags=0x05})
   else
     DrawSprite(STurnLeft, 271, 80)
   end
 
   if IsTouchInZone(270, 135, 50, 44) then
-    DrawSpriteScaledRotated(STurnRight, 293, 156, 1, 1, 0.5, 0x05)
+    DrawSprite(STurnRight, 293, 156, {angle=0.5, flags=0x05})
   else
     DrawSprite(STurnRight, 271, 135)
   end

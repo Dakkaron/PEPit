@@ -70,7 +70,7 @@ else
   DrawSprite(SRobotIdle, playerSpriteX, playerSpriteY)
 end
 if (Ms - BurnStart < 900) then
-  DrawAnimSprite(SEffectBurned, playerSpriteX - 20, playerSpriteY - 20, 3 - math.floor((Ms-BurnStart)/300))
+  DrawSprite(SEffectBurned, playerSpriteX - 20, playerSpriteY - 20, {frame=3 - math.floor((Ms-BurnStart)/300)})
 end
 if (Ms - LastBlownTimer > 15000) then
 	LastBlownTimer = Ms

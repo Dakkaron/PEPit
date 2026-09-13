@@ -304,14 +304,65 @@ static int lua_wrapper_drawSprite(lua_State* luaState) {
   //Serial.print("Draw sprite ");
   int16_t handle = luaL_checkinteger(luaState, 1);
   //Serial.println(handle);
-  int16_t x = luaL_checknumber(luaState, 2);
-  int16_t y = luaL_checknumber(luaState, 3);
-  float alpha = luaL_optnumber(luaState, 4, 1);
+  Vector2D tPos;
+  tPos.x = luaL_checknumber(luaState, 2);
+  tPos.y = luaL_checknumber(luaState, 3);
+  Vector2D scale;
+  scale.x = 1.0f;
+  scale.y = 1.0f;
+  float angle=0.0f, alpha=1.0f;
+  uint32_t flags=0;
+  int32_t frame=-1;
+  if (lua_istable(luaState, 4)) { // opts value is present
+    lua_getfield(luaState, 4, "scaleX");scale.x = luaL_optnumber(luaState, -1, 1.0f);lua_pop(luaState, 1);
+    lua_getfield(luaState, 4, "scaleY");scale.y = luaL_optnumber(luaState, -1, 1.0f);lua_pop(luaState, 1);
+    lua_getfield(luaState, 4, "angle"); angle   = luaL_optnumber(luaState, -1, 0.0f);lua_pop(luaState, 1);
+    lua_getfield(luaState, 4, "frame"); frame   = luaL_optnumber(luaState, -1, -1);lua_pop(luaState, 1);
+    lua_getfield(luaState, 4, "flags"); flags   = luaL_optnumber(luaState, -1, 0);lua_pop(luaState, 1);
+    lua_getfield(luaState, 4, "alpha"); alpha   = luaL_optnumber(luaState, -1, 1.0f);lua_pop(luaState, 1);
+  }
   if (!isHandleValid(handle)) {
     return 0;
   }
   int32_t maskingColor = spriteMetadata[handle].maskingColor;
-  drawSprite(luaDisplay, &(sprites[handle]), x, y, spriteMetadata[handle].maskingColor, alpha);
+  flags |= TRANSP_MASK;
+  //Serial.printf("handle=%d, scaleX=%f, scaleY=%f, angle=%f, frame=%d, flags=%d, alpha=%f\n", handle, scale.x, scale.y, angle, frame, flags, alpha);
+  if (frame==-1) {
+    if (scale.x==1.0f && scale.y==1.0f && angle==0.0f) {
+      drawSprite(luaDisplay, &(sprites[handle]), tPos.x, tPos.y, spriteMetadata[handle].maskingColor, alpha, 0, 0, -1, -1, flags);
+    } else if (angle==0.0f) {
+      drawSpriteScaled(luaDisplay, &sprites[handle], &tPos, &scale, flags, spriteMetadata[handle].maskingColor);
+    } else {
+      float s = sin(angle);
+      float c = cos(angle);
+      Matrix2D transform = {
+        c * scale.x, -s,
+        s, c * scale.y
+      };
+      drawSpriteTransformed(luaDisplay, &sprites[handle], &tPos, &transform, flags, spriteMetadata[handle].maskingColor, alpha);
+    }
+  } else {
+    int32_t sw = spriteMetadata[handle].frameW;
+    int32_t sh = spriteMetadata[handle].frameH;
+
+    int32_t cols = sprites[handle].width() / sw;
+
+    int32_t col = frame % cols;
+    int32_t row = frame / cols;
+    if (scale.x==1.0f && scale.y==1.0f && angle==0.0f && frame==0) {
+      drawSprite(luaDisplay, &(sprites[handle]), tPos.x, tPos.y, spriteMetadata[handle].maskingColor, alpha, sw*col, sh*row, sw, sh, flags);
+    } else if (angle==0.0f) {
+      drawSpriteScaled(luaDisplay, &sprites[handle], &tPos, &scale, flags, spriteMetadata[handle].maskingColor, sw, sh, frame, alpha);
+    } else {
+      float s = sin(angle);
+      float c = cos(angle);
+      Matrix2D transform = {
+        c * scale.x, -s,
+        s, c * scale.y
+      };
+      drawSpriteTransformed(luaDisplay, &sprites[handle], &tPos, &transform, flags, spriteMetadata[handle].maskingColor, sw, sh, frame);
+    }
+  }
   //Serial.println("Draw sprite done");
   return 0;
 }
@@ -331,72 +382,6 @@ static int lua_wrapper_drawSpriteRegion(lua_State* luaState) {
   }
   drawSprite(luaDisplay, &(sprites[handle]), tx, ty, spriteMetadata[handle].maskingColor, alpha, sx, sy, sw, sh);
   //Serial.println("Draw sprite region done");
-  return 0;
-}
-
-static int lua_wrapper_drawAnimSprite(lua_State* luaState) {
-  //Serial.print("Draw anim sprite ");
-  int32_t handle = luaL_checkinteger(luaState, 1);
-  //Serial.println(handle);
-  int32_t tx = luaL_checknumber(luaState, 2);
-  int32_t ty = luaL_checknumber(luaState, 3);
-  int32_t frame = luaL_checknumber(luaState, 4);
-  int32_t flags = luaL_optnumber(luaState, 5, 0);
-  float alpha = luaL_optnumber(luaState, 6, 1.0f);
-
-  if (!isHandleValid(handle)) {
-    Serial.println("ERROR: Invalid handle.");
-    return 0;
-  }
-  
-  int32_t sw = spriteMetadata[handle].frameW;
-  int32_t sh = spriteMetadata[handle].frameH;
-
-  int32_t cols = sprites[handle].width() / sw;
-
-  int32_t col = frame % cols;
-  int32_t row = frame / cols;
-  drawSprite(luaDisplay, &(sprites[handle]), tx, ty, spriteMetadata[handle].maskingColor, alpha, sw*col, sh*row, sw, sh, flags);
-  
-  //Serial.println("Draw anim sprite done");
-  return 0;
-}
-
-static int lua_wrapper_drawSpriteScaled(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  Vector2D position;
-  position.x = luaL_checknumber(luaState, 2);
-  position.y = luaL_checknumber(luaState, 3);
-  Vector2D scale;
-  scale.x = luaL_checknumber(luaState, 4);
-  scale.y = luaL_checknumber(luaState, 5);
-  uint32_t flags = luaL_optinteger(luaState, 6, 0);
-  flags |= TRANSP_MASK;
-  drawSpriteScaled(luaDisplay, &sprites[handle], &position, &scale, flags, spriteMetadata[handle].maskingColor);
-  return 0;
-}
-
-static int lua_wrapper_drawAnimSpriteScaled(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  int16_t sw = spriteMetadata[handle].frameW;
-  int16_t sh = spriteMetadata[handle].frameH;
-  Vector2D position;
-  position.x = luaL_checknumber(luaState, 2);
-  position.y = luaL_checknumber(luaState, 3);
-  Vector2D scale;
-  scale.x = luaL_checknumber(luaState, 4);
-  scale.y = luaL_checknumber(luaState, 5);
-  int16_t frame = luaL_checknumber(luaState, 6);
-  uint32_t flags = luaL_optinteger(luaState, 7, 0);
-  float alpha = luaL_optnumber(luaState, 8, 1);
-  flags |= TRANSP_MASK;
-  drawSpriteScaled(luaDisplay, &sprites[handle], &position, &scale, flags, spriteMetadata[handle].maskingColor, sw, sh, frame, alpha);
   return 0;
 }
 
@@ -431,64 +416,6 @@ static int lua_wrapper_setDrawTargetSprite(lua_State* luaState) {
 
 static int lua_wrapper_setDrawTargetFramebuffer(lua_State* luaState) {
   luaDisplay = luaFramebuffer;
-  return 0;
-}
-
-static int lua_wrapper_drawSpriteScaledRotated(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  Vector2D position;
-  position.x = luaL_checknumber(luaState, 2);
-  position.y = luaL_checknumber(luaState, 3);
-  Vector2D scale;
-  scale.x = luaL_checknumber(luaState, 4);
-  scale.y = luaL_checknumber(luaState, 5);
-  float angle = luaL_checknumber(luaState, 6);
-  uint32_t flags = luaL_optinteger(luaState, 7, 0);
-  float alpha = luaL_optnumber(luaState, 8, 1);
-  flags |= TRANSP_MASK;
-  float s = sin(angle);
-  float c = cos(angle);
-  Matrix2D transform = {
-    c * scale.x, -s,
-    s, c * scale.y
-  };
-  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transform, flags, spriteMetadata[handle].maskingColor, alpha);
-  return 0;
-}
-
-static int lua_wrapper_drawAnimSpriteScaledRotated(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  int16_t sw = spriteMetadata[handle].frameW;
-  int16_t sh = spriteMetadata[handle].frameH;
-  Vector2D position;
-  position.x = luaL_checknumber(luaState, 2);
-  position.y = luaL_checknumber(luaState, 3);
-  Vector2D scale;
-  scale.x = luaL_checknumber(luaState, 4);
-  scale.y = luaL_checknumber(luaState, 5);
-  float angle = luaL_checknumber(luaState, 6);
-  int16_t frame = luaL_checknumber(luaState, 7);
-  uint32_t flags = luaL_optinteger(luaState, 8, ALIGN_H_CENTER | ALIGN_V_CENTER);
-  flags |= TRANSP_MASK;
-  float s = sin(angle);
-  float c = cos(angle);
-  Matrix2D scaleMatrix = {
-    scale.x, 0,
-    0, scale.y
-  };
-  Matrix2D rotateMatrix = {
-    c, -s,
-    s, c
-  };
-  Matrix2D transformMatrix;
-  multMMF(&rotateMatrix, &scaleMatrix, &transformMatrix);
-  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transformMatrix, flags, spriteMetadata[handle].maskingColor, sw, sh, frame);
   return 0;
 }
 
@@ -1041,11 +968,6 @@ void initLua() {
   lua_register(luaState, "FreeSprite", (lua_CFunction) &lua_wrapper_freeSprite);
   lua_register(luaState, "DrawSprite", (lua_CFunction) &lua_wrapper_drawSprite);
   lua_register(luaState, "DrawSpriteRegion", (lua_CFunction) &lua_wrapper_drawSpriteRegion);
-  lua_register(luaState, "DrawAnimSprite", (lua_CFunction) &lua_wrapper_drawAnimSprite);
-  lua_register(luaState, "DrawSpriteScaled", (lua_CFunction) &lua_wrapper_drawSpriteScaled);
-  lua_register(luaState, "DrawAnimSpriteScaled", (lua_CFunction) &lua_wrapper_drawAnimSpriteScaled);
-  lua_register(luaState, "DrawSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawSpriteScaledRotated);
-  lua_register(luaState, "DrawAnimSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawAnimSpriteScaledRotated);
   lua_register(luaState, "DrawSpriteTransformed", (lua_CFunction) &lua_wrapper_drawSpriteTransformed);
   lua_register(luaState, "SetDrawTargetSprite", (lua_CFunction) &lua_wrapper_setDrawTargetSprite);
   lua_register(luaState, "SetDrawTargetFramebuffer", (lua_CFunction) &lua_wrapper_setDrawTargetFramebuffer);

@@ -211,7 +211,7 @@ function DoDrawSpriteToRoad(handle, roadX, roadY, scaleX, scaleY)
   if (y~=-1000 and y>=DRAW_HORIZON) then
     scaleX = scaleX*scaleFactor
     scaleY = scaleY*scaleFactor
-    DrawSpriteScaled(handle, x-SpriteWidth(handle)*scaleX*0.5, y-SpriteHeight(handle)*scaleY, scaleX, scaleY)
+    DrawSprite(handle, x-SpriteWidth(handle)*scaleX*0.5, y-SpriteHeight(handle)*scaleY, {scaleX=scaleX, scaleY=scaleY})
   end
 end
 
@@ -220,7 +220,7 @@ function DoDrawAnimSpriteToRoad(handle, roadX, roadY, scaleX, scaleY, frame)
   if (y~=-1000 and y>=DRAW_HORIZON) then
     scaleX = scaleX*scaleFactor
     scaleY = scaleY*scaleFactor
-    DrawAnimSpriteScaled(handle, x-SpriteWidth(handle)*scaleX*0.5, y-SpriteHeight(handle)*scaleY, scaleX, scaleY, frame)
+    DrawSprite(handle, x-SpriteWidth(handle)*scaleX*0.5, y-SpriteHeight(handle)*scaleY, {scaleX=scaleX, scaleY=scaleY, frame=frame})
   end
 end
 
@@ -234,7 +234,7 @@ function DoDrawHorse(handle, roadX, roadY, height, scaleX, scaleY, angle, frame,
       DrawString(name, x, y - SpriteHeight(handle)*scaleY - 10)
       SetTextDatum(0)
     end
-    DrawAnimSpriteScaledRotated(handle, x, y + height, scaleX, scaleY, angle, frame, 1+8)
+    DrawSprite(handle, x, y + height, {scaleX=scaleX, scaleY=scaleY, angle=angle, frame=frame, flags=1+8})
   end
 end
 

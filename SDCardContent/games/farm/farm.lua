@@ -11,21 +11,21 @@ if GameMode == GAME_MODE_OVERVIEW then
     JoystickSelection = JoystickSelection % JOYSTICK_SELECTION_OVERVIEW_LIMIT
 
     if JoystickSelection == 2 then
-        DrawSprite(SFieldSelection, 0, 78, math.sin(Ms/100)*0.5+0.5)
+        DrawSprite(SFieldSelection, 0, 78, {alpha=math.sin(Ms/100)*0.5+0.5})
     else
-        DrawSprite(SFieldSelection, 0, 78, 0.7)
+        DrawSprite(SFieldSelection, 0, 78, {alpha=0.7})
     end
 
     if JoystickSelection == 0 then
-        DrawSprite(SBerrySelection, 0, 87, math.sin(Ms/100)*0.5+0.5)
+        DrawSprite(SBerrySelection, 0, 87, {alpha=math.sin(Ms/100)*0.5+0.5})
     elseif Energy>=0.2 then
-        DrawSprite(SBerrySelection, 0, 87, 0.7)
+        DrawSprite(SBerrySelection, 0, 87, {alpha=0.7})
     end
 
     if JoystickSelection == 1 then
-        DrawSprite(SFishSelection, 174, 127, math.sin(Ms/100)*0.5+0.5)
+        DrawSprite(SFishSelection, 174, 127, {alpha=math.sin(Ms/100)*0.5+0.5})
     elseif Energy>=0.2 then
-        DrawSprite(SFishSelection, 174, 127, 0.7)
+        DrawSprite(SFishSelection, 174, 127, {alpha=0.7})
     end
 
     local joystickX = GetJoystickX()
@@ -97,22 +97,22 @@ elseif GameMode == GAME_MODE_FIELD then
         fieldItemSeedBagAlpha = 0.5
     end
     if fieldItemSelection == FIELD_ITEM_SELECTION_PLOW then
-        DrawSpriteScaledRotated(SIconPlow, 290, 20, 1, 1, math.sin(Ms*0.005)*.3, 0, fieldItemAlpha)
+        DrawSprite(SIconPlow, 290, 20, {angle=math.sin(Ms*0.005)*.3, flags=0, alpha=fieldItemAlpha})
     else
-        DrawSprite(SIconPlow, 290, 20, fieldItemAlpha)
+        DrawSprite(SIconPlow, 290, 20, {alpha=fieldItemAlpha})
     end
     if fieldItemSelection == FIELD_ITEM_SELECTION_WATERING_CAN then
-        DrawSpriteScaledRotated(SIconWateringCan, 320, 86, 1, 1, math.sin(Ms*0.005)*.3, 0xA, fieldItemAlpha)
+        DrawSprite(SIconWateringCan, 320, 86, {angle=math.sin(Ms*0.005)*.3, flags=0xA, alpha=fieldItemAlpha})
     else
-        DrawSprite(SIconWateringCan, 283, 60, fieldItemAlpha)
+        DrawSprite(SIconWateringCan, 283, 60, {alpha=fieldItemAlpha})
     end
     if fieldItemSelection == FIELD_ITEM_SELECTION_SEEDBAG then
-        DrawSpriteScaledRotated(SIconSeedbag, 304, 115, 1, 1, math.sin(Ms*0.005)*.3, 0x5, fieldItemSeedBagAlpha)
+        DrawSprite(SIconSeedbag, 304, 115, {angle=math.sin(Ms*0.005)*.3, flags=0x5, alpha=fieldItemSeedBagAlpha})
     else
-        DrawSprite(SIconSeedbag, 287, 100, fieldItemSeedBagAlpha)
+        DrawSprite(SIconSeedbag, 287, 100, {alpha=fieldItemSeedBagAlpha})
     end
     DrawString("-€10", 295, 125)
-    DrawSpriteScaled(SIconBackArrow, 278, 190, 2, 2)
+    DrawSprite(SIconBackArrow, 278, 190, {scaleX=2, scaleY=2})
     DrawString("Zurück", 288, 217)
 
     if not IsTouchInZone(0,0,320,240) then
@@ -150,35 +150,35 @@ elseif GameMode == GAME_MODE_FIELD then
             if fg.plowed == false then
                 
             elseif fg.watered == false then
-                DrawAnimSprite(SField_dirt, 4+col*23, 5+row*23, 0, 0x5)
+                DrawSprite(SField_dirt, 4+col*23, 5+row*23, {frame=0, flags=0x5})
             elseif fg.plant == FIELD_GRID_PLANT_NONE then
-                DrawAnimSprite(SField_dirt, 4+col*23, 5+row*23, 1, 0x5)
+                DrawSprite(SField_dirt, 4+col*23, 5+row*23, {frame=1, flags=0x5})
             end
             if fg.plant == FIELD_GRID_PLANT_WHEAT then
-                DrawAnimSprite(SField_plantWheat, 4+col*23, 5+row*23, fg.growStage, 0x5)
+                DrawSprite(SField_plantWheat, 4+col*23, 5+row*23, {frame=fg.growStage, flags=0x5})
             end
         end
     end
 end
 
 if Energy < 0.95 then
-    DrawAnimSprite(SEnergyBar, 0, 145, 1)
-    DrawAnimSpriteScaled(SEnergyBar, 0+26, 145, 5, 1, 2)
-    DrawAnimSprite(SEnergyBar, 0+26*6, 145, 4)
-    DrawAnimSpriteScaled(SEnergyBar, 0+26, 145, Energy*6, 1, 3)
-    DrawAnimSpriteScaled(SEnergyBar, 0+26 + Energy*26*6, 145, 1, 1, 6)
+    DrawSprite(SEnergyBar, 0, 145, {frame=1})
+    DrawSprite(SEnergyBar, 0+26, 145, {scaleX=5, scaleY=1, frame=2})
+    DrawSprite(SEnergyBar, 0+26*6, 145, {frame=4})
+    DrawSprite(SEnergyBar, 0+26, 145, {scaleX=Energy*6, scaleY=1, frame=3})
+    DrawSprite(SEnergyBar, 0+26 + Energy*26*6, 145, {scaleX=1, scaleY=1, frame=6})
 else
-    DrawAnimSprite(SEnergyBar, 0, 145, 1)
-    DrawAnimSpriteScaled(SEnergyBar, 0+26, 145, 5, 1, 3)
-    DrawAnimSprite(SEnergyBar, 0+26*6, 145, 5)
+    DrawSprite(SEnergyBar, 0, 145, {frame=1})
+    DrawSprite(SEnergyBar, 0+26, 145, {scaleX=5, scaleY=1, frame=3})
+    DrawSprite(SEnergyBar, 0+26*6, 145, {frame=5})
 end
 
 if Ms < ShowEarningSpriteUntil then
     local showSpriteYShift = (2000-(ShowEarningSpriteUntil-Ms))/10
     if ShowEarningSpriteFrame < 0 then
-        DrawSpriteScaled(ShowEarningSprite, ShowEarningSpriteX, ShowEarningSpriteY - showSpriteYShift, ShowEarningSpriteScaleX, ShowEarningSpriteScaleY)
+        DrawSprite(ShowEarningSprite, ShowEarningSpriteX, ShowEarningSpriteY - showSpriteYShift, {scaleX=ShowEarningSpriteScaleX, scaleY=ShowEarningSpriteScaleY})
     else
-        DrawAnimSpriteScaled(ShowEarningSprite, ShowEarningSpriteX, ShowEarningSpriteY - showSpriteYShift, ShowEarningSpriteScaleX, ShowEarningSpriteScaleY, ShowEarningSpriteFrame)
+        DrawSprite(ShowEarningSprite, ShowEarningSpriteX, ShowEarningSpriteY - showSpriteYShift, {scaleX=ShowEarningSpriteScaleX, scaleY=ShowEarningSpriteScaleY, frame=ShowEarningSpriteFrame})
     end
     SetTextSize(2)
     DrawString(ShowEarningsText, ShowEarningSpriteX, ShowEarningSpriteY - showSpriteYShift - 10)

@@ -85,7 +85,7 @@ function DrawBillboard(sprite, worldX, worldY, worldHeight, baseScale, hflip)
   local distance = math.sqrt(dx*dx + dy*dy)
   local scale = 15/distance
   local sy = y + dz * scale + dz * scale
-  DrawSpriteScaled(sprite, x, sy, hflip and -scale*baseScale or scale*baseScale, scale*baseScale, 0x05)
+  DrawSprite(sprite, x, sy, {scaleX=hflip and -scale*baseScale or scale*baseScale, scaleY=scale*baseScale, flags=0x05})
 end
 
 function DrawShip(sprite, worldX, worldY)
@@ -100,7 +100,7 @@ function DrawShip(sprite, worldX, worldY)
   local scale = 15/distance3d
   y = math.max(y, 70)
   if (distance<110) then
-    DrawSpriteScaled(sprite, x, y, scale, scale, 0x09)
+    DrawSprite(sprite, x, y, {scaleX=scale, scaleY=scale, flags=0x09})
     if (y+SpriteHeight(sprite) > 180) then
       FillRect(x-SpriteWidth(sprite)*scale, 181, SpriteWidth(sprite)*scale*2, y+SpriteWidth(sprite)*scale-181, 0x0000)
     end
@@ -327,7 +327,7 @@ function DisplayValidUpgrades()
     local scale = 1
     local maxDim = math.max(SpriteWidth(upgrade.img),SpriteHeight(upgrade.img))
     scale = 60.0/maxDim
-    DrawSpriteScaled(upgrade.img, 42, yPos+30, scale, scale, 0x05)
+    DrawSprite(upgrade.img, 42, yPos+30, {scaleX=scale, scaleY=scale, flags=0x05})
     SetTextSize(2)
     DrawString(upgrade.text, 78, yPos+2)
     DrawString("Stufe " .. upgradeLevel, 78, yPos+20)

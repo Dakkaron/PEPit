@@ -60,7 +60,7 @@ end
 SetTextSize(2)
 
 if (EarnTime > Ms and EarnValue > 0) then
-  DrawAnimSprite(SExplosionAnim, 225, 100, 10 - ((EarnTime - Ms) // 100))
+  DrawSprite(SExplosionAnim, 225, 100, {frame=10 - ((EarnTime - Ms) // 100)})
   DisplayEarnings(265, 40)
 else
   DisplayEarnings(40, 105)

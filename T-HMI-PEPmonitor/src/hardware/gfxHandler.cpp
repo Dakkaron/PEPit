@@ -550,11 +550,11 @@ void drawSprite(DISPLAY_T* display, TFT_eSprite* sprite, int32_t dstX, int32_t d
   //Serial.printf("drawSprite(dstX=%d, dstY=%d, maskingColor=%d, alpha=%f, srcX=%d, srcY=%d, frameW=%d, frameH=%d, flags=%d)\n", dstX, dstY, maskingColor, alpha, srcX, srcY, frameW, frameH, flags);
   int32_t srcW = sprite->width();
   int32_t srcH = sprite->height();
-  dstX += flags & ALIGN_H_CENTER ? -frameW / 2 : (flags & ALIGN_H_RIGHT ? -frameW : 0);
-  dstY += flags & ALIGN_V_CENTER ? -frameH / 2 : (flags & ALIGN_V_BOTTOM ? -frameH : 0);
   frameW = frameW>=0 && frameW+srcX<=sprite->width()  ? frameW : sprite->width()-srcX;
   frameH = frameH>=0 && frameH+srcY<=sprite->height() ? frameH : sprite->height()-srcY;
-  //Serial.printf("drawSprite(frameW=%d, frameH=%d)\n", frameW, frameH);
+  dstX += (flags & ALIGN_H_CENTER) ? -frameW / 2 : ((flags & ALIGN_H_RIGHT) ? -frameW : 0);
+  dstY += (flags & ALIGN_V_CENTER) ? -frameH / 2 : ((flags & ALIGN_V_BOTTOM) ? -frameH : 0);
+  //Serial.printf("drawSprite(dstX=%d, dstY=%d)\n", dstX, dstY);
   if (alpha >= 1) {
     if (maskingColor != -1) {
       sprite->pushToSprite(display, dstX, dstY, srcX, srcY, frameW, frameH, maskingColor);
