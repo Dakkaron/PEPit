@@ -480,12 +480,6 @@ static int lua_wrapper_mode7WorldToScreen(lua_State* luaState) {
   return 3;
 }
 
-static int lua_wrapper_log(lua_State* luaState) {
-  String s = luaL_checkstring(luaState, 1);
-  Serial.println(s);
-  return 0;
-}
-
 static int lua_wrapper_drawString(lua_State* luaState) {
   String str = luaL_checkstring(luaState, 1);
   str.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
@@ -613,11 +607,6 @@ static int lua_wrapper_print(lua_State* luaState) {
 static int lua_wrapper_println(lua_State* luaState) {
   String s = luaL_checkstring(luaState, 1);
   luaDisplay->println(s);
-  return 0;
-}
-
-static int lua_wrapper_cls(lua_State* luaState) {
-  luaDisplay->fillSprite(TFT_BLACK);
   return 0;
 }
 
@@ -975,7 +964,6 @@ void initLua() {
   lua_register(luaState, "SpriteHeight", (lua_CFunction) &lua_wrapper_spriteHeight);
   lua_register(luaState, "DrawMode7", (lua_CFunction) &lua_wrapper_drawMode7);
   lua_register(luaState, "Mode7WorldToScreen", (lua_CFunction) &lua_wrapper_mode7WorldToScreen);
-  lua_register(luaState, "Log", (lua_CFunction) &lua_wrapper_log);
   lua_register(luaState, "DrawString", (lua_CFunction) &lua_wrapper_drawString);
   lua_register(luaState, "DrawRect", (lua_CFunction) &lua_wrapper_drawRect);
   lua_register(luaState, "FillRect", (lua_CFunction) &lua_wrapper_fillRect);
@@ -991,7 +979,6 @@ void initLua() {
   lua_register(luaState, "SetCursor", (lua_CFunction) &lua_wrapper_setCursor);
   lua_register(luaState, "Print", (lua_CFunction) &lua_wrapper_print);
   lua_register(luaState, "Println", (lua_CFunction) &lua_wrapper_println);
-  lua_register(luaState, "Cls", (lua_CFunction) &lua_wrapper_cls);
   lua_register(luaState, "PrefsSetString", (lua_CFunction) &lua_wrapper_prefsSetString);
   lua_register(luaState, "PrefsGetString", (lua_CFunction) &lua_wrapper_prefsGetString);
   lua_register(luaState, "PrefsSetInt", (lua_CFunction) &lua_wrapper_prefsSetInt);
