@@ -1,7 +1,7 @@
 # Lua Game API
 
 Games on the PEPit are written in **Lua** and run inside an embedded Lua state
-([`src/games/gameLua.cpp`](../../src/games/gameLua.cpp)). This folder documents the API that
+([`gameLua.cpp`](../../T-HMI-PEPmonitor/src/games/gameLua.cpp)). This folder documents the API that
 game scripts can use:
 
 - **[functions.md](functions.md)** — every function registered with `lua_register()`, organized
@@ -13,7 +13,7 @@ game scripts can use:
 ## How a Lua game works
 
 A game lives in its own folder on the SD card and is described by a `gameconfig.ini`. The host
-application reads this file into a [`GameConfig`](../../src/constants.h#L84) which maps each game
+application reads this file into a [`GameConfig`](../../T-HMI-PEPmonitor/src/constants.h#L84) which maps each game
 phase to a Lua script:
 
 | `GameConfig` field              | Script (relative to game folder) | When it runs                          |
@@ -74,10 +74,14 @@ The `table`, `string` and `math` Lua libraries are available, plus all the custo
 
 ## Example
 
+Each script runs as its own Lua chunk, so **`local` variables do not carry over between
+scripts**. To share state (e.g. loaded sprites) between `init.lua` and the per-frame scripts,
+declare them as **globals** (no `local` keyword):
+
 ```lua
 -- init.lua  (runs once)
-local player = LoadSprite("player.bmp", 0, -1)   -- handle to a static sprite
-local bg     = LoadSprite("bg.bmp")
+player = LoadSprite("player.bmp", 0, -1)   -- handle to a static sprite
+bg     = LoadSprite("bg.bmp")
 
 -- short.lua  (runs every frame of a short-blow task)
 Cls()
@@ -90,3 +94,6 @@ DrawSprite(player, 240 - progress * 100, 200)
 -- Show a countdown using the injected variables.
 DrawString("Cycle " .. CycleNumber .. "/" .. TotalCycleNumber, 10, 10)
 ```
+
+Note that `progress` is a `local` because it is only used within `short.lua`; but `player` and
+`bg` must be globals so that both scripts can see them.

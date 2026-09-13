@@ -1,11 +1,11 @@
 # Lua Functions
 
 This document lists every C function that is exposed to Lua games via `lua_register()` in
-[`src/games/gameLua.cpp`](../../src/games/gameLua.cpp). All functions are registered as **global**
+[`gameLua.cpp`](../../T-HMI-PEPmonitor/src/games/gameLua.cpp). All functions are registered as **global**
 functions on the Lua state, so they can be called directly by name from any game script.
 
 The standard Lua libraries `table`, `string` and `math` are also available (see
-[`gameLua.cpp:1053-1059`](../../src/games/gameLua.cpp#L1053)).
+[`gameLua.cpp:942-948`](../../T-HMI-PEPmonitor/src/games/gameLua.cpp#L942)).
 
 > **Note on types.** The C wrappers read arguments with `luaL_check*` / `luaL_opt*`. In practice
 > Lua numbers are passed for all numeric parameters. "int" and "float" below describe the C type
@@ -749,7 +749,7 @@ x, y, scale = ProjectRoadPointToScreen(roadX, roadZ, horizonY, baselineY, roadXO
 ## Flag Constants
 
 The `flags` parameter of the scaled / transformed sprite drawing functions is a bitfield. The
-available bits (from [`gfxHandler.hpp`](../../src/hardware/gfxHandler.hpp)) are:
+available bits (from [`gfxHandler.hpp`](../../T-HMI-PEPmonitor/src/hardware/gfxHandler.hpp)) are:
 
 ### Flags for sprite loading functions
 
@@ -772,5 +772,5 @@ available bits (from [`gfxHandler.hpp`](../../src/hardware/gfxHandler.hpp)) are:
 | `TRANSP_OFF`          | `0x00`| Masking-color transparency disabled              |
 | `TRANSP_MASK`         | `0x10`| Use the sprite's masking color for transparency  |
 
-> The scaled/transformed wrappers always OR in `TRANSP_MASK` internally, so masking-color
-> transparency is on by default for those functions.
+> `DrawSprite` and `DrawSpriteTransformed` always OR in `TRANSP_MASK` internally, so
+> masking-color transparency is on by default for those functions.

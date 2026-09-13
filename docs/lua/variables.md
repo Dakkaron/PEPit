@@ -2,13 +2,13 @@
 
 This document describes the **global variables** that the host application injects into the Lua
 state before running each game script. They are set in three places in
-[`src/games/gameLua.cpp`](../../src/games/gameLua.cpp):
+[`gameLua.cpp`](../../T-HMI-PEPmonitor/src/games/gameLua.cpp):
 
 | C function                                   | Game state            | Script run afterwards                          |
 |----------------------------------------------|-----------------------|------------------------------------------------|
-| [`initGames_lua()`](../../src/games/gameLua.cpp#L1144)   | **Init**              | `init.lua`                                    |
-| [`updateBlowData()`](../../src/games/gameLua.cpp#L1165)  | **PEP / Inhalation**  | `pepShort` / `pepLong` / `pepEqual` / `inhalation` / `inhalationPep` scripts |
-| [`updateJumpData()`](../../src/games/gameLua.cpp#L1203)  | **Trampoline**        | `trampoline` script                           |
+| [`initGames_lua()`](../../T-HMI-PEPmonitor/src/games/gameLua.cpp#L1027)   | **Init**              | `init.lua`                                    |
+| [`updateBlowData()`](../../T-HMI-PEPmonitor/src/games/gameLua.cpp#L1048)  | **PEP / Inhalation**  | `pepShort` / `pepLong` / `pepEqual` / `inhalation` / `inhalationPep` scripts |
+| [`updateJumpData()`](../../T-HMI-PEPmonitor/src/games/gameLua.cpp#L1086)  | **Trampoline**        | `trampoline` script                           |
 
 ## How the variables are passed
 
@@ -35,8 +35,11 @@ So in a game script you can use them directly, e.g. `if CurrentlyBlowing then ..
 
 ## Availability by state
 
-A check (✓) means the variable is set in that state. Variables without a check are **not**
-defined (they will be `nil`) in that state.
+A check (✓) means the variable is set in that state. Variables without a check are **not
+updated** in that state; because the Lua state is created once and never reset, they retain
+the value last assigned in a previous state (they will **not** be `nil` if that variable was
+set earlier). For example, `Pressure` is only updated during blow tasks — if a trampoline task
+runs after a blow task, `Pressure` still holds its last blow value rather than being `nil`.
 
 | Variable                 | Type      | Init | PEP / Inhalation | Trampoline |
 |--------------------------|-----------|:----:|:----------------:|:----------:|
@@ -89,8 +92,9 @@ animation.
 ### Common to PEP/Inhalation and Trampoline
 
 #### `MsDelta` — number
-Elapsed time in **milliseconds** since the previous update. For blow data this is forced to `1`
-on a new task (to avoid a large jump); otherwise it is `ms - lastMs`.
+Elapsed time in **milliseconds** since the previous update. For both blow and jump data this is
+forced to `1` on a new task (to avoid a large first-frame spike); otherwise it is
+`ms - lastMs`.
 
 #### `CycleNumber` — number
 Index of the current **cycle** (0-based). A cycle is one full pass through all tasks.
