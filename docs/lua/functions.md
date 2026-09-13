@@ -141,15 +141,51 @@ All drawing functions render to the **current draw target** (see
 [SetDrawTargetSprite](#setdrawtargetspritehandle) /
 [SetDrawTargetFramebuffer](#setdrawtargetframebuffer)).
 
-### `DrawSprite(handle, x, y, alpha = 1)`
-Draws a whole sprite at position `(x, y)`.
+### `DrawSprite(handle, x, y, [opts])`
+Draws a sprite (or a single frame of an animated sprite) at position `(x, y)` with optional
+scaling, rotation, and opacity. This is the unified drawing function that replaces the former
+`DrawAnimSprite`, `DrawSpriteScaled`, `DrawAnimSpriteScaled`, `DrawSpriteScaledRotated`, and
+`DrawAnimSpriteScaledRotated`.
 
 | Param    | Type   | Default | Description                          |
 |----------|--------|---------|--------------------------------------|
 | `handle` | int    | —       | Sprite handle                        |
 | `x`      | number | —       | Destination X coordinate             |
 | `y`      | number | —       | Destination Y coordinate             |
-| `alpha`  | float  | `1`     | Opacity, `0` (transparent)–`1`       |
+| `opts`   | table  | `nil`   | Optional drawing options (see below) |
+
+**Options table fields:**
+
+| Field      | Type   | Default | Description                                          |
+|------------|--------|---------|------------------------------------------------------|
+| `scaleX`   | number | `1.0`   | Horizontal scale factor                              |
+| `scaleY`   | number | `1.0`   | Vertical scale factor                                |
+| `angle`    | number | `0.0`   | Rotation in radians                                  |
+| `frame`    | int    | `-1`    | Frame index for animated sprites (`-1` = whole sprite) |
+| `flags`    | int    | `0`     | Draw flags (see [Flag Constants](#flag-constants))   |
+| `alpha`    | number | `1.0`   | Opacity, `0` (transparent)–`1`                       |
+
+The function automatically selects the most efficient rendering path based on which options
+are set (plain blit → scaled → transformed).
+
+**Examples:**
+
+```lua
+-- Simple draw
+DrawSprite(1, 100, 200)
+
+-- With alpha
+DrawSprite(1, 100, 200, {alpha = 0.5})
+
+-- Scaled
+DrawSprite(1, 100, 200, {scaleX = 2.0, scaleY = 2.0})
+
+-- Rotated and scaled
+DrawSprite(1, 100, 200, {scaleX = 1.5, angle = math.pi / 4})
+
+-- Animated sprite, frame 3, centered
+DrawSprite(2, 100, 200, {frame = 3, flags = ALIGN_H_CENTER | ALIGN_V_CENTER})
+```
 
 **Returns:** nothing.
 
@@ -169,83 +205,6 @@ Draws a rectangular sub-region of the sprite.
 
 **Returns:** nothing.
 
-### `DrawAnimSprite(handle, tx, ty, frame, flags = 0, alpha = 1)`
-Draws a single frame of an animated sprite.
-
-| Param    | Type   | Default | Description                                        |
-|----------|--------|---------|----------------------------------------------------|
-| `handle` | int    | —       | Animated sprite handle                             |
-| `tx`     | number | —       | Destination X coordinate                           |
-| `ty`     | number | —       | Destination Y coordinate                           |
-| `frame`  | int    | —       | Frame index (0-based, wraps across the sheet)      |
-| `flags`  | int    | `0`     | Draw flags (see [Flag Constants](#flag-constants)) |
-| `alpha`  | float  | `1`     | Opacity, `0`–`1`                                   |
-
-**Returns:** nothing.
-
-### `DrawSpriteScaled(handle, x, y, scaleX, scaleY, flags = 0)`
-Draws a sprite scaled by `(scaleX, scaleY)`. Transparency via masking color is always enabled.
-
-| Param    | Type   | Default | Description                                        |
-|----------|--------|---------|----------------------------------------------------|
-| `handle` | int    | —       | Sprite handle                                      |
-| `x`      | number | —       | Position X                                         |
-| `y`      | number | —       | Position Y                                         |
-| `scaleX` | number | —       | Horizontal scale factor                            |
-| `scaleY` | number | —       | Vertical scale factor                              |
-| `flags`  | int    | `0`     | Draw flags (see [Flag Constants](#flag-constants)) |
-
-**Returns:** nothing.
-
-### `DrawAnimSpriteScaled(handle, x, y, scaleX, scaleY, frame, flags = 0, alpha = 1)`
-Draws a scaled single frame of an animated sprite.
-
-| Param    | Type   | Default | Description                                        |
-|----------|--------|---------|----------------------------------------------------|
-| `handle` | int    | —       | Animated sprite handle                             |
-| `x`      | number | —       | Position X                                         |
-| `y`      | number | —       | Position Y                                         |
-| `scaleX` | number | —       | Horizontal scale factor                            |
-| `scaleY` | number | —       | Vertical scale factor                              |
-| `frame`  | int    | —       | Frame index (0-based)                              |
-| `flags`  | int    | `0`     | Draw flags (see [Flag Constants](#flag-constants)) |
-| `alpha`  | float  | `1`     | Opacity, `0`–`1`                                   |
-
-**Returns:** nothing.
-
-### `DrawSpriteScaledRotated(handle, x, y, scaleX, scaleY, angle, flags = 0, alpha = 1)`
-Draws a sprite scaled and rotated. `angle` is in **radians**.
-
-| Param    | Type   | Default | Description                                        |
-|----------|--------|---------|----------------------------------------------------|
-| `handle` | int    | —       | Sprite handle                                      |
-| `x`      | number | —       | Position X                                         |
-| `y`      | number | —       | Position Y                                         |
-| `scaleX` | number | —       | Horizontal scale factor                            |
-| `scaleY` | number | —       | Vertical scale factor                              |
-| `angle`  | float  | —       | Rotation angle in radians                          |
-| `flags`  | int    | `0`     | Draw flags (see [Flag Constants](#flag-constants)) |
-| `alpha`  | float  | `1`     | Opacity, `0`–`1`                                   |
-
-**Returns:** nothing.
-
-### `DrawAnimSpriteScaledRotated(handle, x, y, scaleX, scaleY, angle, frame, flags = ALIGN_H_CENTER | ALIGN_V_CENTER)`
-Draws a scaled and rotated single frame of an animated sprite. `angle` is in **radians**. The
-default flag centers the frame on `(x, y)`.
-
-| Param    | Type   | Default                              | Description                                        |
-|----------|--------|--------------------------------------|----------------------------------------------------|
-| `handle` | int    | —                                    | Animated sprite handle                             |
-| `x`      | number | —                                    | Position X                                         |
-| `y`      | number | —                                    | Position Y                                         |
-| `scaleX` | number | —                                    | Horizontal scale factor                            |
-| `scaleY` | number | —                                    | Vertical scale factor                              |
-| `angle`  | float  | —                                    | Rotation angle in radians                          |
-| `frame`  | int    | —                                    | Frame index (0-based)                              |
-| `flags`  | int    | `ALIGN_H_CENTER \| ALIGN_V_CENTER`   | Draw flags (see [Flag Constants](#flag-constants)) |
-
-**Returns:** nothing.
-
 ### `DrawSpriteTransformed(handle, x, y, a, b, c, d, flags = 0)`
 Draws a sprite using an arbitrary 2×2 transformation matrix:
 
@@ -255,6 +214,8 @@ Draws a sprite using an arbitrary 2×2 transformation matrix:
 ```
 
 The result is then translated to `(x, y)`. Transparency via masking color is always enabled.
+Use this for full control (shear, non-uniform transforms) that `DrawSprite`'s scale+angle
+cannot express.
 
 | Param    | Type   | Default | Description                                        |
 |----------|--------|---------|----------------------------------------------------|
