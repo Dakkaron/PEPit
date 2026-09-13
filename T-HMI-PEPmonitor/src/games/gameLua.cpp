@@ -1093,7 +1093,7 @@ void updateJumpData(JumpData* jumpData) {
     lastJumpMs = jumpData->ms;
   }
   String jumpDataString = "Ms="+String(jumpData->ms)+"\n"+\
-                          "MsDelta="+String(jumpData->ms - lastMs)+"\n"+\
+                          "MsDelta="+String(isNewTask ? 1 : jumpData->ms - lastMs)+"\n"+\
                           "CycleNumber="+String(jumpData->cycleNumber)+"\n"+\
                           "TotalCycleNumber="+String(jumpData->totalCycleNumber)+"\n"+\
                           "CumulatedTaskNumber="+String(jumpData->taskNumber + jumpData->cycleNumber * jumpData->totalTaskNumber)+"\n"+\
