@@ -102,12 +102,12 @@ elseif GameMode == GAME_MODE_FIELD then
         DrawSprite(SIconPlow, 290, 20, {alpha=fieldItemAlpha})
     end
     if fieldItemSelection == FIELD_ITEM_SELECTION_WATERING_CAN then
-        DrawSprite(SIconWateringCan, 320, 86, {angle=math.sin(Ms*0.005)*.3, flags=0xA, alpha=fieldItemAlpha})
+        DrawSprite(SIconWateringCan, 320, 86, {angle=math.sin(Ms*0.005)*.3, flags=ALIGN_H_RIGHT|ALIGN_V_BOTTOM, alpha=fieldItemAlpha})
     else
         DrawSprite(SIconWateringCan, 283, 60, {alpha=fieldItemAlpha})
     end
     if fieldItemSelection == FIELD_ITEM_SELECTION_SEEDBAG then
-        DrawSprite(SIconSeedbag, 304, 115, {angle=math.sin(Ms*0.005)*.3, flags=0x5, alpha=fieldItemSeedBagAlpha})
+        DrawSprite(SIconSeedbag, 304, 115, {angle=math.sin(Ms*0.005)*.3, flags=ALIGN_H_CENTER|ALIGN_V_CENTER, alpha=fieldItemSeedBagAlpha})
     else
         DrawSprite(SIconSeedbag, 287, 100, {alpha=fieldItemSeedBagAlpha})
     end
@@ -150,12 +150,12 @@ elseif GameMode == GAME_MODE_FIELD then
             if fg.plowed == false then
                 
             elseif fg.watered == false then
-                DrawSprite(SField_dirt, 4+col*23, 5+row*23, {frame=0, flags=0x5})
+                DrawSprite(SField_dirt, 4+col*23, 5+row*23, {frame=0, flags=ALIGN_H_CENTER|ALIGN_V_CENTER})
             elseif fg.plant == FIELD_GRID_PLANT_NONE then
-                DrawSprite(SField_dirt, 4+col*23, 5+row*23, {frame=1, flags=0x5})
+                DrawSprite(SField_dirt, 4+col*23, 5+row*23, {frame=1, flags=ALIGN_H_CENTER|ALIGN_V_CENTER})
             end
             if fg.plant == FIELD_GRID_PLANT_WHEAT then
-                DrawSprite(SField_plantWheat, 4+col*23, 5+row*23, {frame=fg.growStage, flags=0x5})
+                DrawSprite(SField_plantWheat, 4+col*23, 5+row*23, {frame=fg.growStage, flags=ALIGN_H_CENTER|ALIGN_V_CENTER})
             end
         end
     end

@@ -234,7 +234,7 @@ function DoDrawHorse(handle, roadX, roadY, height, scaleX, scaleY, angle, frame,
       DrawString(name, x, y - SpriteHeight(handle)*scaleY - 10)
       SetTextDatum(0)
     end
-    DrawSprite(handle, x, y + height, {scaleX=scaleX, scaleY=scaleY, angle=angle, frame=frame, flags=1+8})
+    DrawSprite(handle, x, y + height, {scaleX=scaleX, scaleY=scaleY, angle=angle, frame=frame, flags=ALIGN_H_CENTER|ALIGN_V_BOTTOM})
   end
 end
 

@@ -118,17 +118,17 @@ if (DrowningStartMs == 0) then
   if (math.abs(PlaneAngle)<0.05) then
     planeDrawAngle = 0
   end
-  DrawSprite(SPlane[PlaneType], 160, 120, {scaleX=planeScale, scaleY=planeScale, angle=planeDrawAngle, flags=0x05})
+  DrawSprite(SPlane[PlaneType], 160, 120, {scaleX=planeScale, scaleY=planeScale, angle=planeDrawAngle, flags=ALIGN_H_CENTER|ALIGN_V_CENTER})
 else
   local drowningTime = Ms - DrowningStartMs
   if (drowningTime<150) then
-    DrawSprite(SSplash[1], 160, 160, {scaleX=1, scaleY=drowningTime/200, flags=0x09})
+    DrawSprite(SSplash[1], 160, 160, {scaleX=1, scaleY=drowningTime/200, flags=ALIGN_H_CENTER|ALIGN_V_BOTTOM})
   elseif (drowningTime<350) then
-    DrawSprite(SSplash[2], 160, 160, {scaleX=1, scaleY=drowningTime/350, flags=0x09})
+    DrawSprite(SSplash[2], 160, 160, {scaleX=1, scaleY=drowningTime/350, flags=ALIGN_H_CENTER|ALIGN_V_BOTTOM})
   elseif (drowningTime<2000) then
-    DrawSprite(SSplash[2], 160, 160, {scaleX=1, scaleY=1, flags=0x09})
+    DrawSprite(SSplash[2], 160, 160, {scaleX=1, scaleY=1, flags=ALIGN_H_CENTER|ALIGN_V_BOTTOM})
   elseif (drowningTime<3000) then
-    DrawSprite(SSplash[1], 160, 160, {scaleX=1, scaleY=(3000-drowningTime)/1000, flags=0x09})
+    DrawSprite(SSplash[1], 160, 160, {scaleX=1, scaleY=(3000-drowningTime)/1000, flags=ALIGN_H_CENTER|ALIGN_V_BOTTOM})
   elseif (drowningTime<10000) then
     CameraHeight = TopFlightHeight
     if (Speed<100) then
@@ -137,7 +137,7 @@ else
     CameraX = CameraX - math.sin(CameraAngle) * Speed * 0.0001 * MsDelta
     CameraY = CameraY + math.cos(CameraAngle) * Speed * 0.0001 * MsDelta
     if (math.fmod(Ms//200, 2) == 0) then
-      DrawSprite(SPlane[PlaneType], 160, 120, {scaleX=planeScale, scaleY=planeScale, flags=0x05})
+      DrawSprite(SPlane[PlaneType], 160, 120, {scaleX=planeScale, scaleY=planeScale, flags=ALIGN_H_CENTER|ALIGN_V_CENTER})
     end
   else
     AddEarnings(-10)
@@ -148,16 +148,16 @@ end
 
 DrawSprite(SSpeedDial, 256, 116)
 local speedDialAngle = math.pi*2.0 * math.min(Speed, 600) * 0.0015
-DrawSprite(SSpeedDialNeedle, 288, 148, {angle=speedDialAngle, flags=0x05})
+DrawSprite(SSpeedDialNeedle, 288, 148, {angle=speedDialAngle, flags=ALIGN_H_CENTER|ALIGN_V_CENTER})
 
 --DrawString("Free " .. (GetFreeRAM()//1024) .. "k - " .. (GetFreePSRAM()//1024) .. "k - " .. GetFreeSpriteSlots(), 30, 40)
 
 if LeftHandedMode then
-  DrawSprite(STurnLeft, 27, 71, {angle=(IsTouchInZone(0, 50, 50, 44) and -0.5 or 0), flags=0x05})
-  DrawSprite(STurnRight, 27, 146, {angle=(IsTouchInZone(0, 125, 50, 44) and 0.5 or 0), flags=0x05})
+  DrawSprite(STurnLeft, 27, 71, {angle=(IsTouchInZone(0, 50, 50, 44) and -0.5 or 0), flags=ALIGN_H_CENTER|ALIGN_V_CENTER})
+  DrawSprite(STurnRight, 27, 146, {angle=(IsTouchInZone(0, 125, 50, 44) and 0.5 or 0), flags=ALIGN_H_CENTER|ALIGN_V_CENTER})
 else
-  DrawSprite(STurnLeft, 293, 71, {angle=(IsTouchInZone(270, 50, 50, 44) and -0.5 or 0), flags=0x05})
-  DrawSprite(STurnRight, 293, 146, {angle=(IsTouchInZone(270, 125, 50, 44) and 0.5 or 0), flags=0x05})
+  DrawSprite(STurnLeft, 293, 71, {angle=(IsTouchInZone(270, 50, 50, 44) and -0.5 or 0), flags=ALIGN_H_CENTER|ALIGN_V_CENTER})
+  DrawSprite(STurnRight, 293, 146, {angle=(IsTouchInZone(270, 125, 50, 44) and 0.5 or 0), flags=ALIGN_H_CENTER|ALIGN_V_CENTER})
 end
 
 SetTextSize(2)

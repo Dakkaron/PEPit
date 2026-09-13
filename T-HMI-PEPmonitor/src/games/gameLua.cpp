@@ -565,7 +565,7 @@ static int lua_wrapper_drawFastVLine(lua_State* luaState) {
   return 0;
 }
 
-static int lua_wrapper_fillScreen(lua_State* luaState) {
+static int lua_wrapper_fillSprite(lua_State* luaState) {
   uint16_t color = luaL_checknumber(luaState, 1);
   luaDisplay->fillScreen(color);
   return 0;
@@ -974,7 +974,7 @@ void initLua() {
   lua_register(luaState, "DrawLine", (lua_CFunction) &lua_wrapper_drawLine);
   lua_register(luaState, "DrawFastHLine", (lua_CFunction) &lua_wrapper_drawFastHLine);
   lua_register(luaState, "DrawFastVLine", (lua_CFunction) &lua_wrapper_drawFastVLine);
-  lua_register(luaState, "FillScreen", (lua_CFunction) &lua_wrapper_fillScreen);
+  lua_register(luaState, "FillSprite", (lua_CFunction) &lua_wrapper_fillSprite);
   lua_register(luaState, "SetTextColor", (lua_CFunction) &lua_wrapper_setTextColor);
   lua_register(luaState, "SetTextSize", (lua_CFunction) &lua_wrapper_setTextSize);
   lua_register(luaState, "SetTextDatum", (lua_CFunction) &lua_wrapper_setTextDatum);
@@ -1010,6 +1010,19 @@ void initLua() {
   lua_register(luaState, "GetJoystickX", (lua_CFunction) &lua_wrapper_getJoystickX);
   lua_register(luaState, "GetJoystickY", (lua_CFunction) &lua_wrapper_getJoystickY);
   lua_register(luaState, "GetJoystickButton", (lua_CFunction) &lua_wrapper_getJoystickButton);
+
+  String flags = "FLIPPED_H="+String(FLIPPED_H)+"\n"+\
+                 "FLIPPED_V="+String(FLIPPED_V)+"\n"+\
+                 "DITHER_TRANSPARENCY="+String(DITHER_TRANSPARENCY)+"\n"+\
+                 "ALIGN_H_LEFT="+String(ALIGN_H_LEFT)+"\n"+\
+                 "ALIGN_H_CENTER="+String(ALIGN_H_CENTER)+"\n"+\
+                 "ALIGN_H_RIGHT="+String(ALIGN_H_RIGHT)+"\n"+\
+                 "ALIGN_V_TOP="+String(ALIGN_V_TOP)+"\n"+\
+                 "ALIGN_V_CENTER="+String(ALIGN_V_CENTER)+"\n"+\
+                 "ALIGN_V_BOTTOM="+String(ALIGN_V_BOTTOM)+"\n"+\
+                 "TRANSP_OFF="+String(TRANSP_OFF)+"\n"+\
+                 "TRANSP_MASK="+String(TRANSP_MASK);
+  lua_dostring(flags.c_str(), "init()");
   bindingsInitiated = true;
 }
 
