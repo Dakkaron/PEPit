@@ -50,8 +50,9 @@ endGame_lua()            →  runs end.lua, then collects Lua garbage
 - **`init.lua`** runs once at start. It only receives the *Init* variables (`Ms`,
   `LeftHandedMode`) — see [variables.md](variables.md). Use it to load sprites and set up state.
 - **Per-frame draw scripts** run every frame with the latest therapy/jump data already injected.
-  They should be lightweight; heavy one-time work belongs in `init.lua`.
-- **`end.lua`** runs once at the end. Use it to free sprites (`FreeSprite`) and clean up.
+  They should be lightweight; heavy one-time workand function definitions belong in `init.lua`.
+- **`end.lua`** runs once at the end. Use it to save the state. Data (e.g. sprites) don't need to
+  be cleaned up, since the entire engine is cleared once the game is finished.
 
 ### The draw target
 

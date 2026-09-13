@@ -606,6 +606,8 @@ static int lua_wrapper_print(lua_State* luaState) {
 
 static int lua_wrapper_println(lua_State* luaState) {
   String s = luaL_checkstring(luaState, 1);
+  s.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
+                       // unicode table, so ¶ is used as a stand-in for € to save space.
   luaDisplay->println(s);
   return 0;
 }

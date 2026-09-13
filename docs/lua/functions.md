@@ -51,15 +51,6 @@ Prints a string to the serial console without a newline.
 
 **Returns:** nothing.
 
-### `Log(s)`
-Alias for printing a debug message to the serial console (with newline).
-
-| Param | Type   | Description            |
-|-------|--------|------------------------|
-| `s`   | string | Text to print          |
-
-**Returns:** nothing.
-
 ### `GetFreeRAM()`
 **Returns:** free internal heap in bytes (number).
 
@@ -309,7 +300,7 @@ All primitives draw to the current draw target. Colors are 16-bit RGB565 values 
 
 ### `DrawString(str, x, y)`
 Draws text at `(x, y)`. Multi-line strings (containing `\n`) are supported; each line advances by
-one font height. The `€` character is substituted with `¶`.
+one font height.
 
 | Param | Type   | Description        |
 |-------|--------|--------------------|
@@ -457,8 +448,7 @@ Sets the current text cursor position (used by `Print` / `Println`).
 **Returns:** nothing.
 
 ### `Print(s)`
-Prints text at the current cursor position (no newline). The `€` character is substituted with
-`¶`.
+Prints text at the current cursor position (no newline).
 
 | Param | Type   | Description    |
 |-------|--------|----------------|
@@ -472,11 +462,6 @@ Prints text at the current cursor position followed by a newline.
 | Param | Type   | Description    |
 |-------|--------|----------------|
 | `s`   | string | Text to print  |
-
-**Returns:** nothing.
-
-### `Cls()`
-Clears the current draw target by filling it with black (`TFT_BLACK`).
 
 **Returns:** nothing.
 
