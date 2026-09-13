@@ -305,11 +305,7 @@ bool loadBmpAnim(DISPLAY_T** displays, String filename, uint8_t animFrames, uint
   return true;
 }
 
-bool drawBmp(String filename, int16_t x, int16_t y, bool debugLog) {
-  return drawBmpSlice(filename, x, y, -1, debugLog);
-}
-
-bool drawBmpSlice(String filename, int16_t x, int16_t y, int16_t maxH, bool debugLog) {
+static bool drawBmpSlice(String filename, int16_t x, int16_t y, int16_t maxH, bool debugLog) {
   if (debugLog) {
     Serial.print("File: ");
     Serial.println(filename);
@@ -397,6 +393,10 @@ bool drawBmpSlice(String filename, int16_t x, int16_t y, int16_t maxH, bool debu
   }
   bmpFS.close();
   return true;
+}
+
+bool drawBmp(String filename, int16_t x, int16_t y, bool debugLog) {
+  return drawBmpSlice(filename, x, y, -1, debugLog);
 }
 
 static bool drawBmp(DISPLAY_T* sprite, String filename, int16_t x, int16_t y, uint16_t transp, bool enableTransp, bool debugLog) {
@@ -589,10 +589,6 @@ void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* po
   drawSpriteTransformed(display, sprite, pos, transform, flags, maskColor, sprite->width(), sprite->height(), 0, alpha);
 }
 
-void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* pos, Matrix2D* transform, uint32_t flags, uint16_t maskColor) {
-  drawSpriteTransformed(display, sprite, pos, transform, flags, maskColor, sprite->width(), sprite->height(), 0);
-}
-
 void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* pos, Matrix2D* transform, uint32_t flags, uint16_t maskColor, int16_t frameWidth, int16_t frameHeight, int16_t frameNr) {
   drawSpriteTransformed(display, sprite, pos, transform, flags, maskColor, frameWidth, frameHeight, frameNr, 1);
 }
@@ -667,14 +663,6 @@ void drawSpriteTransformed(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* po
 
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor) {
   drawSpriteScaled(display, sprite, position, scale, flags, maskColor, sprite->width(), sprite->height(), 0, 1);
-}
-
-void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor, float alpha) {
-  drawSpriteScaled(display, sprite, position, scale, flags, maskColor, sprite->width(), sprite->height(), 0, alpha);
-}
-
-void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor, int16_t frameWidth, int16_t frameHeight, int16_t frameNr) {
-  drawSpriteScaled(display, sprite, position, scale, flags, maskColor, frameWidth, frameHeight, frameNr, 1);
 }
 
 void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* position, Vector2D* scale, uint32_t flags, uint16_t maskColor, int16_t frameWidth, int16_t frameHeight, int16_t frameNr, float alpha) {
