@@ -17,8 +17,6 @@ function GetFreeSpriteSlots() return 0; end
 
 -- Sprites: Drawing
 function DrawSprite(handle, x, y, opts) end
-function DrawSpriteRegion(handle, tx, ty, sx, sy, sw, sh, alpha) end
-function DrawSpriteTransformed(handle, x, y, a, b, c, d, flags) end
 
 -- Sprites: Info & Draw Target
 function SpriteWidth(handle) return 0; end

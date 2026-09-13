@@ -180,47 +180,6 @@ DrawSprite(2, 100, 200, {frame = 3, flags = ALIGN_H_CENTER | ALIGN_V_CENTER})
 
 **Returns:** nothing.
 
-### `DrawSpriteRegion(handle, tx, ty, sx, sy, sw, sh, alpha = 1)`
-Draws a rectangular sub-region of the sprite.
-
-| Param    | Type   | Default | Description                              |
-|----------|--------|---------|------------------------------------------|
-| `handle` | int    | —       | Sprite handle                            |
-| `tx`     | number | —       | Destination X coordinate                 |
-| `ty`     | number | —       | Destination Y coordinate                 |
-| `sx`     | number | —       | Source X (offset within the sprite)      |
-| `sy`     | number | —       | Source Y (offset within the sprite)      |
-| `sw`     | number | —       | Source region width                      |
-| `sh`     | number | —       | Source region height                     |
-| `alpha`  | float  | `1`     | Opacity, `0`–`1`                         |
-
-**Returns:** nothing.
-
-### `DrawSpriteTransformed(handle, x, y, a, b, c, d, flags = 0)`
-Draws a sprite using an arbitrary 2×2 transformation matrix:
-
-```
-[ a  b ]       [ x' ]   [ a*x + b*y ]
-[ c  d ]  ·  ( y' ) = ( c*x + d*y )
-```
-
-The result is then translated to `(x, y)`. Transparency via masking color is always enabled.
-Use this for full control (shear, non-uniform transforms) that `DrawSprite`'s scale+angle
-cannot express.
-
-| Param    | Type   | Default | Description                                        |
-|----------|--------|---------|----------------------------------------------------|
-| `handle` | int    | —       | Sprite handle                                      |
-| `x`      | number | —       | Translation X                                      |
-| `y`      | number | —       | Translation Y                                      |
-| `a`      | number | —       | Matrix element (1,1)                               |
-| `b`      | number | —       | Matrix element (1,2)                               |
-| `c`      | number | —       | Matrix element (2,1)                               |
-| `d`      | number | —       | Matrix element (2,2)                               |
-| `flags`  | int    | `0`     | Draw flags (see [Flag Constants](#flag-constants)) |
-
-**Returns:** nothing.
-
 ---
 
 ## Sprites — Info & Draw Target
@@ -757,5 +716,5 @@ available bits (from [`gfxHandler.hpp`](../../T-HMI-PEPmonitor/src/hardware/gfxH
 | `TRANSP_OFF`          | `0x00`| Masking-color transparency disabled              |
 | `TRANSP_MASK`         | `0x10`| Use the sprite's masking color for transparency  |
 
-> `DrawSprite` and `DrawSpriteTransformed` always OR in `TRANSP_MASK` internally, so
+> `DrawSprite` always ORs in `TRANSP_MASK` internally, so
 > masking-color transparency is on by default for those functions.

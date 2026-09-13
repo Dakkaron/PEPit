@@ -367,43 +367,6 @@ static int lua_wrapper_drawSprite(lua_State* luaState) {
   return 0;
 }
 
-static int lua_wrapper_drawSpriteRegion(lua_State* luaState) {
-  //Serial.println("Draw sprite region");
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  int16_t tx = luaL_checknumber(luaState, 2);
-  int16_t ty = luaL_checknumber(luaState, 3);
-  int16_t sx = luaL_checknumber(luaState, 4);
-  int16_t sy = luaL_checknumber(luaState, 5);
-  int16_t sw = luaL_checknumber(luaState, 6);
-  int16_t sh = luaL_checknumber(luaState, 7);
-  float alpha = luaL_optnumber(luaState, 8, 1);
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  drawSprite(luaDisplay, &(sprites[handle]), tx, ty, spriteMetadata[handle].maskingColor, alpha, sx, sy, sw, sh);
-  //Serial.println("Draw sprite region done");
-  return 0;
-}
-
-static int lua_wrapper_drawSpriteTransformed(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  Vector2D position;
-  position.x = luaL_checknumber(luaState, 2);
-  position.y = luaL_checknumber(luaState, 3);
-  Matrix2D transform;
-  transform.a = luaL_checknumber(luaState, 4);
-  transform.b = luaL_checknumber(luaState, 5);
-  transform.c = luaL_checknumber(luaState, 6);
-  transform.d = luaL_checknumber(luaState, 7);
-  uint32_t flags = luaL_optinteger(luaState, 8, 0);
-  flags |= TRANSP_MASK;
-  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transform, flags, spriteMetadata[handle].maskingColor);
-  return 0;
-}
-
 static int lua_wrapper_setDrawTargetSprite(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
   if (!isHandleValid(handle)) {
@@ -958,8 +921,6 @@ void initLua() {
   lua_register(luaState, "LoadAnimSprite", (lua_CFunction) &lua_wrapper_loadAnimSprite);
   lua_register(luaState, "FreeSprite", (lua_CFunction) &lua_wrapper_freeSprite);
   lua_register(luaState, "DrawSprite", (lua_CFunction) &lua_wrapper_drawSprite);
-  lua_register(luaState, "DrawSpriteRegion", (lua_CFunction) &lua_wrapper_drawSpriteRegion);
-  lua_register(luaState, "DrawSpriteTransformed", (lua_CFunction) &lua_wrapper_drawSpriteTransformed);
   lua_register(luaState, "SetDrawTargetSprite", (lua_CFunction) &lua_wrapper_setDrawTargetSprite);
   lua_register(luaState, "SetDrawTargetFramebuffer", (lua_CFunction) &lua_wrapper_setDrawTargetFramebuffer);
   lua_register(luaState, "SpriteWidth", (lua_CFunction) &lua_wrapper_spriteWidth);
