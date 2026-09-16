@@ -356,7 +356,7 @@ Draws a vertical line (fast path).
 
 **Returns:** nothing.
 
-### `FillScreen(color)`
+### `FillSprite(color)`
 Fills the entire current draw target with a solid color.
 
 | Param   | Type | Description        |
