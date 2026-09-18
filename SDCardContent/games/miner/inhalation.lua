@@ -42,8 +42,8 @@ else
       TargetPositions[i][1] = math.random(100, 300)
       TargetPositions[i][2] = math.random(20, 160)
       local t = math.random(1, 100) * BreathingScore
-      Log("Breathing score: " .. BreathingScore)
-      Log("t" .. t)
+      SerialPrintln("Breathing score: " .. BreathingScore)
+      SerialPrintln("t" .. t)
       if (t > 50000) then
         TargetType[i] = 6
       elseif (t > 10000) then

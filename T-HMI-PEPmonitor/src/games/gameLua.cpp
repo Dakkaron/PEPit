@@ -205,7 +205,13 @@ static int lua_wrapper_loadSprite(lua_State* luaState) {
 
   for (int32_t i=0;i<SPRITE_COUNT_LIMIT;i++) {
     if (!sprites[i].created()) {
-      if (!loadBmp(&sprites[i], path, options, maskingColor)) {
+      bool loadSpriteResult;
+      if (maskingColor != -1) {
+        loadSpriteResult = loadBmp(&sprites[i], path, options, maskingColor);
+      } else {
+        loadSpriteResult = loadBmp(&sprites[i], path, options);
+      }
+      if (!loadSpriteResult) {
         Serial.println("Failed to load sprite "+path);
         if (luaStrictMode) {
           checkFailWithMessage("Failed to load sprite "+path);
@@ -258,10 +264,19 @@ static int lua_wrapper_loadAnimSprite(lua_State* luaState) {
 
   for (int32_t i=0;i<SPRITE_COUNT_LIMIT;i++) {
     if (!sprites[i].created()) {
+      bool loadSpriteResult;
       if (maskingColor != -1) {
-        loadBmp(&sprites[i], path, options, maskingColor);
+        loadSpriteResult = loadBmp(&sprites[i], path, options, maskingColor);
       } else {
-        loadBmp(&sprites[i], path, options);
+        loadSpriteResult = loadBmp(&sprites[i], path, options);
+      }
+      if (!loadSpriteResult) {
+        Serial.println("Failed to load sprite "+path);
+        if (luaStrictMode) {
+          checkFailWithMessage("Failed to load sprite "+path);
+        }
+        lua_pushinteger(luaState, -1);
+        return 1;
       }
       Serial.print("Found sprite slot: ");
       Serial.println(i);
@@ -327,7 +342,7 @@ static int lua_wrapper_drawSprite(lua_State* luaState) {
   int32_t maskingColor = spriteMetadata[handle].maskingColor;
   flags |= TRANSP_MASK;
   //Serial.printf("handle=%d, scaleX=%f, scaleY=%f, angle=%f, frame=%d, flags=%d, alpha=%f\n", handle, scale.x, scale.y, angle, frame, flags, alpha);
-  if (frame==-1) {
+  if (frame<0) {
     if (scale.x==1.0f && scale.y==1.0f && angle==0.0f) {
       drawSprite(luaDisplay, &(sprites[handle]), tPos.x, tPos.y, spriteMetadata[handle].maskingColor, alpha, 0, 0, -1, -1, flags);
     } else if (angle==0.0f) {
