@@ -240,7 +240,7 @@ static int lua_wrapper_freeSprite(lua_State* luaState) {
   Serial.print("Free BMP sprite ");
   int16_t handle = luaL_checkinteger(luaState, 1);
   Serial.println(handle);
-  if (sprites[handle].created()) {
+  if (handle>=0 && handle<SPRITE_COUNT_LIMIT && sprites[handle].created()) {
     if (luaDisplay == &sprites[handle]) {
       luaDisplay = luaFramebuffer;
     }
