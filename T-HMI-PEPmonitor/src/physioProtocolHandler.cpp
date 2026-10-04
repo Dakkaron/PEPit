@@ -18,7 +18,7 @@
 static TFT_eSprite inhaleIcon(&tft);
 static TFT_eSprite exhaleIcon(&tft);
 
-ProfileData profileData;
+ProfileData profileData{};
 uint32_t currentTask;
 uint32_t currentCycle;
 
@@ -117,7 +117,6 @@ uint32_t runProfileSelection() {
     }
     checkFailWithMessage(errorMessage);
     readProfileData(selectedProfileId, &profileData, &errorMessage);
-    checkFailWithMessage(errorMessage);
     for (uint32_t i=0;i<profileData.tasks;i++) {
       if (profileData.taskType[i] == PROFILE_TASK_TYPE_SHORTBLOWS) {
         requiredTaskTypes |= REQUIRED_TASK_TYPE_SHORTBLOWS;
@@ -541,10 +540,6 @@ void displayPhysioRotateScreen() {
   boolean joystickLocked = getJoystickButton();
 
   while (!isTouchInZone(230, 170, 80, 60) && (joystickLocked || !getJoystickButton())) {
-    Serial.print("Jockstick locked: ");
-    Serial.print(joystickLocked);
-    Serial.println(", clicked: ");
-    Serial.println(getJoystickButton());
     if (joystickLocked && !getJoystickButton()) {
       joystickLocked = false;
     }

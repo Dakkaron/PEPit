@@ -8,7 +8,8 @@
 static String luaGamePath;
 lua_State* luaState;
 
-DISPLAY_T* luaDisplay;
+DISPLAY_T* luaFramebuffer = nullptr;
+DISPLAY_T* luaDisplay = nullptr;
 bool luaProgressionMenuRunning;
 bool luaWinScreenRunning;
 bool luaStrictMode = false;
@@ -204,7 +205,13 @@ static int lua_wrapper_loadSprite(lua_State* luaState) {
 
   for (int32_t i=0;i<SPRITE_COUNT_LIMIT;i++) {
     if (!sprites[i].created()) {
-      if (!loadBmp(&sprites[i], path, options, maskingColor)) {
+      bool loadSpriteResult;
+      if (maskingColor != -1) {
+        loadSpriteResult = loadBmp(&sprites[i], path, options, maskingColor);
+      } else {
+        loadSpriteResult = loadBmp(&sprites[i], path, options);
+      }
+      if (!loadSpriteResult) {
         Serial.println("Failed to load sprite "+path);
         if (luaStrictMode) {
           checkFailWithMessage("Failed to load sprite "+path);
@@ -233,7 +240,10 @@ static int lua_wrapper_freeSprite(lua_State* luaState) {
   Serial.print("Free BMP sprite ");
   int16_t handle = luaL_checkinteger(luaState, 1);
   Serial.println(handle);
-  if (sprites[handle].created()) {
+  if (handle>=0 && handle<SPRITE_COUNT_LIMIT && sprites[handle].created()) {
+    if (luaDisplay == &sprites[handle]) {
+      luaDisplay = luaFramebuffer;
+    }
     sprites[handle].deleteSprite();
   }
   return 0;
@@ -254,15 +264,36 @@ static int lua_wrapper_loadAnimSprite(lua_State* luaState) {
 
   for (int32_t i=0;i<SPRITE_COUNT_LIMIT;i++) {
     if (!sprites[i].created()) {
+      bool loadSpriteResult;
       if (maskingColor != -1) {
-        loadBmp(&sprites[i], path, options, maskingColor);
+        loadSpriteResult = loadBmp(&sprites[i], path, options, maskingColor);
       } else {
-        loadBmp(&sprites[i], path, options);
+        loadSpriteResult = loadBmp(&sprites[i], path, options);
+      }
+      if (!loadSpriteResult) {
+        Serial.println("Failed to load sprite "+path);
+        if (luaStrictMode) {
+          checkFailWithMessage("Failed to load sprite "+path);
+        }
+        lua_pushinteger(luaState, -1);
+        return 1;
       }
       Serial.print("Found sprite slot: ");
       Serial.println(i);
       spriteMetadata[i].frameW = luaL_checknumber(luaState, 2);
       spriteMetadata[i].frameH = luaL_checknumber(luaState, 3);
+      if (spriteMetadata[i].frameW > sprites[i].width()) {
+        Serial.printf("ERROR: Frame width (%d) is larger than sprite width (%d)!", spriteMetadata[i].frameW, sprites[i].width());
+        sprites[i].deleteSprite();
+        lua_pushinteger(luaState, -1);
+        return 1;
+      }
+      if (spriteMetadata[i].frameH > sprites[i].height()) {
+        Serial.printf("ERROR: Frame height (%d) is larger than sprite height (%d)!", spriteMetadata[i].frameH, sprites[i].height());
+        sprites[i].deleteSprite();
+        lua_pushinteger(luaState, -1);
+        return 1;
+      }
       spriteMetadata[i].maskingColor = maskingColor;
       lua_pushinteger(luaState, i);
       return 1;
@@ -288,219 +319,81 @@ static int lua_wrapper_drawSprite(lua_State* luaState) {
   //Serial.print("Draw sprite ");
   int16_t handle = luaL_checkinteger(luaState, 1);
   //Serial.println(handle);
-  int16_t x = luaL_checknumber(luaState, 2);
-  int16_t y = luaL_checknumber(luaState, 3);
-  float alpha = luaL_optnumber(luaState, 4, 1);
+  Vector2D tPos;
+  tPos.x = luaL_checknumber(luaState, 2);
+  tPos.y = luaL_checknumber(luaState, 3);
+  Vector2D scale;
+  scale.x = 1.0f;
+  scale.y = 1.0f;
+  float angle=0.0f, alpha=1.0f;
+  uint32_t flags=0;
+  int32_t frame=-1;
+  if (lua_istable(luaState, 4)) { // opts value is present
+    lua_getfield(luaState, 4, "scaleX");scale.x = luaL_optnumber(luaState, -1, 1.0f);lua_pop(luaState, 1);
+    lua_getfield(luaState, 4, "scaleY");scale.y = luaL_optnumber(luaState, -1, 1.0f);lua_pop(luaState, 1);
+    lua_getfield(luaState, 4, "angle"); angle   = luaL_optnumber(luaState, -1, 0.0f);lua_pop(luaState, 1);
+    lua_getfield(luaState, 4, "frame"); frame   = luaL_optnumber(luaState, -1, -1);lua_pop(luaState, 1);
+    lua_getfield(luaState, 4, "flags"); flags   = luaL_optnumber(luaState, -1, 0);lua_pop(luaState, 1);
+    lua_getfield(luaState, 4, "alpha"); alpha   = luaL_optnumber(luaState, -1, 1.0f);lua_pop(luaState, 1);
+  }
   if (!isHandleValid(handle)) {
     return 0;
   }
   int32_t maskingColor = spriteMetadata[handle].maskingColor;
-  drawSprite(luaDisplay, &(sprites[handle]), x, y, spriteMetadata[handle].maskingColor, alpha);
+  flags |= TRANSP_MASK;
+  //Serial.printf("handle=%d, scaleX=%f, scaleY=%f, angle=%f, frame=%d, flags=%d, alpha=%f\n", handle, scale.x, scale.y, angle, frame, flags, alpha);
+  if (frame<0) {
+    if (scale.x==1.0f && scale.y==1.0f && angle==0.0f) {
+      drawSprite(luaDisplay, &(sprites[handle]), tPos.x, tPos.y, spriteMetadata[handle].maskingColor, alpha, 0, 0, -1, -1, flags);
+    } else if (angle==0.0f) {
+      drawSpriteScaled(luaDisplay, &sprites[handle], &tPos, &scale, flags, spriteMetadata[handle].maskingColor);
+    } else {
+      float s = sin(angle);
+      float c = cos(angle);
+      Matrix2D transform = {
+        c * scale.x, -s,
+        s, c * scale.y
+      };
+      drawSpriteTransformed(luaDisplay, &sprites[handle], &tPos, &transform, flags, spriteMetadata[handle].maskingColor, alpha);
+    }
+  } else {
+    int32_t sw = spriteMetadata[handle].frameW;
+    int32_t sh = spriteMetadata[handle].frameH;
+
+    int32_t cols = sprites[handle].width() / sw;
+
+    int32_t col = frame % cols;
+    int32_t row = frame / cols;
+    if (scale.x==1.0f && scale.y==1.0f && angle==0.0f && frame==0) {
+      drawSprite(luaDisplay, &(sprites[handle]), tPos.x, tPos.y, spriteMetadata[handle].maskingColor, alpha, sw*col, sh*row, sw, sh, flags);
+    } else if (angle==0.0f) {
+      drawSpriteScaled(luaDisplay, &sprites[handle], &tPos, &scale, flags, spriteMetadata[handle].maskingColor, sw, sh, frame, alpha);
+    } else {
+      float s = sin(angle);
+      float c = cos(angle);
+      Matrix2D transform = {
+        c * scale.x, -s,
+        s, c * scale.y
+      };
+      drawSpriteTransformed(luaDisplay, &sprites[handle], &tPos, &transform, flags, spriteMetadata[handle].maskingColor, sw, sh, frame);
+    }
+  }
   //Serial.println("Draw sprite done");
   return 0;
 }
 
-static int lua_wrapper_drawSpriteRegion(lua_State* luaState) {
-  //Serial.println("Draw sprite region");
+static int lua_wrapper_setDrawTargetSprite(lua_State* luaState) {
   int16_t handle = luaL_checkinteger(luaState, 1);
-  int16_t tx = luaL_checknumber(luaState, 2);
-  int16_t ty = luaL_checknumber(luaState, 3);
-  int16_t sx = luaL_checknumber(luaState, 4);
-  int16_t sy = luaL_checknumber(luaState, 5);
-  int16_t sw = luaL_checknumber(luaState, 6);
-  int16_t sh = luaL_checknumber(luaState, 7);
   if (!isHandleValid(handle)) {
+    luaDisplay = luaFramebuffer;
     return 0;
   }
-  int32_t maskingColor = spriteMetadata[handle].maskingColor;
-  if (maskingColor != -1) {
-    sprites[handle].pushToSprite(luaDisplay, tx, ty, sx, sy, sw, sh, maskingColor);
-  } else {
-    sprites[handle].pushToSprite(luaDisplay, tx, ty, sx, sy, sw, sh);
-  }
-  //Serial.println("Draw sprite region done");
+  luaDisplay = &sprites[handle];
   return 0;
 }
 
-static int lua_wrapper_drawAnimSprite(lua_State* luaState) {
-  //Serial.print("Draw anim sprite ");
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  //Serial.println(handle);
-  int16_t tx = luaL_checknumber(luaState, 2);
-  int16_t ty = luaL_checknumber(luaState, 3);
-  int16_t frame = luaL_checknumber(luaState, 4);
-
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  
-  int16_t sw = spriteMetadata[handle].frameW;
-  int16_t sh = spriteMetadata[handle].frameH;
-
-  int16_t cols = sprites[handle].width() / sw;
-
-  int16_t col = frame % cols;
-  int16_t row = frame / cols;
-
-  int32_t maskingColor = spriteMetadata[handle].maskingColor;
-  if (maskingColor != -1) {
-    sprites[handle].pushToSprite(luaDisplay, tx, ty, sw*col, sh*row, sw, sh, maskingColor);
-  } else {
-    sprites[handle].pushToSprite(luaDisplay, tx, ty, sw*col, sh*row, sw, sh);
-  }
-  
-  //Serial.println("Draw anim sprite done");
-  return 0;
-}
-
-static int lua_wrapper_drawSpriteToSprite(lua_State* luaState) {
-  //Serial.print("Draw sprite ");
-  int16_t srcHandle = luaL_checkinteger(luaState, 1);
-  int16_t dstHandle = luaL_checkinteger(luaState, 2);
-  //Serial.println(handle);
-  int16_t x = luaL_checknumber(luaState, 3);
-  int16_t y = luaL_checknumber(luaState, 4);
-
-  if ((srcHandle<0) || (srcHandle>=SPRITE_COUNT_LIMIT) || (!sprites[srcHandle].created())) {
-    Serial.println("ERROR: Could not draw sprite to sprite: invalid src sprite handle!");
-    if (luaStrictMode) {
-      checkFailWithMessage("ERROR: Could not draw sprite to sprite: invalid src sprite handle!");
-    }
-    return 0;
-  }
-  if ((dstHandle<0) || (dstHandle>=SPRITE_COUNT_LIMIT) || (!sprites[dstHandle].created())) {
-    Serial.println("ERROR: Could not draw sprite to sprite: invalid dst sprite handle!");
-    if (luaStrictMode) {
-      checkFailWithMessage("ERROR: Could not draw sprite to sprite: invalid dst sprite handle!");
-    }
-    return 0;
-  }
-
-  int32_t maskingColor = spriteMetadata[srcHandle].maskingColor;
-  Serial.print("PSTS: Masking color: ");
-  Serial.println(maskingColor);
-  bool oldSwapBytes = sprites[srcHandle].getSwapBytes();
-  sprites[srcHandle].setSwapBytes(false);
-  if (maskingColor != -1) {
-    sprites[srcHandle].pushToSprite(&sprites[dstHandle], x, y, maskingColor);
-  } else {
-    sprites[srcHandle].pushToSprite(&sprites[dstHandle], x, y);
-  }
-  sprites[srcHandle].setSwapBytes(oldSwapBytes);
-  //Serial.println("Draw sprite done");
-  return 0;
-}
-
-static int lua_wrapper_drawSpriteScaled(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  Vector2D position;
-  position.x = luaL_checknumber(luaState, 2);
-  position.y = luaL_checknumber(luaState, 3);
-  Vector2D scale;
-  scale.x = luaL_checknumber(luaState, 4);
-  scale.y = luaL_checknumber(luaState, 5);
-  uint32_t flags = luaL_optinteger(luaState, 6, 0);
-  flags |= TRANSP_MASK;
-  drawSpriteScaled(luaDisplay, &sprites[handle], &position, &scale, flags, spriteMetadata[handle].maskingColor);
-  return 0;
-}
-
-static int lua_wrapper_drawAnimSpriteScaled(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  int16_t sw = spriteMetadata[handle].frameW;
-  int16_t sh = spriteMetadata[handle].frameH;
-  Vector2D position;
-  position.x = luaL_checknumber(luaState, 2);
-  position.y = luaL_checknumber(luaState, 3);
-  Vector2D scale;
-  scale.x = luaL_checknumber(luaState, 4);
-  scale.y = luaL_checknumber(luaState, 5);
-  int16_t frame = luaL_checknumber(luaState, 6);
-  uint32_t flags = luaL_optinteger(luaState, 7, 0);
-  flags |= TRANSP_MASK;
-  drawSpriteScaled(luaDisplay, &sprites[handle], &position, &scale, flags, spriteMetadata[handle].maskingColor, sw, sh, frame);
-  return 0;
-}
-
-static int lua_wrapper_drawSpriteTransformed(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  Vector2D position;
-  position.x = luaL_checknumber(luaState, 2);
-  position.y = luaL_checknumber(luaState, 3);
-  Matrix2D transform;
-  transform.a = luaL_checknumber(luaState, 4);
-  transform.b = luaL_checknumber(luaState, 5);
-  transform.c = luaL_checknumber(luaState, 6);
-  transform.d = luaL_checknumber(luaState, 7);
-  uint32_t flags = luaL_optinteger(luaState, 8, 0);
-  flags |= TRANSP_MASK;
-  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transform, flags, spriteMetadata[handle].maskingColor);
-  return 0;
-}
-
-static int lua_wrapper_drawSpriteScaledRotated(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  Vector2D position;
-  position.x = luaL_checknumber(luaState, 2);
-  position.y = luaL_checknumber(luaState, 3);
-  Vector2D scale;
-  scale.x = luaL_checknumber(luaState, 4);
-  scale.y = luaL_checknumber(luaState, 5);
-  float angle = luaL_checknumber(luaState, 6);
-  uint32_t flags = luaL_optinteger(luaState, 7, 0);
-  flags |= TRANSP_MASK;
-  float s = sin(angle);
-  float c = cos(angle);
-  Matrix2D transform = {
-    c * scale.x, -s,
-    s, c * scale.y
-  };
-  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transform, flags, spriteMetadata[handle].maskingColor);
-  return 0;
-}
-
-static int lua_wrapper_drawAnimSpriteScaledRotated(lua_State* luaState) {
-  int16_t handle = luaL_checkinteger(luaState, 1);
-  if (!isHandleValid(handle)) {
-    return 0;
-  }
-  int16_t sw = spriteMetadata[handle].frameW;
-  int16_t sh = spriteMetadata[handle].frameH;
-  Vector2D position;
-  position.x = luaL_checknumber(luaState, 2);
-  position.y = luaL_checknumber(luaState, 3);
-  Vector2D scale;
-  scale.x = luaL_checknumber(luaState, 4);
-  scale.y = luaL_checknumber(luaState, 5);
-  float angle = luaL_checknumber(luaState, 6);
-  int16_t frame = luaL_checknumber(luaState, 7);
-  uint32_t flags = luaL_optinteger(luaState, 8, ALIGN_H_CENTER | ALIGN_V_CENTER);
-  flags |= TRANSP_MASK;
-  float s = sin(angle);
-  float c = cos(angle);
-  Matrix2D scaleMatrix = {
-    scale.x, 0,
-    0, scale.y
-  };
-  Matrix2D rotateMatrix = {
-    c, -s,
-    s, c
-  };
-  Matrix2D transformMatrix;
-  multMMF(&rotateMatrix, &scaleMatrix, &transformMatrix);
-  drawSpriteTransformed(luaDisplay, &sprites[handle], &position, &transformMatrix, flags, spriteMetadata[handle].maskingColor, sw, sh, frame);
+static int lua_wrapper_setDrawTargetFramebuffer(lua_State* luaState) {
+  luaDisplay = luaFramebuffer;
   return 0;
 }
 
@@ -565,16 +458,12 @@ static int lua_wrapper_mode7WorldToScreen(lua_State* luaState) {
   return 3;
 }
 
-static int lua_wrapper_log(lua_State* luaState) {
-  String s = luaL_checkstring(luaState, 1);
-  Serial.println(s);
-  return 0;
-}
-
 static int lua_wrapper_drawString(lua_State* luaState) {
-  const char* cs = luaL_checkstring(luaState, 1);
-  char* s = (char*)malloc(strlen(cs)+1);
-  strcpy(s, cs);
+  String str = luaL_checkstring(luaState, 1);
+  str.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
+                         // unicode table, so ¶ is used as a stand-in for € to save space.
+  char* s = (char*)malloc(strlen(str.c_str())+1);
+  strcpy(s, str.c_str());
   int32_t x = luaL_checknumber(luaState, 2);
   int32_t y = luaL_checknumber(luaState, 3);
   char* token = strtok(s, "\n");
@@ -654,7 +543,7 @@ static int lua_wrapper_drawFastVLine(lua_State* luaState) {
   return 0;
 }
 
-static int lua_wrapper_fillScreen(lua_State* luaState) {
+static int lua_wrapper_fillSprite(lua_State* luaState) {
   uint16_t color = luaL_checknumber(luaState, 1);
   luaDisplay->fillScreen(color);
   return 0;
@@ -687,18 +576,17 @@ static int lua_wrapper_setCursor(lua_State* luaState) {
 
 static int lua_wrapper_print(lua_State* luaState) {
   String s = luaL_checkstring(luaState, 1);
+  s.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
+                       // unicode table, so ¶ is used as a stand-in for € to save space.
   luaDisplay->print(s);
   return 0;
 }
 
 static int lua_wrapper_println(lua_State* luaState) {
   String s = luaL_checkstring(luaState, 1);
+  s.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
+                       // unicode table, so ¶ is used as a stand-in for € to save space.
   luaDisplay->println(s);
-  return 0;
-}
-
-static int lua_wrapper_cls(lua_State* luaState) {
-  luaDisplay->fillSprite(TFT_BLACK);
   return 0;
 }
 
@@ -1048,19 +936,12 @@ void initLua() {
   lua_register(luaState, "LoadAnimSprite", (lua_CFunction) &lua_wrapper_loadAnimSprite);
   lua_register(luaState, "FreeSprite", (lua_CFunction) &lua_wrapper_freeSprite);
   lua_register(luaState, "DrawSprite", (lua_CFunction) &lua_wrapper_drawSprite);
-  lua_register(luaState, "DrawSpriteRegion", (lua_CFunction) &lua_wrapper_drawSpriteRegion);
-  lua_register(luaState, "DrawAnimSprite", (lua_CFunction) &lua_wrapper_drawAnimSprite);
-  lua_register(luaState, "DrawSpriteToSprite", (lua_CFunction) &lua_wrapper_drawSpriteToSprite);
-  lua_register(luaState, "DrawSpriteScaled", (lua_CFunction) &lua_wrapper_drawSpriteScaled);
-  lua_register(luaState, "DrawAnimSpriteScaled", (lua_CFunction) &lua_wrapper_drawAnimSpriteScaled);
-  lua_register(luaState, "DrawSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawSpriteScaledRotated);
-  lua_register(luaState, "DrawAnimSpriteScaledRotated", (lua_CFunction) &lua_wrapper_drawAnimSpriteScaledRotated);
-  lua_register(luaState, "DrawSpriteTransformed", (lua_CFunction) &lua_wrapper_drawSpriteTransformed);
+  lua_register(luaState, "SetDrawTargetSprite", (lua_CFunction) &lua_wrapper_setDrawTargetSprite);
+  lua_register(luaState, "SetDrawTargetFramebuffer", (lua_CFunction) &lua_wrapper_setDrawTargetFramebuffer);
   lua_register(luaState, "SpriteWidth", (lua_CFunction) &lua_wrapper_spriteWidth);
   lua_register(luaState, "SpriteHeight", (lua_CFunction) &lua_wrapper_spriteHeight);
   lua_register(luaState, "DrawMode7", (lua_CFunction) &lua_wrapper_drawMode7);
   lua_register(luaState, "Mode7WorldToScreen", (lua_CFunction) &lua_wrapper_mode7WorldToScreen);
-  lua_register(luaState, "Log", (lua_CFunction) &lua_wrapper_log);
   lua_register(luaState, "DrawString", (lua_CFunction) &lua_wrapper_drawString);
   lua_register(luaState, "DrawRect", (lua_CFunction) &lua_wrapper_drawRect);
   lua_register(luaState, "FillRect", (lua_CFunction) &lua_wrapper_fillRect);
@@ -1069,14 +950,13 @@ void initLua() {
   lua_register(luaState, "DrawLine", (lua_CFunction) &lua_wrapper_drawLine);
   lua_register(luaState, "DrawFastHLine", (lua_CFunction) &lua_wrapper_drawFastHLine);
   lua_register(luaState, "DrawFastVLine", (lua_CFunction) &lua_wrapper_drawFastVLine);
-  lua_register(luaState, "FillScreen", (lua_CFunction) &lua_wrapper_fillScreen);
+  lua_register(luaState, "FillSprite", (lua_CFunction) &lua_wrapper_fillSprite);
   lua_register(luaState, "SetTextColor", (lua_CFunction) &lua_wrapper_setTextColor);
   lua_register(luaState, "SetTextSize", (lua_CFunction) &lua_wrapper_setTextSize);
   lua_register(luaState, "SetTextDatum", (lua_CFunction) &lua_wrapper_setTextDatum);
   lua_register(luaState, "SetCursor", (lua_CFunction) &lua_wrapper_setCursor);
   lua_register(luaState, "Print", (lua_CFunction) &lua_wrapper_print);
   lua_register(luaState, "Println", (lua_CFunction) &lua_wrapper_println);
-  lua_register(luaState, "Cls", (lua_CFunction) &lua_wrapper_cls);
   lua_register(luaState, "PrefsSetString", (lua_CFunction) &lua_wrapper_prefsSetString);
   lua_register(luaState, "PrefsGetString", (lua_CFunction) &lua_wrapper_prefsGetString);
   lua_register(luaState, "PrefsSetInt", (lua_CFunction) &lua_wrapper_prefsSetInt);
@@ -1106,6 +986,19 @@ void initLua() {
   lua_register(luaState, "GetJoystickX", (lua_CFunction) &lua_wrapper_getJoystickX);
   lua_register(luaState, "GetJoystickY", (lua_CFunction) &lua_wrapper_getJoystickY);
   lua_register(luaState, "GetJoystickButton", (lua_CFunction) &lua_wrapper_getJoystickButton);
+
+  String flags = "FLIPPED_H="+String(FLIPPED_H)+"\n"+\
+                 "FLIPPED_V="+String(FLIPPED_V)+"\n"+\
+                 "DITHER_TRANSPARENCY="+String(DITHER_TRANSPARENCY)+"\n"+\
+                 "ALIGN_H_LEFT="+String(ALIGN_H_LEFT)+"\n"+\
+                 "ALIGN_H_CENTER="+String(ALIGN_H_CENTER)+"\n"+\
+                 "ALIGN_H_RIGHT="+String(ALIGN_H_RIGHT)+"\n"+\
+                 "ALIGN_V_TOP="+String(ALIGN_V_TOP)+"\n"+\
+                 "ALIGN_V_CENTER="+String(ALIGN_V_CENTER)+"\n"+\
+                 "ALIGN_V_BOTTOM="+String(ALIGN_V_BOTTOM)+"\n"+\
+                 "TRANSP_OFF="+String(TRANSP_OFF)+"\n"+\
+                 "TRANSP_MASK="+String(TRANSP_MASK);
+  lua_dostring(flags.c_str(), "init()");
   bindingsInitiated = true;
 }
 
@@ -1170,15 +1063,17 @@ void updateBlowData(BlowData* blowData) {
 
 void updateJumpData(JumpData* jumpData) {
   static uint32_t lastMs = 0;
+  static int32_t lastKnownTaskNumber = -1;
   static uint32_t lastRepetition = 0;
   static uint32_t lastBonusRepetition = 0;
   static uint32_t lastJumpMs = 0;
   int32_t taskNumber = jumpData->taskNumber + jumpData->cycleNumber * jumpData->totalTaskNumber;
+  bool isNewTask = taskNumber != lastKnownTaskNumber;
   if (jumpData->jumpCount > lastRepetition) {
     lastJumpMs = jumpData->ms;
   }
   String jumpDataString = "Ms="+String(jumpData->ms)+"\n"+\
-                          "MsDelta="+String(jumpData->ms - lastMs)+"\n"+\
+                          "MsDelta="+String(isNewTask ? 1 : jumpData->ms - lastMs)+"\n"+\
                           "CycleNumber="+String(jumpData->cycleNumber)+"\n"+\
                           "TotalCycleNumber="+String(jumpData->totalCycleNumber)+"\n"+\
                           "CumulatedTaskNumber="+String(jumpData->taskNumber + jumpData->cycleNumber * jumpData->totalTaskNumber)+"\n"+\
@@ -1192,50 +1087,72 @@ void updateJumpData(JumpData* jumpData) {
                           "MsLeft="+String(jumpData->msLeft)+"\n"+\
                           "LastJumpMs="+String(lastJumpMs)+"\n"+\
                           "LeftHandedMode="+String(systemConfig.leftHandMode ? "true\n" : "false\n");
+  lastKnownTaskNumber = taskNumber;
   lua_dostring(jumpDataString.c_str(), "updateJumpData()");
   lastMs = jumpData->ms;
   lastRepetition = jumpData->jumpCount;
 }
 
 void drawShortBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateBlowData(blowData);
   lua_dofile(luaGamePath + gameConfig.pepShortScriptPath);
 }
 
 void drawLongBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateBlowData(blowData);
   lua_dofile(luaGamePath + gameConfig.pepLongScriptPath);
 }
 
 void drawEqualBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateBlowData(blowData);
   lua_dofile(luaGamePath + gameConfig.pepEqualScriptPath);
 }
 
 void drawTrampolineGame_lua(DISPLAY_T* display, JumpData* jumpData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateJumpData(jumpData);
   lua_dofile(luaGamePath + gameConfig.trampolineScriptPath);
 }
 
 void drawInhalationGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateBlowData(blowData);
   lua_dofile(luaGamePath + gameConfig.inhalationScriptPath);
 }
 
 void drawInhalationBlowGame_lua(DISPLAY_T* display, BlowData* blowData, String* errorMessage) {
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   updateBlowData(blowData);
   lua_dofile(luaGamePath + gameConfig.inhalationPepScriptPath);
 }
 
 bool displayProgressionMenu_lua(DISPLAY_T *display, String *errorMessage) {
   luaProgressionMenuRunning = true;
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   lua_dostring(("Ms="+String(millis())).c_str(), "displayProgressionMenu_lua()");
   String error = lua_dofile(luaGamePath + gameConfig.progressionMenuScriptPath);
   if (!error.isEmpty()) {
@@ -1261,7 +1178,10 @@ bool displayWinScreen_lua(DISPLAY_T *display, String *errorMessage) {
     return false;
   }
   luaWinScreenRunning = true;
-  luaDisplay = display;
+  luaFramebuffer = display;
+  if (luaDisplay == nullptr) {
+    luaDisplay = display;
+  }
   lua_dostring(("Ms="+String(millis())).c_str(), "displayWinScreen_lua()");
   String error = lua_dofile(luaGamePath + gameConfig.winScreenScriptPath);
   if (!error.isEmpty()) {

@@ -1,6 +1,6 @@
 SetTextSize(2)
 DrawString("Geld:", 235, 35)
-DrawString("$" .. Money, 235, 55)
+DrawString("€" .. Money, 235, 55)
 
 if not ConfirmDialogOpen then
   SetTextSize(3)

@@ -48,7 +48,8 @@ function CreateHorseSprite(colorHorse, colorCoat, colorHelmet)
   elseif colorCoat == COAT_Y then
     addSprite = LoadAnimSprite("gfx/coat/yellow.bmp", 23, 81, 0, 0xf81f)
   end
-  DrawSpriteToSprite(addSprite, sprite, 0, 0)
+  SetDrawTargetSprite(sprite)
+  DrawSprite(addSprite, 0, 0)
   FreeSprite(addSprite)
   if colorHelmet == HELMET_R then
     addSprite = LoadAnimSprite("gfx/helmet/red.bmp", 23, 81, 0, 0xf81f)
@@ -57,11 +58,12 @@ function CreateHorseSprite(colorHorse, colorCoat, colorHelmet)
   elseif colorHelmet == HELMET_B then
     addSprite = LoadAnimSprite("gfx/helmet/blue.bmp", 23, 81, 0, 0xf81f)
   end
-  DrawSpriteToSprite(addSprite, sprite, 0, 0)
+  DrawSprite(addSprite, 0, 0)
   FreeSprite(addSprite)
   addSprite = LoadAnimSprite("gfx/horse_extra.bmp", 23, 81, 0, 0xf81f)
-  DrawSpriteToSprite(addSprite, sprite, 0, 0)
+  DrawSprite(addSprite, 0, 0)
   FreeSprite(addSprite)
+  SetDrawTargetFramebuffer()
   return sprite
 end
 
@@ -209,7 +211,7 @@ function DoDrawSpriteToRoad(handle, roadX, roadY, scaleX, scaleY)
   if (y~=-1000 and y>=DRAW_HORIZON) then
     scaleX = scaleX*scaleFactor
     scaleY = scaleY*scaleFactor
-    DrawSpriteScaled(handle, x-SpriteWidth(handle)*scaleX*0.5, y-SpriteHeight(handle)*scaleY, scaleX, scaleY)
+    DrawSprite(handle, x-SpriteWidth(handle)*scaleX*0.5, y-SpriteHeight(handle)*scaleY, {scaleX=scaleX, scaleY=scaleY})
   end
 end
 
@@ -218,7 +220,7 @@ function DoDrawAnimSpriteToRoad(handle, roadX, roadY, scaleX, scaleY, frame)
   if (y~=-1000 and y>=DRAW_HORIZON) then
     scaleX = scaleX*scaleFactor
     scaleY = scaleY*scaleFactor
-    DrawAnimSpriteScaled(handle, x-SpriteWidth(handle)*scaleX*0.5, y-SpriteHeight(handle)*scaleY, scaleX, scaleY, frame)
+    DrawSprite(handle, x-SpriteWidth(handle)*scaleX*0.5, y-SpriteHeight(handle)*scaleY, {scaleX=scaleX, scaleY=scaleY, frame=frame})
   end
 end
 
@@ -232,7 +234,7 @@ function DoDrawHorse(handle, roadX, roadY, height, scaleX, scaleY, angle, frame,
       DrawString(name, x, y - SpriteHeight(handle)*scaleY - 10)
       SetTextDatum(0)
     end
-    DrawAnimSpriteScaledRotated(handle, x, y + height, scaleX, scaleY, angle, frame, 1+8)
+    DrawSprite(handle, x, y + height, {scaleX=scaleX, scaleY=scaleY, angle=angle, frame=frame, flags=ALIGN_H_CENTER|ALIGN_V_BOTTOM})
   end
 end
 
@@ -357,7 +359,7 @@ function DisplayHorseShop(offset)
     DrawString(shopHorse.name, 85, yPos+2)
     DrawString("Tempo: " .. shopHorse.speed, 85, yPos+20)
     SetTextDatum(2)
-    DrawString("$"..shopHorse.cost, 225, yPos+40)
+    DrawString("€"..shopHorse.cost, 225, yPos+40)
     SetTextDatum(0)
   end
   for i = 1, #ShopHorses - ShopMenuOffset do
@@ -366,7 +368,7 @@ function DisplayHorseShop(offset)
     if Money > shopHorse.cost and IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
       TouchBlocked = true
       ConfirmDialogOpen = true
-      ConfirmDialogText = "Willst du " .. shopHorse.name .. "\n\nfür $" .. shopHorse.cost .." kaufen?\n \nDein Kontostand beträgt\n$" .. Money  
+      ConfirmDialogText = "Willst du " .. shopHorse.name .. "\n\nfür €" .. shopHorse.cost .." kaufen?\n \nDein Kontostand beträgt\n€" .. Money  
       ConfirmDialogItemNr = i + ShopMenuOffset
       break
     end
@@ -467,7 +469,7 @@ function DisplayItemShop()
     elseif isOwned then
       DrawString("Im Besitz", 225, yPos+40)
     else
-      DrawString("$"..shopItem.cost, 225, yPos+40)
+      DrawString("€"..shopItem.cost, 225, yPos+40)
     end
     SetTextDatum(0)
   end
@@ -490,7 +492,7 @@ function DisplayItemShop()
       elseif not isOwned and Money > shopItem.cost then
         TouchBlocked = true
         ConfirmDialogOpen = true
-        ConfirmDialogText = "Willst du " .. shopItem.name .. "\n\nfür $" .. shopItem.cost .." kaufen?\n \nDein Kontostand beträgt\n$" .. Money  
+        ConfirmDialogText = "Willst du " .. shopItem.name .. "\n\nfür €" .. shopItem.cost .." kaufen?\n \nDein Kontostand beträgt\n€" .. Money  
         ConfirmDialogItemNr = i + ShopMenuOffset
         break
       end

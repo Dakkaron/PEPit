@@ -38,9 +38,9 @@ if WinScreenPage == 0 then
 
   SetTextDatum(0)
   DrawString("Preisgeld:", 10, 200)
-  DrawString("$" .. (PrizeMoney[position]), 130, 200)
+  DrawString("€" .. (PrizeMoney[position]), 130, 200)
   DrawString("Kontostand:", 10, 220)
-  DrawString("$" .. (Money), 130, 220)
+  DrawString("€" .. (Money), 130, 220)
 
   SetTextDatum(2)
   SetTextSize(2)

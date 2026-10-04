@@ -18,6 +18,7 @@
 ![Luftdrucksensor](https://raw.githubusercontent.com/Dakkaron/T-HMI-PEPmonitor/refs/heads/main/docs/images/airpressuresensor.png)
 - 1S Akku mit PH2.0 Anschluss, mindestens 200mA (https://de.aliexpress.com/item/1005007256417369.html)
 - MicroSD-Karte mit mindestens 1GB und maximal 32GB.
+- M5stack Joystick2
 
 ## Schrauben
 

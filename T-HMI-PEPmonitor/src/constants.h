@@ -2,7 +2,7 @@
 #define __CONSTANTS_H__
 #include <Arduino.h>
 
-#define VERSION "10.0"
+#define VERSION "10.1"
 
 #define LAST_BLOW_SUCCEEDED 0B00000001
 #define LAST_BLOW_FAILED    0B00000010
@@ -96,10 +96,10 @@ struct GameConfig {
 };
 
 struct ProfileData {
-  String name;
-  String imagePath;
-  uint8_t cycles;
-  uint8_t tasks;
+  String name = "";
+  String imagePath = "";
+  uint8_t cycles = 0;
+  uint8_t tasks = 0;
   uint8_t taskType[10];
   uint8_t taskRepetitions[10];
   String taskChangeImagePath[10];

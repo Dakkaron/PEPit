@@ -1,0 +1,2 @@
+PrefsSetInt("money", Money)
+SaveFieldGrid()

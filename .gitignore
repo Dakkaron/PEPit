@@ -38,8 +38,10 @@ release/
 
 
 .idea/
+PEPitCompat/build/
+TrampolineSensor/
+PepItEmulator/
 .vscode/
 
 PepItEmulator/
 PEPitCompat/
-

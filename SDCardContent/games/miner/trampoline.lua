@@ -52,4 +52,4 @@ DrawSprite(SBigDigger, 159-SpriteWidth(SBigDigger)/2, 85-SpriteHeight(SBigDigger
 
 DisplayEarnings(160, 80)
 SetTextSize(2)
-DrawString("$" .. Money, 190, 188)
+DrawString("€" .. Money, 190, 188)
