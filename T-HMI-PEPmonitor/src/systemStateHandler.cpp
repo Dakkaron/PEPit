@@ -2,6 +2,8 @@
 #include "hardware/gfxHandler.hpp"
 #include "hardware/powerHandler.h"
 #include "hardware/joystickHandler.h"
+#include "hardware/serialHandler.h"
+#include "updateHandler.h"
 
 static uint32_t systemState = STATE_BOOTING;
 
@@ -20,3 +22,16 @@ void doSystemTasks() {
   joystickButtonTick();
   vTaskDelay(1);
 }
+
+#ifdef INIT_MODE
+void handleInitMode() {
+  doSystemTasks();
+  handleSerial();
+  displayFullscreenMessage("INIT MODE, waiting for update...");
+  if (getSystemUpdateAvailableStatus() == FIRMWARE_UPDATE_AVAILABLE) {
+    String errorMessage;
+    downloadAndRunSystemUpdate(&errorMessage, true);
+    checkFailWithMessage(errorMessage);
+  }
+}
+#endif

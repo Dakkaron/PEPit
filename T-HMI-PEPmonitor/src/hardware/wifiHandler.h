@@ -13,7 +13,11 @@
 
 typedef std::function<void(size_t, size_t)> THandlerFunction_Progress;
 
+bool isNtpTimePossible();
+bool isTimeAvailable();
 void getFormattedTime(String* ntpDateString, String* ntpTimeString, String* errorMessage);
+void setTimeFromString(const char* datetime);
+void setTime(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute, uint32_t second);
 
 void downloadFile(String url, String filename, String* errorMessage, THandlerFunction_Progress progressCallback);
 String downloadFileToString(String url, String* errorMessage);

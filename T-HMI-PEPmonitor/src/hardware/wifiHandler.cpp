@@ -6,6 +6,7 @@
 #include "esp32-hal.h"
 
 static uint8_t wifiStatus = WIFI_CONNECTION_SEARCHING;
+static bool timeSetManually = false;
 
 uint8_t getWifiStatus() {
   return wifiStatus;
@@ -78,11 +79,20 @@ static String leftPad(String s, uint16_t len, String c) {
   return s;
 }
 
+bool isNtpTimePossible() {
+  return !(systemConfig.wifiSsid.isEmpty() && systemConfig.wifiSsid2.isEmpty() && systemConfig.wifiSsid3.isEmpty());
+}
+
+bool isTimeAvailable() {
+  struct tm timeinfo;
+  return !!getLocalTime(&timeinfo, 0);
+}
+
 void getFormattedTime(String* ntpDateString, String* ntpTimeString, String* errorMessage) {
   static int32_t lastWifiStatus = -1;
   static bool getLocalTimeFailedBefore = false;
   struct tm timeinfo;
-  if((wifiStatus==lastWifiStatus && getLocalTimeFailedBefore) || !getLocalTime(&timeinfo,1)){
+  if((wifiStatus==lastWifiStatus && getLocalTimeFailedBefore && !timeSetManually) || !getLocalTime(&timeinfo, 0)){
     if (!(wifiStatus==lastWifiStatus && getLocalTimeFailedBefore)) {
       Serial.println("Failed to obtain time from NTP");
     }
@@ -96,6 +106,52 @@ void getFormattedTime(String* ntpDateString, String* ntpTimeString, String* erro
   }
   *ntpDateString = String(timeinfo.tm_year+1900) + "-" + String(timeinfo.tm_mon+1) + "-" + String(timeinfo.tm_mday);
   *ntpTimeString = leftPad(String(timeinfo.tm_hour), 2, "0") + ":" + leftPad(String(timeinfo.tm_min), 2, "0");
+}
+
+void setTimeFromString(const char* datetime) {
+  struct tm tm = {};
+
+  sscanf(datetime,
+         "%d-%d-%d %d:%d:%d",
+         &tm.tm_year,
+         &tm.tm_mon,
+         &tm.tm_mday,
+         &tm.tm_hour,
+         &tm.tm_min,
+         &tm.tm_sec);
+
+  tm.tm_year -= 1900;
+  tm.tm_mon  -= 1;
+
+  time_t t = mktime(&tm);
+
+  struct timeval now = {
+      .tv_sec = t,
+      .tv_usec = 0
+  };
+
+  settimeofday(&now, nullptr);
+  timeSetManually = true;
+}
+
+void setTime(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute, uint32_t second) {
+  struct tm tm = {};
+  tm.tm_year = year-1900;
+  tm.tm_mon = month-1;
+  tm.tm_mday = day;
+  tm.tm_hour = hour;
+  tm.tm_min = minute;
+  tm.tm_sec = second;
+
+  time_t t = mktime(&tm);
+
+  struct timeval now = {
+      .tv_sec = t,
+      .tv_usec = 0
+  };
+
+  settimeofday(&now, nullptr);
+  timeSetManually = true;
 }
 
 void downloadFile(String url, String filename, String* errorMessage, THandlerFunction_Progress progressCallback) {

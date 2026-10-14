@@ -68,7 +68,12 @@ bool sdUpdateTarExcludeFilter( TAR::header_translated_t *proper ) {
   return excluded;
 }
 
-static void unpackTARAppUpdate(String* errorMessage) {
+bool sdUpdateTarExcludePaxHeaderOnlyFilter( TAR::header_translated_t *proper ) {
+  bool excluded = (strcmp(proper->filename, "PaxHeader") == 0);
+  return excluded;
+}
+
+static void unpackTARAppUpdate(String* errorMessage, bool writeProfilesAndSystemconfig) {
   static String currentFileName = "";
   static uint32_t nextUpdate = 0;
   currentFileName = "";
@@ -92,7 +97,11 @@ static void unpackTARAppUpdate(String* errorMessage) {
     currentFileName = name;
   }); // print the filenames as they're expanded
   TARUnpacker->setTarMessageCallback( BaseUnpacker::targzPrintLoggerCallback ); // tar log verbosity
-  TARUnpacker->setTarExcludeFilter(sdUpdateTarExcludeFilter);
+  if (writeProfilesAndSystemconfig) {
+    TARUnpacker->setTarExcludeFilter(sdUpdateTarExcludePaxHeaderOnlyFilter);
+  } else {
+    TARUnpacker->setTarExcludeFilter(sdUpdateTarExcludeFilter);
+  }
 
   // using an intermediate file (default is /tmp/tmp.tar)
   if( !TARUnpacker->tarExpander(tarGzFS, (String("/")+SDCARD_CONTENT_FILE_NAME).c_str(), tarGzFS, "/") ) {
@@ -102,7 +111,7 @@ static void unpackTARAppUpdate(String* errorMessage) {
   }
 }
 
-static void unpackTARGZAppUpdate(String* errorMessage) {
+static void unpackTARGZAppUpdate(String* errorMessage, bool writeProfilesAndSystemconfig) {
   static String currentFileName = "";
   static uint32_t nextUpdate = 0;
   currentFileName = "";
@@ -135,7 +144,11 @@ static void unpackTARGZAppUpdate(String* errorMessage) {
     currentFileName = name;
   }); // print the filenames as they're expanded
   TARGZUnpacker->setTarMessageCallback( BaseUnpacker::targzPrintLoggerCallback ); // tar log verbosity
-  TARGZUnpacker->setTarExcludeFilter(sdUpdateTarExcludeFilter);
+  if (writeProfilesAndSystemconfig) {
+    TARGZUnpacker->setTarExcludeFilter(sdUpdateTarExcludePaxHeaderOnlyFilter);
+  } else {
+    TARGZUnpacker->setTarExcludeFilter(sdUpdateTarExcludeFilter);
+  }
 
   // using an intermediate file (default is /tmp/tmp.tar)
   if( !TARGZUnpacker->tarGzExpander(tarGzFS, (String("/")+SDCARD_CONTENT_FILE_NAME).c_str(), tarGzFS, "/", nullptr) ) {
@@ -145,7 +158,7 @@ static void unpackTARGZAppUpdate(String* errorMessage) {
   }
 }
 
-void downloadAndRunSystemUpdate(String* errorMessage) {
+void downloadAndRunSystemUpdate(String* errorMessage, bool writeProfilesAndSystemconfig) {
   fetchReleaseUrl();
   if (systemUpdateReleaseUrl.equals("")) {
     Serial.println("No new firmware update available.");
@@ -173,10 +186,10 @@ void downloadAndRunSystemUpdate(String* errorMessage) {
     return;
   }
 
-  checkForAndRunUpdateFromSD(errorMessage);
+  checkForAndRunUpdateFromSD(errorMessage, writeProfilesAndSystemconfig);
 }
 
-void checkForAndRunUpdateFromSD(String* errorMessage) {
+void checkForAndRunUpdateFromSD(String* errorMessage, bool writeProfilesAndSystemconfig) {
   if (!SD_MMC.exists(String("/")+FIRMWARE_FILE_NAME)) {
     Serial.println("No firmware update found on SD card.");
     return;
@@ -208,9 +221,9 @@ void checkForAndRunUpdateFromSD(String* errorMessage) {
   displayFullscreenMessage("App-Update wird\ninstalliert...");
   Serial.println("Starting App update");
   if (String(SDCARD_CONTENT_FILE_NAME).endsWith(".gz")) {
-    unpackTARGZAppUpdate(errorMessage);
+    unpackTARGZAppUpdate(errorMessage, writeProfilesAndSystemconfig);
   } else {
-    unpackTARAppUpdate(errorMessage);
+    unpackTARAppUpdate(errorMessage, writeProfilesAndSystemconfig);
   }
   if (errorMessage->length() > 0) {
     return;

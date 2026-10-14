@@ -1350,7 +1350,7 @@ static bool touchPressed = false;
 static void displayDigitSelector(int32_t* digit, int32_t min, int32_t max, uint32_t digits, int32_t x, int32_t y) {
   *digit = _max(_min(*digit, max), min);
   String digitString = String(*digit);
-  leftPad(digitString, digits, "0");
+  digitString = leftPad(digitString, digits, "0");
   spr.setTextDatum(CC_DATUM);
   spr.setTextSize(2);
   spr.setTextColor(COLOR_BUTTON_PRIMARY_TEXT);
@@ -1426,25 +1426,7 @@ void displayDateTimeSelection() {
     
     spr.pushSpriteFast(0, 0);
   }
-  struct tm tm;
-  tm.tm_hour = hour;
-  tm.tm_min = minute;
-  tm.tm_mday = day;
-  tm.tm_mon = month-1;
-  tm.tm_year = year-1900;
-  tm.tm_isdst = -1;
-  time_t t = mktime(&tm);
-  if (t == (time_t)-1) {
-    Serial.println("mktime failed!");
-    return;
-  }
-  
-  struct timeval tv;
-  tv.tv_sec = t;
-  tv.tv_usec = 0;
-  if (settimeofday(&tv, NULL) != 0) {
-    Serial.println("settimeofday failed!");
-    return;
-  }
+
+  setTime(year, month, day, hour, minute, 0);
   spr.setTextDatum(TL_DATUM);
 }

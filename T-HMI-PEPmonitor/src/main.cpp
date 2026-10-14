@@ -163,7 +163,7 @@ void setup() {
   Serial.print(VERSION);
   Serial.println("' initialized");
 
-  checkForAndRunUpdateFromSD(&errorMessage);
+  checkForAndRunUpdateFromSD(&errorMessage, false);
   checkFailWithMessage(errorMessage);
 
   Serial.print("Joystick present: ");
@@ -173,6 +173,18 @@ void setup() {
   connectToTrampoline(false);
   Serial.println("MARKER DONE");
   setSystemState(STATE_PROFILE_SELECTION);
+  #ifdef INIT_MODE
+    while (true) {
+      handleInitMode();
+    }
+  #endif
+  
+  String timeErrorString;
+  if (!isNtpTimePossible() && !isTimeAvailable()) {
+    Serial.println("No Wifi config available, skipping NTP and directly asking for the time and date");
+    displayDateTimeSelection();
+  }
+
   uint32_t requiredTaskTypes = runProfileSelection();
   if ((requiredTaskTypes & REQUIRED_TASK_TYPE_TRAMPOLINE) == 0) {
     Serial.print("Disabling Bluetooth...");

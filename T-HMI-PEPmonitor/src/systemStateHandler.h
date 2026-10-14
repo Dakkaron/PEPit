@@ -2,6 +2,7 @@
 #define SYSTEM_STATE_HANDLER_H
 
 #include "Arduino.h"
+#include "constants.h"
 
 #define STATE_BOOTING 0
 #define STATE_PROFILE_SELECTION 1
@@ -14,5 +15,8 @@ void setSystemState(uint32_t state);
 uint32_t getSystemState();
 
 void doSystemTasks();
+#ifdef INIT_MODE
+void handleInitMode();
+#endif
 
 #endif // SYSTEM_STATE_HANDLER_H

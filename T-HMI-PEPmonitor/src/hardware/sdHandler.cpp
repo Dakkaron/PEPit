@@ -42,29 +42,37 @@ bool stringIsTrue(String str, bool defaultValue) {
 void readSystemConfig(SystemConfig* systemConfig, String* errorMessage) {
   char resBuffer[1024*3];
   String ignoreErrors = "";
-  getIniSection(SYSTEM_CONFIG_INI_PATH, "[system]", resBuffer, 1024*3, errorMessage);
-  getIniValueFromSection(resBuffer, "wifiSSID", &(systemConfig->wifiSsid), &ignoreErrors);
-  getIniValueFromSection(resBuffer, "wifiPassword", &(systemConfig->wifiPassword),  &ignoreErrors);
-  getIniValueFromSection(resBuffer, "wifiSSID2", &(systemConfig->wifiSsid2),  &ignoreErrors);
-  getIniValueFromSection(resBuffer, "wifiPassword2", &(systemConfig->wifiPassword2),  &ignoreErrors);
-  getIniValueFromSection(resBuffer, "wifiSSID3", &(systemConfig->wifiSsid3),  &ignoreErrors);
-  getIniValueFromSection(resBuffer, "wifiPassword3", &(systemConfig->wifiPassword3),  &ignoreErrors);
-  Serial.println("Loaded Wifi config:");
-  Serial.println("1: "+systemConfig->wifiSsid + "/" + systemConfig->wifiPassword);
-  Serial.println("2: "+systemConfig->wifiSsid2 + "/" + systemConfig->wifiPassword2);
-  Serial.println("3: "+systemConfig->wifiSsid3 + "/" + systemConfig->wifiPassword3);
-  systemConfig->touchScreenZThreshold = 2.5*(100-getIntIniValueFromSection(resBuffer, "touchScreenSensitivity", &ignoreErrors));
-  systemConfig->simulateTrampoline    = getBoolIniValueFromSection(resBuffer, "simulateTrampoline", &ignoreErrors, false);
-  systemConfig->simulateBlows         = getBoolIniValueFromSection(resBuffer, "simulateBlowing", &ignoreErrors, false);
-  systemConfig->simulateInhalation    = getBoolIniValueFromSection(resBuffer, "simulateInhalation", &ignoreErrors, false);
-  systemConfig->debugLogBlowPressure  = getBoolIniValueFromSection(resBuffer, "debugLogBlowPressure", &ignoreErrors, false);
-  systemConfig->debugLogTrampoline    = getBoolIniValueFromSection(resBuffer, "debugLogTrampoline", &ignoreErrors, false);
-  systemConfig->logExecutions         = getBoolIniValueFromSection(resBuffer, "logExecutions", errorMessage, false);
-  systemConfig->timezoneOffset        = 60*getIntIniValueFromSection(resBuffer, "timezoneOffset", &ignoreErrors, 0);
-  systemConfig->leftHandMode          = getBoolIniValueFromSection(resBuffer, "leftHandMode", &ignoreErrors, true);
-  systemConfig->manometerMode         = getBoolIniValueFromSection(resBuffer, "manometerMode", &ignoreErrors, false);
-  Serial.println("Simulate blowing: "+String(systemConfig->simulateBlows));
-  Serial.println("Simulate trampoline: "+String(systemConfig->simulateTrampoline));
+  #ifndef INIT_MODE
+    getIniSection(SYSTEM_CONFIG_INI_PATH, "[system]", resBuffer, 1024*3, errorMessage);
+    getIniValueFromSection(resBuffer, "wifiSSID", &(systemConfig->wifiSsid), &ignoreErrors);
+    getIniValueFromSection(resBuffer, "wifiPassword", &(systemConfig->wifiPassword),  &ignoreErrors);
+    getIniValueFromSection(resBuffer, "wifiSSID2", &(systemConfig->wifiSsid2),  &ignoreErrors);
+    getIniValueFromSection(resBuffer, "wifiPassword2", &(systemConfig->wifiPassword2),  &ignoreErrors);
+    getIniValueFromSection(resBuffer, "wifiSSID3", &(systemConfig->wifiSsid3),  &ignoreErrors);
+    getIniValueFromSection(resBuffer, "wifiPassword3", &(systemConfig->wifiPassword3),  &ignoreErrors);
+    Serial.println("Loaded Wifi config:");
+    Serial.println("1: "+systemConfig->wifiSsid + "/" + systemConfig->wifiPassword);
+    Serial.println("2: "+systemConfig->wifiSsid2 + "/" + systemConfig->wifiPassword2);
+    Serial.println("3: "+systemConfig->wifiSsid3 + "/" + systemConfig->wifiPassword3);
+    systemConfig->touchScreenZThreshold = 2.5*(100-getIntIniValueFromSection(resBuffer, "touchScreenSensitivity", &ignoreErrors));
+    systemConfig->simulateTrampoline    = getBoolIniValueFromSection(resBuffer, "simulateTrampoline", &ignoreErrors, false);
+    systemConfig->simulateBlows         = getBoolIniValueFromSection(resBuffer, "simulateBlowing", &ignoreErrors, false);
+    systemConfig->simulateInhalation    = getBoolIniValueFromSection(resBuffer, "simulateInhalation", &ignoreErrors, false);
+    systemConfig->debugLogBlowPressure  = getBoolIniValueFromSection(resBuffer, "debugLogBlowPressure", &ignoreErrors, false);
+    systemConfig->debugLogTrampoline    = getBoolIniValueFromSection(resBuffer, "debugLogTrampoline", &ignoreErrors, false);
+    systemConfig->logExecutions         = getBoolIniValueFromSection(resBuffer, "logExecutions", errorMessage, false);
+    systemConfig->timezoneOffset        = 60*getIntIniValueFromSection(resBuffer, "timezoneOffset", &ignoreErrors, 0);
+    systemConfig->leftHandMode          = getBoolIniValueFromSection(resBuffer, "leftHandMode", &ignoreErrors, true);
+    systemConfig->manometerMode         = getBoolIniValueFromSection(resBuffer, "manometerMode", &ignoreErrors, false);
+    Serial.println("Simulate blowing: "+String(systemConfig->simulateBlows));
+    Serial.println("Simulate trampoline: "+String(systemConfig->simulateTrampoline));
+  #else
+    systemConfig->wifiSsid = INIT_MODE_WIFI_SSID;
+    systemConfig->wifiPassword = INIT_MODE_WIFI_PASS;
+    systemConfig->timezoneOffset        = 0;
+  #endif
+  
+  
 }
 
 uint32_t getNumberOfProfiles(String* errorMessage) {
@@ -77,14 +85,19 @@ uint32_t getNumberOfProfiles(String* errorMessage) {
       count++;
     }
   }
-  if (count == 0) {
-    errorMessage->concat("No profiles found!\n");
-  }
+  #ifndef INIT_MODE
+    if (count == 0) {
+      errorMessage->concat("No profiles found!\n");
+    }
+  #endif
   return count;
 }
 
 void readProfileData(uint32_t profileId, ProfileData* profileData, String* errorMessage) {
   char resBuffer[2048];
+  #ifdef INIT_MODE
+    return;
+  #endif
   getIniSection(PROFILE_DATA_INI_PATH, "[profile_" + String(profileId) + "]", resBuffer, 2048, errorMessage);
   getIniValueFromSection(resBuffer, "name",      &(profileData->name), errorMessage);
   getIniValueFromSection(resBuffer, "imagePath", &(profileData->imagePath), errorMessage);

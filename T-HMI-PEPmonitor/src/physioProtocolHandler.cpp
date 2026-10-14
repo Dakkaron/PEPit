@@ -110,7 +110,7 @@ uint32_t runProfileSelection() {
       spr.fillSprite(TFT_BLACK);
       spr.pushSpriteFast(0,0);
       tft.fillScreen(TFT_BLACK);
-      downloadAndRunSystemUpdate(&errorMessage);
+      downloadAndRunSystemUpdate(&errorMessage, false);
       checkFailWithMessage(errorMessage);
       profileSuccessfullyLoaded = false; // Should never happen
       continue;
@@ -494,7 +494,7 @@ static void drawFinished() {
         Serial.println("Starting update.");
         String errorMessage;
         tft.fillScreen(TFT_BLACK);
-        downloadAndRunSystemUpdate(&errorMessage);
+        downloadAndRunSystemUpdate(&errorMessage, false);
         checkFailWithMessage(errorMessage);
       } else {
         Serial.println("Power off.");

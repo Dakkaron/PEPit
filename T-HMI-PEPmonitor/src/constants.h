@@ -4,6 +4,13 @@
 
 #define VERSION "10.1"
 
+//#define INIT_MODE
+#ifdef INIT_MODE
+  #include "initModeConfig.h"
+  #undef VERSION
+  #define VERSION "0.0"
+#endif
+
 #define LAST_BLOW_SUCCEEDED 0B00000001
 #define LAST_BLOW_FAILED    0B00000010
 #define NEW_BLOW            0B00000100
