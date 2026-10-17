@@ -27,6 +27,7 @@
 #include "hardware/bluetoothHandler.h"
 #include "systemStateHandler.h"
 #include "hardware/joystickHandler.h"
+#include "hardware/prefsHandler.h"
 
 #define LEDC_TIMER              LEDC_TIMER_0
 #define LEDC_MODE               LEDC_LOW_SPEED_MODE
@@ -182,6 +183,16 @@ void setup() {
   String timeErrorString;
   if (!isNtpTimePossible() && !isTimeAvailable()) {
     Serial.println("No Wifi config available, skipping NTP and directly asking for the time and date");
+    uint8_t timeStringBytes[20];
+    prefs.end();
+    prefs.begin("system");
+    prefs.getBytes("lastDateTime", timeStringBytes, 20);
+    prefs.end();
+    Serial.print("Loaded last Date Time: ");
+    Serial.println((const char*)timeStringBytes);
+    if (timeStringBytes[0] != '\0') {
+      setTimeFromString((const char*)timeStringBytes);
+    }
     displayDateTimeSelection();
   }
 

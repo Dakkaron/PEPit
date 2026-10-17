@@ -1399,6 +1399,14 @@ void displayDateTimeSelection() {
   int32_t day = 1;
   int32_t month = 1;
   int32_t year = 2026;
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo, 0)) {
+    hour = timeinfo.tm_hour;
+    minute = timeinfo.tm_min;
+    day = timeinfo.tm_mday;
+    month = timeinfo.tm_mon + 1;
+    year = timeinfo.tm_year + 1900;
+  }
   while (true) {
     spr.fillSprite(TFT_BLACK);
     doSystemTasks();

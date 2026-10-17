@@ -4,6 +4,7 @@
 #include <HTTPClient.h>
 #include "sdHandler.h"
 #include "esp32-hal.h"
+#include "hardware/prefsHandler.h"
 
 static uint8_t wifiStatus = WIFI_CONNECTION_SEARCHING;
 static bool timeSetManually = false;
@@ -104,8 +105,17 @@ void getFormattedTime(String* ntpDateString, String* ntpTimeString, String* erro
     *ntpTimeString = "N/A";
     return;
   }
-  *ntpDateString = String(timeinfo.tm_year+1900) + "-" + String(timeinfo.tm_mon+1) + "-" + String(timeinfo.tm_mday);
+  *ntpDateString = String(timeinfo.tm_year+1900) + "-" + leftPad(String(timeinfo.tm_mon+1), 2, "0") + "-" + leftPad(String(timeinfo.tm_mday), 2, "0");
   *ntpTimeString = leftPad(String(timeinfo.tm_hour), 2, "0") + ":" + leftPad(String(timeinfo.tm_min), 2, "0");
+
+  String dateTimeString = *ntpDateString + " " +  *ntpTimeString + ":00";
+  Serial.print("Saving date time string ");
+  Serial.println(dateTimeString);
+  prefs.end();
+  prefs.begin("system");
+  prefs.putBytes("lastDateTime", dateTimeString.c_str(), 20);
+  prefs.end();
+  applyGamePrefsNamespace();
 }
 
 void setTimeFromString(const char* datetime) {
