@@ -86,12 +86,13 @@ bool isNtpTimePossible() {
 
 bool isTimeAvailable() {
   struct tm timeinfo;
-  return !!getLocalTime(&timeinfo, 0);
+  return getLocalTime(&timeinfo, 0);
 }
 
 void getFormattedTime(String* ntpDateString, String* ntpTimeString, String* errorMessage) {
   static int32_t lastWifiStatus = -1;
   static bool getLocalTimeFailedBefore = false;
+  static String lastSavedDatetimeString = "";
   struct tm timeinfo;
   if((wifiStatus==lastWifiStatus && getLocalTimeFailedBefore && !timeSetManually) || !getLocalTime(&timeinfo, 0)){
     if (!(wifiStatus==lastWifiStatus && getLocalTimeFailedBefore)) {
@@ -109,13 +110,16 @@ void getFormattedTime(String* ntpDateString, String* ntpTimeString, String* erro
   *ntpTimeString = leftPad(String(timeinfo.tm_hour), 2, "0") + ":" + leftPad(String(timeinfo.tm_min), 2, "0");
 
   String dateTimeString = *ntpDateString + " " +  *ntpTimeString + ":00";
-  Serial.print("Saving date time string ");
-  Serial.println(dateTimeString);
-  prefs.end();
-  prefs.begin("system");
-  prefs.putBytes("lastDateTime", dateTimeString.c_str(), 20);
-  prefs.end();
-  applyGamePrefsNamespace();
+  if (dateTimeString != lastSavedDatetimeString) {
+    Serial.print("Saving date time string ");
+    Serial.println(dateTimeString);
+    prefs.end();
+    prefs.begin("system");
+    prefs.putBytes("lastDateTime", dateTimeString.c_str(), 20);
+    prefs.end();
+    applyGamePrefsNamespace();
+    lastSavedDatetimeString = dateTimeString;
+  }
 }
 
 void setTimeFromString(const char* datetime) {

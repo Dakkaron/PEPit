@@ -356,13 +356,10 @@ static void handleLogExecutions() {
   spr.drawString("Bitte warten...", 20, 140);
   spr.pushSpriteFast(0,0);
 
-  String errorMessage;
+  String errorMessage = "";
   String ntpDateString, ntpTimeString;
-  getFormattedTime(&ntpDateString, &ntpTimeString, &errorMessage);
-  checkSoftFailWithMessage(errorMessage);
-  if (!errorMessage.isEmpty()) {
+  if (!isTimeAvailable()) {
     displayDateTimeSelection();
-    errorMessage = "";
     getFormattedTime(&ntpDateString, &ntpTimeString, &errorMessage);
     checkSoftFailWithMessage(errorMessage);
     if (!errorMessage.isEmpty()) { // Should never happen
