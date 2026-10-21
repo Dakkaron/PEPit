@@ -4,6 +4,7 @@
 #include "prefsHandler.h"
 
 uint32_t numberOfWinScreens;
+static bool hiddenGamePresent = false;
 
 void initSD(String* errorMessage) {
   Serial.println("Initializing SD...");
@@ -168,13 +169,29 @@ void readProfileData(uint32_t profileId, ProfileData* profileData, String* error
   }
 }
 
-bool gameSupportsTaskTypes(String gamePath, uint32_t requiredTaskTypes, String* errorMessage) {
+bool gameIsHidden(String gamePath, String* errorMessage) {
+  Serial.println(gamePath);
   GameConfig config;
   String ignoreErrors;
   if (!gamePath.endsWith("/")) {
     gamePath += "/";
   }
   readGameConfig(gamePath, &config, &ignoreErrors);
+  Serial.printf("Checking if game %s is hidden: %i\n ->", gamePath.c_str(), config.isHidden);
+  Serial.println(gamePath);
+  return config.isHidden;
+}
+
+bool gameSupportsTaskTypesAndIsNotHidden(String gamePath, uint32_t requiredTaskTypes, String* errorMessage) {
+  GameConfig config;
+  String ignoreErrors;
+  if (!gamePath.endsWith("/")) {
+    gamePath += "/";
+  }
+  readGameConfig(gamePath, &config, &ignoreErrors);
+  if (config.isHidden) {
+    return false;
+  }
   uint32_t gameTaskTypes = 0;
   if (config.templateName == "monster" || config.templateName == "race") {
     gameTaskTypes = REQUIRED_TASK_TYPE_SHORTBLOWS | REQUIRED_TASK_TYPE_LONGBLOWS | REQUIRED_TASK_TYPE_EQUALBLOWS | REQUIRED_TASK_TYPE_TRAMPOLINE;
@@ -230,13 +247,18 @@ uint16_t getNumberOfGames(String* errorMessage, uint32_t requiredTaskTypes) {
   while (file) {
     if (file.isDirectory()) {
       Serial.print("Found game directory ");
-      Serial.print(String(GAMES_ROOT_DIR) + "/" + file.name() + "/" + "gameconfig.ini");
-      File gameIni = SD_MMC.open(String(GAMES_ROOT_DIR) + "/" + file.name() + "/" + "gameconfig.ini");
+      String gameDir = String(GAMES_ROOT_DIR) + "/" + file.name() + "/";
+      Serial.print(gameDir + "gameconfig.ini");
+      File gameIni = SD_MMC.open(gameDir + "gameconfig.ini");
       Serial.print(", ");
       if (gameIni && !gameIni.isDirectory()) {
-        if (gameSupportsTaskTypes(String(String(GAMES_ROOT_DIR) + "/" + file.name()), requiredTaskTypes, errorMessage)) {
+        String gameConfigPath = String(String(GAMES_ROOT_DIR) + "/" + file.name());
+        if (gameSupportsTaskTypesAndIsNotHidden(gameConfigPath, requiredTaskTypes, errorMessage)) {
           gameCount++;
           Serial.println("CONFIRMED!");
+        } else if (gameIsHidden(gameConfigPath, errorMessage) && errorMessage->isEmpty()) {
+          Serial.println("Game " + String(file.name()) + " is hidden.");
+          hiddenGamePresent = true;
         } else {
           Serial.println("Game " + String(file.name()) + " does not support requred task types.");
         }
@@ -251,7 +273,7 @@ uint16_t getNumberOfGames(String* errorMessage, uint32_t requiredTaskTypes) {
   return gameCount;
 }
 
-String getGamePath(uint16_t gameId, uint32_t requiredTaskTypes, String* errorMessage) {
+String getGamePath(int16_t gameId, uint32_t requiredTaskTypes, String* errorMessage) {
   Serial.println("getGamePath()");
   File root = SD_MMC.open(GAMES_ROOT_DIR);
 
@@ -267,14 +289,21 @@ String getGamePath(uint16_t gameId, uint32_t requiredTaskTypes, String* errorMes
   }
   File file = root.openNextFile();
   uint16_t gameCount = 0;
+  Serial.printf("Game ID: %i\n", gameId);
   while (file) {
     if (file.isDirectory()) {
-      File gameIni = SD_MMC.open(String(GAMES_ROOT_DIR) + "/" + file.name() + "/" + "gameconfig.ini");
-      if (gameIni && !gameIni.isDirectory() && gameSupportsTaskTypes(String(String(GAMES_ROOT_DIR) + "/" + file.name()), requiredTaskTypes, errorMessage)) {
+      String gameDir = String(GAMES_ROOT_DIR) + "/" + file.name() + "/";
+      File gameIni = SD_MMC.open(gameDir + "gameconfig.ini");
+      Serial.println(gameDir);
+      if (gameId == HIDDEN_GAME_ID && gameIsHidden(gameDir, errorMessage)) {
+        Serial.printf("Hidden game ini returned: %s/\n", gameDir);
+        return gameDir;
+      } else if (gameId != HIDDEN_GAME_ID &&
+                 gameIni && !gameIni.isDirectory() &&
+                 gameSupportsTaskTypesAndIsNotHidden(gameDir, requiredTaskTypes, errorMessage)) {
         if (gameCount == gameId) {
-          Serial.print("Game ini returned: ");
-          Serial.println(String(GAMES_ROOT_DIR) + "/" + file.name() + "/");
-          return String(GAMES_ROOT_DIR) + "/" + file.name() + "/";
+          Serial.printf("Game ini returned: %s/\n", gameDir);
+          return gameDir;
         }
         gameCount++;
       }
@@ -283,6 +312,7 @@ String getGamePath(uint16_t gameId, uint32_t requiredTaskTypes, String* errorMes
     file = root.openNextFile();
   }
   root.close();
+  checkFailWithMessage("ERROR: Game not found!");
   return "";
 }
 
@@ -304,6 +334,13 @@ void readGameConfig(String gamePath, GameConfig* gameConfig, String* errorMessag
   getIniValueFromSection(resBuffer, "trampolineScriptPath",      &(gameConfig->trampolineScriptPath), &ignoreErrors);
   getIniValueFromSection(resBuffer, "progressionMenuScriptPath", &(gameConfig->progressionMenuScriptPath), &ignoreErrors);
   getIniValueFromSection(resBuffer, "winScreenScriptPath",       &(gameConfig->winScreenScriptPath), &ignoreErrors);
+  String debug;
+  getIniValueFromSection(resBuffer, "isHidden",       &(debug), &ignoreErrors);
+  Serial.print("DEBUG: ");
+  Serial.print(debug);
+  gameConfig->isHidden = getBoolIniValueFromSection(resBuffer, "isHidden", &ignoreErrors, false);
+  Serial.print(" -> ");
+  Serial.println(gameConfig->isHidden);
 
   if (!SD_MMC.exists(gamePath+gameConfig->winScreenScriptPath)) {
     gameConfig->winScreenScriptPath = "";
@@ -331,6 +368,10 @@ void getIniSection(String iniPath, String section, char* resultBuffer, uint16_t 
   while (file.available()) {
     lineBuffer[i] = file.read();
     lineBuffer[i+1] = 0;
+    if (!file.available() && lineBuffer[i] != '\n') { // Add a \n at the end of the file if it's missing
+      lineBuffer[i+1] = '\n';
+      lineBuffer[i+2] = 0;
+    }
     if (lineBuffer[i] == '\n' || lineBuffer[i] == '\r') {
       lineBuffer[i] = '\n';
       if (lineBuffer[0] != '#' && inCorrectSection) {

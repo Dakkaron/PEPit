@@ -100,6 +100,7 @@ struct GameConfig {
   String trampolineScriptPath;
   String progressionMenuScriptPath;
   String winScreenScriptPath;
+  bool isHidden = false;
 };
 
 struct ProfileData {

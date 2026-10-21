@@ -999,6 +999,8 @@ int16_t displayGameSelection(DISPLAY_T* display, uint16_t nr, uint32_t requiredT
   uint32_t lastMs = millis();
   boolean joystickClickUnlocked = false;
   int32_t joystickSelection = isJoystickPresent() ? 0 : -1;
+  uint32_t numberOfClicksOnBattery = 0;
+  boolean touched = false;
 
   if (selectionMode == SELECTION_MODE_PROFILE) {
     selectionMode = SELECTION_MODE_GAME;
@@ -1043,6 +1045,17 @@ int16_t displayGameSelection(DISPLAY_T* display, uint16_t nr, uint32_t requiredT
     display->pushSpriteFast(0,0);
     if (millis()>GAME_SELECTION_POWEROFF_TIMEOUT) {
       power_off();
+    }
+    if (!touched && isTouchInZone(0,0,32,20)) {
+      Serial.printf("Clicked on battery %i times\n", numberOfClicksOnBattery);
+      numberOfClicksOnBattery++;
+      touched = true;
+      if (numberOfClicksOnBattery >= 5) {
+        Serial.println("Starting hidden game.");
+        return HIDDEN_GAME_ID;
+      }
+    } else if (touched && !isTouchInZone(0,0,320,240)) {
+      touched = false;
     }
   }
 }

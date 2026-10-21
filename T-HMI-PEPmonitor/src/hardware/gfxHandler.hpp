@@ -23,6 +23,8 @@ extern TFT_eSprite spr;
 #define TRANSP_OFF 0x00
 #define TRANSP_MASK 0x10
 
+#define HIDDEN_GAME_ID -2
+
 void initGfxHandler();
 bool getBmpDimensions(String filename, int16_t* w, int16_t* h);
 bool drawBmp(String filename, int16_t x, int16_t y, bool debugLog = true);
