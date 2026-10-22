@@ -7,6 +7,7 @@
 extern OneButton buttonPwr;
 extern OneButton buttonUsr;
 
+void initializePowerHandler();
 uint32_t readBatteryVoltage();
 uint32_t readBatteryVoltageAveraged();
 bool isSkipSplashScreen();

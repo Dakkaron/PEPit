@@ -40,7 +40,7 @@
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite spr = TFT_eSprite(&tft);
-#define SYSTEM_STATS_SPRITE_COUNT 5
+#define SYSTEM_STATS_SPRITE_COUNT 6
 static TFT_eSprite* systemStatsSprites = nullptr;
 
 void initGfxHandler() {
@@ -1152,8 +1152,9 @@ static void initSystemStatsSprites() {
     loadBmp(&systemStatsSprites[0], "/gfx/battery_low.bmp");
     loadBmp(&systemStatsSprites[1], "/gfx/battery_half.bmp");
     loadBmp(&systemStatsSprites[2], "/gfx/battery_full.bmp");
-    loadBmp(&systemStatsSprites[3], "/gfx/wifi.bmp");
-    loadBmp(&systemStatsSprites[4], "/gfx/nowifi.bmp");
+    loadBmp(&systemStatsSprites[3], "/gfx/battery_charging.bmp");
+    loadBmp(&systemStatsSprites[4], "/gfx/wifi.bmp");
+    loadBmp(&systemStatsSprites[5], "/gfx/nowifi.bmp");
   }
 }
 
@@ -1169,14 +1170,10 @@ void drawSystemStats() {
     systemStatsSprites[0].pushToSprite(&spr, 0, 0, 0x0000);
   } else if (batteryVoltage < 3800) {
     systemStatsSprites[1].pushToSprite(&spr, 0, 0, 0x0000);
-  } else if (batteryVoltage < 4200) {
+  } else if (batteryVoltage < 4250) {
     systemStatsSprites[2].pushToSprite(&spr, 0, 0, 0x0000);
-  } else if (batteryVoltage < 4400) {
-    systemStatsSprites[0].pushToSprite(&spr, 0, 0, 0x0000);
-  } else if (batteryVoltage < 4600) {
-    systemStatsSprites[1].pushToSprite(&spr, 0, 0, 0x0000);
   } else {
-    systemStatsSprites[2].pushToSprite(&spr, 0, 0, 0x0000);
+    systemStatsSprites[3].pushToSprite(&spr, 0, 0, 0x0000);
   }
   if (batteryVoltage<BATTERY_LOW_WARNING_VOLTAGE ) {
     lowBatteryWarningCount++;
@@ -1195,11 +1192,11 @@ void drawSystemStats() {
     power_off();
   }
   if (getWifiStatus() == WIFI_CONNECTION_OK) {
-    systemStatsSprites[3].pushToSprite(&spr, 34, 0, 0xf81f);
-  } else if (getWifiStatus() == WIFI_CONNECTION_NOWIFI) {
     systemStatsSprites[4].pushToSprite(&spr, 34, 0, 0xf81f);
+  } else if (getWifiStatus() == WIFI_CONNECTION_NOWIFI) {
+    systemStatsSprites[5].pushToSprite(&spr, 34, 0, 0xf81f);
   } else if ((millis() >> 10) & 0x01) { // WIFI_CONNECTION_SEARCHING, blink once per second
-    systemStatsSprites[3].pushToSprite(&spr, 34, 0, 0xf81f);
+    systemStatsSprites[4].pushToSprite(&spr, 34, 0, 0xf81f);
   }
   spr.setTextDatum(TL_DATUM);
   spr.setTextSize(1);

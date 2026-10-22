@@ -5,6 +5,9 @@
 #include "pressuresensor.h"
 #include <SD_MMC.h>
 #include "driver/rtc_io.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 
 #define REGISTER_BUTTON_LISTENERS_AFTER_NUMBER_OF_CHECKS 50
 
@@ -18,10 +21,49 @@ static void configurePowerButtonWakeup();
 static SemaphoreHandle_t poweroffMutex = xSemaphoreCreateMutex();
 static SemaphoreHandle_t resetMutex = xSemaphoreCreateMutex();
 
-uint32_t readBatteryVoltage() {
-    return (analogRead(BAT_ADC_PIN) * 162505) / 100000;
+static adc_oneshot_unit_handle_t adc1Handle;
+static adc_cali_handle_t adcCalibration;
+
+static void initializeBatteryAdc() {
+    adc_oneshot_unit_init_cfg_t unitConfig{};
+    unitConfig.unit_id = ADC_UNIT_1;
+    unitConfig.ulp_mode = ADC_ULP_MODE_DISABLE;
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unitConfig, &adc1Handle));
+
+    adc_oneshot_chan_cfg_t channelConfig{};
+    channelConfig.atten = ADC_ATTEN_DB_12;
+    channelConfig.bitwidth = ADC_BITWIDTH_12;
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(
+        adc1Handle, ADC_CHANNEL_4, &channelConfig));
+
+    adc_cali_curve_fitting_config_t calibrationConfig{};
+    calibrationConfig.unit_id = ADC_UNIT_1;
+    calibrationConfig.chan = ADC_CHANNEL_4;
+    calibrationConfig.atten = ADC_ATTEN_DB_12;
+    calibrationConfig.bitwidth = ADC_BITWIDTH_12;
+    ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(
+        &calibrationConfig, &adcCalibration));
 }
 
+void initializePowerHandler() {
+    initializeBatteryAdc();
+}
+
+/**
+ * Returns the battery voltage in millivolts
+ */
+uint32_t readBatteryVoltage() {
+    int raw = 0;
+    ESP_ERROR_CHECK(adc_oneshot_read(adc1Handle, ADC_CHANNEL_4, &raw));
+
+    int millivolts = 0;
+    ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adcCalibration, raw, &millivolts));
+    return static_cast<uint32_t>(millivolts) * 2 + 100;
+}
+
+/**
+ * Returns the voltage in mV
+ */
 uint32_t readBatteryVoltageAveraged() {
     static float averagedVoltage = readBatteryVoltage();
     averagedVoltage = 0.95*averagedVoltage + 0.05*readBatteryVoltage();

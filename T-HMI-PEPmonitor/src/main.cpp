@@ -93,6 +93,8 @@ void setup() {
   example_ledc_init();
   setBrightness(0);
 
+  initializePowerHandler();
+
   pinMode(M5STACK_JOYSTICK2_POWER_PIN, OUTPUT); // Activate joystick power
   digitalWrite(M5STACK_JOYSTICK2_POWER_PIN, HIGH);
 
@@ -141,6 +143,8 @@ void setup() {
   initSD(&errorMessage);
   checkFailWithMessage(errorMessage);
   
+  tft.fillScreen(TFT_BLACK);
+  spr.fillSprite(TFT_BLACK);
   if (!isSkipSplashScreen()) {
     loadBmp(&spr, "/gfx/splash.bmp");
     spr.pushSpriteFast(0,0);
