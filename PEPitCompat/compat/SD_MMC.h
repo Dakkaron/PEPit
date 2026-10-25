@@ -31,6 +31,13 @@ public:
     void end();
 
     /**
+     * Seed the data directory with minimal factory data (systemConfig.ini,
+     * profiles.ini, /games/, /gfx/) if missing — mirrors the factory-provisioned
+     * SD card of a real device. Never overwrites existing files.
+     */
+    void seedFactoryData();
+
+    /**
      * Set SD card pins (no-op on Linux, kept for compatibility)
      */
     void setPins(uint8_t sclk, uint8_t mosi, uint8_t miso);

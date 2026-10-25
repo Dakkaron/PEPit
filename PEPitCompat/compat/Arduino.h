@@ -195,6 +195,7 @@ public:
     size_t write(const uint8_t* buffer, size_t size);
     size_t print(const String& s);
     size_t print(const char* s);
+    size_t print(char c);
     size_t print(int num);
     size_t print(uint32_t num);
     size_t print(uint64_t num);
@@ -203,6 +204,7 @@ public:
     size_t print(float num, int decimalPlaces = 2);
     size_t println(const String& s);
     size_t println(const char* s);
+    size_t println(char c);
     size_t println(int num);
     size_t println(uint32_t num);
     size_t println(uint64_t num);

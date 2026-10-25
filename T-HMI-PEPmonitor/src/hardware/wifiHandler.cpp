@@ -113,7 +113,7 @@ void getFormattedTime(String* ntpDateString, String* ntpTimeString, String* erro
     Serial.println(dateTimeString);
     prefs.end();
     prefs.begin("system");
-    prefs.putBytes("lastDateTime", dateTimeString.c_str(), 20);
+    prefs.putBytes("lastDateTime", (const uint8_t*)dateTimeString.c_str(), 20);
     prefs.end();
     applyGamePrefsNamespace();
     lastSavedDatetimeString = dateTimeString;

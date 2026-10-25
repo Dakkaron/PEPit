@@ -36,6 +36,15 @@ extern void setTouchDisplayParams(int w, int h, int scale);
 extern void setPressureSensorKeys(int lowKey, int goodKey);
 extern void initArduino();
 
+// Input control processing — shim/touch.cpp (MCP /tmp/pepit_control + legacy /tmp/pepit_touch IPC)
+extern void checkSimulatedInput();
+extern void setJoystickOverride(bool active, uint16_t adcX, uint16_t adcY, bool btnPressed);
+extern void clearJoystickOverride();
+extern void setPressureOverride(bool active, float value);
+extern void clearPressureOverride();
+extern bool captureScreenshot();
+extern void writeShotMeta();
+
 // SD_MMC root directory setter (declared in compat/SD_MMC.h)
 #include "SD_MMC.h"
 
@@ -202,10 +211,16 @@ int main(int argc, char* argv[]) {
     // Install signal handlers with jump buffer for immediate escape from tight loops
     initSignalHandlers(&quitJumpBuf);
 
+    // Write initial shot metadata so status/screenshot have valid state before first SHOT
+    // (must happen before setup() — setup() may block in the selection loops waiting for input)
+    writeShotMeta();
+    fprintf(stderr, "[PEPitCompat] PRE_SETUP_MARKER\n");
+
     // If we jumped here from a signal during setup(), skip the main loop
     if (jumpResult == 0) {
         // Call original setup() — initializes all peripherals and runs UI flow
         setup();
+        fprintf(stderr, "[PEPitCompat] POST_SETUP_MARKER\n");
 
         printf("[PEPitCompat] Entering main loop (press Ctrl+C to exit)\n");
 
@@ -242,6 +257,15 @@ int main(int argc, char* argv[]) {
 
             // Ensure display is flushed each frame (fallback if app doesn't call endWrite)
             updateSDL();
+
+            // Process MCP / control input commands once per frame (/tmp/pepit_control, /tmp/pepit_touch)
+            checkSimulatedInput();
+
+            // Check for quit request coming from the control file (QUIT command) or signal handler
+            if (g_requestQuit) {
+                running = false;
+                break;
+            }
         }
     }
 

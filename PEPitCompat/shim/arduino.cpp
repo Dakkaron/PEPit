@@ -16,6 +16,9 @@
 #include <cstdint>
 #include <sys/select.h>
 #include <sys/time.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
+#include <unistd.h>
 
 // Global quit flag — set by signal handler or event polling when ESC/quit is detected
 volatile int32_t g_requestQuit = 0;
@@ -172,6 +175,13 @@ size_t HardwareSerial::print(const char* s) {
     return fwrite(s, 1, len, stdout);
 }
 
+// Arduino-faithful: print() of a char emits the raw character (not its
+// numeric value). Without this overload, char arguments were promoted to
+// int and printed as numbers (e.g. a 0xFF byte became "255").
+size_t HardwareSerial::print(char c) {
+    return fwrite(&c, 1, 1, stdout);
+}
+
 size_t HardwareSerial::print(int num) {
     char buf[32];
     snprintf(buf, sizeof(buf), "%d", num);
@@ -216,6 +226,12 @@ size_t HardwareSerial::println(const String& s) {
 
 size_t HardwareSerial::println(const char* s) {
     size_t n = print(s);
+    n += println();
+    return n;
+}
+
+size_t HardwareSerial::println(char c) {
+    size_t n = print(c);
     n += println();
     return n;
 }
@@ -268,19 +284,43 @@ int HardwareSerial::printf(const char* format, ...) {
     return result;
 }
 
+// Sticky EOF flag for stdin. Once stdin reaches EOF (or is /dev/null),
+// available() must keep reporting 0. Otherwise select() on /dev/null would
+// report "readable" forever, read() would keep returning -1 (0xFF), and the
+// firmware's serial-command loops (handleSerial/readSerialLine) would spin at
+// full speed printing "255" on every iteration.
+static bool g_stdinAtEof = false;
+
+// True when stdin points at /dev/null (e.g. when launched via nohup).
+// select() always reports /dev/null readable even though read() hits EOF.
+static bool stdinIsDevNull() {
+    struct stat st;
+    if (fstat(STDIN_FILENO, &st) != 0) return false;
+    if (!S_ISCHR(st.st_mode)) return false;
+    return major(st.st_rdev) == 1 && minor(st.st_rdev) == 3; // /dev/null
+}
+
 int HardwareSerial::available() {
+    if (g_stdinAtEof) return 0;
+    if (stdinIsDevNull()) {
+        g_stdinAtEof = true;
+        return 0;
+    }
     // Check if there's input waiting on stdin (non-blocking)
     fd_set readfds;
     FD_ZERO(&readfds);
     FD_SET(STDIN_FILENO, &readfds);
     struct timeval tv = {0, 0}; // Non-blocking select
-    return select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &tv) > 0 ? 1 : 0;
+    if (select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &tv) <= 0) return 0;
+    return 1;
 }
 
 int HardwareSerial::read() {
+    if (g_stdinAtEof) return -1;
     if (!available()) return -1;
     uint8_t c;
     if (fread(&c, 1, 1, stdin) == 1) return c;
+    g_stdinAtEof = true; // Hit EOF — it stays at EOF
     return -1;
 }
 
@@ -524,4 +564,10 @@ void initArduino() {
     // Seed with actual system time (millis() is 0 here, so use epoch count directly)
     auto seed = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
     randomSeed(seed ^ 0x5A5A);
+    // Detect stdin=/dev/null up front (e.g. nohup-launched processes) so that
+    // Serial.available() never busy-loops on phantom "readable" EOF.
+    g_stdinAtEof = stdinIsDevNull();
+    // Line-buffer stdout so Serial output reaches log files / pipes in real
+    // time (fully buffered stdout would swallow the log until a 4KB flush).
+    setvbuf(stdout, nullptr, _IOLBF, 0);
 }

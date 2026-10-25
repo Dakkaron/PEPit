@@ -10,10 +10,32 @@
 #include "Wire.h"
 #include <SDL2/SDL.h>
 
+// Input control processing — shim/touch.cpp (MCP /tmp/pepit_control + legacy /tmp/pepit_touch IPC)
+extern void checkSimulatedInput();
+
 // Joystick axis sensitivity: how far from center (0-32768 range)
 static const uint16_t JOYSTICK_AXIS_MAX = 32768; // Full deflection from center
 
+// MCP / control-file injected joystick override state
+static bool g_joystickOverrideActive = false;
+static uint16_t g_joystickOverrideAdcX = 32768;
+static uint16_t g_joystickOverrideAdcY = 32768;
+static bool g_joystickOverrideBtnPressed = false;
+
+// MCP control-file joystick override setters
+void setJoystickOverride(bool active, uint16_t adcX, uint16_t adcY, bool btnPressed) {
+    g_joystickOverrideActive = active;
+    g_joystickOverrideAdcX = adcX;
+    g_joystickOverrideAdcY = adcY;
+    g_joystickOverrideBtnPressed = btnPressed;
+}
+
+void clearJoystickOverride() {
+    g_joystickOverrideActive = false;
+}
+
 bool M5UnitJoystick2::begin(TwoWire* wire, uint8_t addr, int sda, int scl) {
+    fprintf(stderr, "[PEPitCompat] MARK_JOYSTICK_BEGIN\n");
     // On Linux, keyboard joystick is always "present"
     return true;
 }
@@ -23,6 +45,13 @@ void M5UnitJoystick2::set_rgb_color(uint32_t rgb) {
 }
 
 void M5UnitJoystick2::get_joy_adc_16bits_value_xy(uint16_t* x, uint16_t* y) {
+    // MCP / control-file injected joystick override takes precedence
+    if (g_joystickOverrideActive) {
+        if (x) *x = g_joystickOverrideAdcX;
+        if (y) *y = g_joystickOverrideAdcY;
+        return;
+    }
+
     const Uint8* keystate = SDL_GetKeyboardState(nullptr);
 
     // Default: center position
@@ -58,6 +87,14 @@ void M5UnitJoystick2::get_joy_adc_16bits_value_xy(uint16_t* x, uint16_t* y) {
 }
 
 uint16_t M5UnitJoystick2::get_button_value() {
+    // Poll MCP / control input once per joystick tick (fires from doSystemTasks in every screen loop)
+    checkSimulatedInput();
+
+    // MCP / control-file injected joystick button override takes precedence
+    if (g_joystickOverrideActive) {
+        return g_joystickOverrideBtnPressed ? 0 : 1; // 0 = pressed, non-zero = released
+    }
+
     const Uint8* keystate = SDL_GetKeyboardState(nullptr);
     
     // Space or Enter pressed → button value 0 (pressed)

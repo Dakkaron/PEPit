@@ -27,10 +27,25 @@ static bool g_sensorInitialized = false;
 // Test-only: scripted readChannel() values (see Adafruit_HX711::testQueueRead)
 static std::deque<float> g_testReads;
 
+// MCP / control-file injected pressure override (Phase 2: MCP server control channel)
+// Value semantics: 0 = idle, ~32.5 = ~50% of target, ~65 = ~100% of target
+static bool g_pressureOverrideActive = false;
+static float g_pressureOverrideValue = 0.0f;
+
 // CLI key configuration setters (called from main.cpp after parsing --low-pressure-key / --good-pressure-key)
 void setPressureSensorKeys(int lowKey, int goodKey) {
     lowPressureKey_ = lowKey;
     goodPressureKey_ = goodKey;
+}
+
+// MCP control-file injected pressure override setters
+void setPressureOverride(bool active, float value) {
+    g_pressureOverrideActive = active;
+    g_pressureOverrideValue = value;
+}
+
+void clearPressureOverride() {
+    g_pressureOverrideActive = false;
 }
 
 Adafruit_HX711::Adafruit_HX711(uint8_t dataPin, uint8_t clockPin)
@@ -50,11 +65,22 @@ long Adafruit_HX711::readChannelRaw(uint8_t gain) {
         return 0;
     }
 
+    // The firmware computes percent = readChannel / (65 * targetPressure)
+    // (PRESSURE_SENSOR_DIVISOR=65, see readPressure), i.e. a 100% blow must
+    // yield readChannel = 100 * 65 * targetPressure.
+
+    // MCP / control-file injected pressure takes precedence over keyboard state.
+    // The value is the raw (post-tare) readChannel directly in sensor units —
+    // NOT a percent of target. The firmware computes
+    //   percent = readChannel / (65 * taskTargetStrength)
+    // so callers (the MCP server) convert their percent-of-target scale here,
+    // e.g. 100% of a 30 target = 195000. Deliberately independent of
+    // g_targetPressure, which the unmodified firmware never sets.
+    if (g_pressureOverrideActive) {
+        return tareOffset_ + (long)g_pressureOverrideValue;
+    }
+
     // After init: keyboard-driven raw values
-    // We need readChannel = (raw - tareOffset) to produce correct pressure %
-    // For 100%: readChannel should = targetPressure * 65 (PRESSURE_SENSOR_DIVISOR)
-    // For 50%: readChannel should = targetPressure * 32.5
-    // raw = tareOffset + desired_readChannel
 
     if (g_targetPressure <= 0) {
         // No target set yet, return tare so readChannel = 0
@@ -65,12 +91,12 @@ long Adafruit_HX711::readChannelRaw(uint8_t gain) {
     bool goodPressed = keystate[goodPressureKey_];
 
     if (goodPressed) {
-        // ~100% of target pressure: readChannel = targetPressure * 65
-        long desiredReadChannel = (long)(g_targetPressure * 65);
+        // ~100% of target pressure
+        long desiredReadChannel = (long)(100.0f * 65.0f * g_targetPressure);
         return tareOffset_ + desiredReadChannel;
     } else if (lowPressed) {
-        // ~50% of target pressure: readChannel = targetPressure * 32.5
-        long desiredReadChannel = (long)(g_targetPressure * 32.5);
+        // ~50% of target pressure
+        long desiredReadChannel = (long)(100.0f * 32.5f * g_targetPressure);
         return tareOffset_ + desiredReadChannel;
     } else {
         // No key: 0 pressure, readChannel = 0
