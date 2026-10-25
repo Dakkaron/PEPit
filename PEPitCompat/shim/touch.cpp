@@ -38,11 +38,12 @@ static int g_mouseY = -1;
 static bool g_mousePressed = false;
 static bool g_latchedClick = false;
 
-// Simulated touch input (for headless testing)
+// Simulated / MCP touch input state (for headless testing and MCP control)
 static int g_simX = -1;
 static int g_simY = -1;
-static bool g_simPending = false;  // Pending simulated click (cleared at next frame boundary)
-static bool g_simActive = false;   // Active this frame (set when pending is consumed)
+static bool g_simDown = false;          // Whether simulated/MCP touch is currently pressed
+static bool g_simPending = false;      // Pending simulated click / command (cleared at next frame boundary)
+static bool g_simActive = false;       // Active this frame (set when pending is consumed)
 
 // Display dimensions for coordinate scaling (set by display shim)
 static int g_displayW = 320;
@@ -55,36 +56,127 @@ void setTouchDisplayParams(int w, int h, int scale) {
     g_scaleFactor = scale;
 }
 
-// Check for simulated input from test harness (file-based IPC)
-static void checkSimulatedInput() {
-    const char* path = "/tmp/pepit_touch";
-    FILE* f = fopen(path, "r");
-    if (!f) return;
+// Shim functions invoked by the MCP / control-file input processor
+extern void setJoystickOverride(bool active, uint16_t adcX, uint16_t adcY, bool btnPressed);
+extern void clearJoystickOverride();
+extern void setPressureOverride(bool active, float value);
+extern void clearPressureOverride();
+extern bool captureScreenshot();
 
-    char buf[256] = {0};
-    if (fgets(buf, sizeof(buf), f)) {
+// Check for simulated / MCP control input (file-based IPC)
+//
+// Two input sources are polled once per frame:
+//   1. MCP control file: /tmp/pepit_control — one command per line, consumed after read.
+//      Supported commands:
+//        TOUCH_DOWN <x> <y>   Press and move touch to display coordinates (x: 0-320, y: 0-240)
+//        TOUCH_MOVE <x> <y>   Move touch while pressed (drag)
+//        TOUCH_UP              Release touch
+//        JOYSTICK <adcX> <adcY> <btn>   Joystick override (adc: center 32768, extremes 0/65535; btn: 0=pressed, 1=released)
+//        PRESSURE <rawUnits>  Set the injected pressure sensor raw value (post-tare readChannel
+//                             units; the firmware derives percent = raw / (65 * taskTargetStrength),
+//                             so 195000 = 100% of a 30 target, 0 = idle). The MCP tool
+//                             pepit_set_pressure still takes the 0-65 percent scale and converts.
+//        SHOT                  Capture screenshot framebuffer
+//        QUIT                  Request graceful quit (g_requestQuit = 1)
+//   2. Legacy headless test file: /tmp/pepit_touch — "CLICK <x> <y>" (single click)
+//
+// Concurrency protocol (race-safe): the reader claims the file with an
+// atomic rename(path, path + ".last") before reading, then unlinks it.
+// Writers create their content in a temp file and rename() it into place
+// (or truncate+write — also safe: a rename can at most pick up a complete
+// file or nothing, never a torn one, and the writer always leaves a
+// complete file behind for the next poll). The previous scheme
+// (read-then-unconditional-truncate) could silently erase a command that a
+// concurrent writer placed between the reader's read and its truncate —
+// this is the "tap flake": DOWN/UP/QUIT commands lost without a trace.
+//
+// Clients that want delivery confirmation can poll for the control file to
+// disappear (it is renamed away on consumption).
+
+// Dispatch a single control-file command line.
+static void dispatchControlLine(const char* buf) {
+    char cmd[16] = {0};
+    if (sscanf(buf, "%15s", cmd) != 1) return;
+    if (strcmp(cmd, "TOUCH_DOWN") == 0) {
+        int x = -1, y = -1;
+        if (sscanf(buf, "TOUCH_DOWN %d %d", &x, &y) == 2) {
+            g_simX = x;
+            g_simY = y;
+            g_simDown = true;
+            g_simPending = true;  // Mark as pending for next frame
+        }
+    } else if (strcmp(cmd, "TOUCH_MOVE") == 0) {
+        int x = -1, y = -1;
+        if (sscanf(buf, "TOUCH_MOVE %d %d", &x, &y) == 2) {
+            if (g_simDown) {
+                g_simX = x;
+                g_simY = y;  // Drag while pressed
+            }
+        }
+    } else if (strcmp(cmd, "TOUCH_UP") == 0) {
+        g_simDown = false;
+    } else if (strcmp(cmd, "JOYSTICK") == 0) {
+        int jx = 32768, jy = 32768, jbtn = 1;
+        if (sscanf(buf, "JOYSTICK %d %d %d", &jx, &jy, &jbtn) == 3) {
+            setJoystickOverride(true, (uint16_t)jx, (uint16_t)jy, (bool)(jbtn == 0));
+        }
+    } else if (strcmp(cmd, "PRESSURE") == 0) {
+        float pval = 0.0f;
+        if (sscanf(buf, "PRESSURE %f", &pval) == 1) {
+            setPressureOverride(true, pval);
+        }
+    } else if (strcmp(cmd, "SHOT") == 0) {
+        captureScreenshot();
+    } else if (strcmp(cmd, "QUIT") == 0) {
+        g_requestQuit = 1;
+    } else if (strcmp(cmd, "CLICK") == 0) {
+        // Legacy /tmp/pepit_touch single-click format
         int sx, sy;
         if (sscanf(buf, "CLICK %d %d", &sx, &sy) == 2) {
             g_simX = sx;
             g_simY = sy;
-            g_simPending = true;  // Mark as pending for next frame
+            g_simDown = true;
+            g_simPending = true;
         }
     }
-    fclose(f);
+}
 
-    // Clear the file so it can be used again
-    f = fopen(path, "w");
-    if (f) fclose(f);
+// Atomically claim a command file (rename to "<path>.last"), read all of its
+// lines, then remove it. Safe against concurrent writers (see protocol note
+// above). Does nothing when no file is present.
+static void consumeCommandFile(const char* path) {
+    char lastPath[320];
+    snprintf(lastPath, sizeof(lastPath), "%s.last", path);
+    if (rename(path, lastPath) != 0) {
+        return;  // Nothing pending (ENOENT) or harmless race — retry next poll.
+    }
+    FILE* f = fopen(lastPath, "r");
+    if (f) {
+        char buf[256];
+        while (fgets(buf, sizeof(buf), f)) {
+            dispatchControlLine(buf);
+        }
+        fclose(f);
+    }
+    unlink(lastPath);
+}
+
+void checkSimulatedInput() {
+    // ---- MCP control file (/tmp/pepit_control) ----
+    consumeCommandFile("/tmp/pepit_control");
+
+    // ---- Legacy headless test file (/tmp/pepit_touch): "CLICK <x> <y>" ----
+    consumeCommandFile("/tmp/pepit_touch");
 }
 
 // Update mouse state from SDL (called before any touch query)
 static void updateMouseState() {
-    // Frame boundary: activate pending simulated click, or clear active one
+    // Frame boundary: activate pending simulated touch down, or clear active one
     if (g_simPending) {
-        g_simActive = true;
+        g_simActive = g_simDown; // Click / touch down → active while down; cleared via TOUCH_UP
         g_simPending = false;
-    } else if (g_simActive) {
-        // Simulated click was active last frame, no new pending - clear it
+    } else if (g_simActive && !g_simDown) {
+        // Simulated touch was released last frame, no new pending - clear it
         g_simActive = false;
     }
 

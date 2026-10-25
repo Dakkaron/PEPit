@@ -11,6 +11,7 @@
 #include <dirent.h>
 #include <libgen.h>
 #include <cstring>
+#include <cstdio>
 #include <unistd.h>
 #include <limits.h>
 
@@ -95,20 +96,230 @@ SD_MMC_Class SD_MMC;
 bool SD_MMC_Class::begin(const char* mountPath, bool readOnly) {
     (void)mountPath;  // Mount path ignored on Linux
     (void)readOnly;   // Read-only mode not enforced on Linux
-    
+
     // Check if root directory exists
     struct stat st;
     if (stat(rootDir_.c_str(), &st) != 0) {
         // Try to create the directory if it doesn't exist
         ::mkdir(rootDir_.c_str(), 0755);
     }
-    
+
     initialized_ = (stat(rootDir_.c_str(), &st) == 0 && S_ISDIR(st.st_mode));
+    if (initialized_) {
+        seedFactoryData();
+    }
     return initialized_;
 }
 
 void SD_MMC_Class::end() {
     // No cleanup needed on Linux (files are closed individually)
+}
+
+// ============================================================
+// Factory data seeding
+//
+// Real PEPit devices ship with a provisioned SD card: /systemConfig.ini,
+// /profiles.ini, /games/, /gfx/. When those files are missing the firmware
+// halts on a fullscreen error display (checkFailWithMessage) and can never
+// boot. A fresh emulated data directory is the equivalent of a blank SD
+// card, so seed minimal factory data. Existing files are never overwritten,
+// so user-provided data always wins. Graphics are generated as simple
+// solid-color 24-bit BMPs (the formats the firmware's BMP loader accepts).
+// ============================================================
+
+static bool pathExists(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0;
+}
+
+/** Write a file (creating parent dirs) only if it does not exist yet. */
+static bool seedFileIfMissing(const std::string& rootDir, const std::string& relPath, const std::string& contents) {
+    std::string fullPath = rootDir + relPath;
+    if (pathExists(fullPath)) return false;
+
+    size_t slash = fullPath.find_last_of('/');
+    if (slash != std::string::npos) {
+        std::string parent = fullPath.substr(0, slash);
+        if (!parent.empty() && !pathExists(parent)) {
+            mkdirs(parent, 0755);
+        }
+    }
+
+    FILE* f = fopen(fullPath.c_str(), "wb");
+    if (!f) {
+        fprintf(stderr, "[PEPitCompat] Failed to seed factory file: %s\n", fullPath.c_str());
+        return false;
+    }
+    bool ok = (fwrite(contents.data(), 1, contents.size(), f) == contents.size());
+    fclose(f);
+    if (!ok) {
+        fprintf(stderr, "[PEPitCompat] Incomplete factory file: %s\n", fullPath.c_str());
+        return false;
+    }
+    return true;
+}
+
+/** Build a solid-color 24-bit uncompressed BMP (the layout the firmware's loadBmpAnim accepts). */
+static std::string makeBmp24(int w, int h, uint8_t r, uint8_t g, uint8_t b) {
+    int rowSize = (w * 3 + 3) & ~3;
+    int dataSize = rowSize * h;
+    std::string out;
+    out.reserve(54 + dataSize);
+    auto le32 = [](uint32_t v) {
+        return std::string(1, char(v & 0xFF)) + std::string(1, char((v >> 8) & 0xFF)) +
+               std::string(1, char((v >> 16) & 0xFF)) + std::string(1, char((v >> 24) & 0xFF));
+    };
+    auto le16 = [](uint16_t v) {
+        return std::string(1, char(v & 0xFF)) + std::string(1, char((v >> 8) & 0xFF));
+    };
+    out += "BM";
+    out += le32(14u + 40u + (uint32_t)dataSize);
+    out += le32(0);              // reserved
+    out += le32(54);             // pixel data offset
+    out += le32(40);             // BITMAPINFOHEADER size
+    out += le32((uint32_t)w);
+    out += le32((uint32_t)h);
+    out += le16(1);              // color planes (firmware requires 1)
+    out += le16(24);             // bits per pixel (firmware requires 24 for compression 0)
+    out += le32(0);              // no compression
+    out += le32((uint32_t)dataSize);
+    out += le32(2835);           // horizontal resolution
+    out += le32(2835);           // vertical resolution
+    out += le32(0);              // palette size
+    out += le32(0);              // important colors
+    std::string row(rowSize, '\0');
+    for (int x = 0; x < w; x++) {
+        row[x * 3 + 0] = (char)b;
+        row[x * 3 + 1] = (char)g;
+        row[x * 3 + 2] = (char)r;
+    }
+    for (int y = 0; y < h; y++) out += row;
+    return out;
+}
+
+void SD_MMC_Class::seedFactoryData() {
+    int seeded = 0;
+    auto seed = [&](const char* relPath, const std::string& contents) {
+        if (seedFileIfMissing(rootDir_, relPath, contents)) seeded++;
+    };
+
+    // /systemConfig.ini — readSystemConfig(). `logExecutions` is the only key
+    // read into errorMessage (a missing key = fatal fail loop), but include
+    // every key the firmware reads. WiFi left empty => no NTP / no update
+    // download attempted; simulate* off => input comes from the (shimmed)
+    // pressure sensor / joystick, so MCP tools drive gameplay.
+    seed("systemConfig.ini",
+        "[system]\n"
+        "wifiSSID=\n"
+        "wifiPassword=\n"
+        "wifiSSID2=\n"
+        "wifiPassword2=\n"
+        "wifiSSID3=\n"
+        "wifiPassword3=\n"
+        "touchScreenSensitivity=50\n"
+        "simulateTrampoline=0\n"
+        "simulateBlowing=0\n"
+        "simulateInhalation=0\n"
+        "debugLogBlowPressure=0\n"
+        "debugLogTrampoline=0\n"
+        "logExecutions=0\n"
+        "timezoneOffset=0\n"
+        "leftHandMode=1\n"
+        "manometerMode=0\n");
+
+    // /profiles.ini — readProfileData(). name/imagePath/cycles and all
+    // task_* keys of the given task type are mandatory.
+    seed("profiles.ini",
+        "[profile_0]\n"
+        "name=PEPit Training\n"
+        "imagePath=/images/profile_0.bmp\n"
+        "cycles=1\n"
+        "task_0_type=pepLong\n"
+        "task_0_minStrength=10\n"
+        "task_0_targetStrength=30\n"
+        "task_0_repetitions=3\n"
+        "task_0_time=2000\n");
+
+    // /prefs_monster.dat — game prefs (key:type:value lines, see shim/prefs.cpp).
+    // The monster game self-loads its player from this (loadPlayerMonsterId),
+    // so seed it to monster_1 — the only monster in the factory game data.
+    seed("prefs_monster.dat",
+        "playerMonsterId:int:1\n");
+
+    seed("/images/profile_0.bmp", makeBmp24(30, 30, 120, 80, 180));
+
+    // /games/monster — readGameConfig() (name/template/prefsNamespace are
+    // mandatory). maxMonsterCount > monsterCount so monsterLevels[id] is in
+    // bounds; [monster_1] needs name/imagePath/basicMonster; attack sections
+    // need attackFunction.
+    seed("games/monster/gameconfig.ini",
+        "[game]\n"
+        "name=Monster Catcher\n"
+        "template=monster\n"
+        "prefsNamespace=monster\n"
+        "maxMonsterCount=2\n"
+        "monsterCount=1\n"
+        "\n"
+        "[monster_1]\n"
+        "name=Testling\n"
+        // NOTE: relative to the game directory — the game code joins
+        // monsterCatcherGamePath + imagePath, so an absolute path here
+        // would be double-prefixed (e.g. /games/monster//games/monster/...).
+        "imagePath=gfx/monsters/monster_1\n"
+        "basicMonster=True\n"
+        "safariRarity=1\n"
+        "attackIdentifier=scratch\n"
+        "\n"
+        "[attack_scratch]\n"
+        "animFrames=2\n"
+        "imagePath=gfx/attacks/scratch.bmp\n"
+        "attackFunction=scratch\n"
+        "\n"
+        "[attack_catch_ball]\n"
+        "animFrames=2\n"
+        "imagePath=gfx/attacks/catch_ball.bmp\n"
+        "attackFunction=catch\n"
+        "\n"
+        "[attack_rareCandy]\n"
+        "animFrames=1\n"
+        "imagePath=gfx/attacks/rareCandy.bmp\n"
+        "attackFunction=rareCandy\n");
+    seed("games/monster/logo.bmp", makeBmp24(30, 30, 180, 120, 40));
+    // anim_front: single BMP containing the stacked animation frames
+    // (loadBmpAnim splits height by animFrames). 128px = 2 frames of 64px.
+    seed("games/monster/gfx/monsters/monster_1/anim_front.bmp", makeBmp24(64, 128, 210, 130, 50));
+    // back: single frame (drawn while the player blows, long-blow game).
+    seed("games/monster/gfx/monsters/monster_1/back.bmp", makeBmp24(64, 64, 180, 100, 40));
+    seed("games/monster/gfx/trainer/brendan.bmp", makeBmp24(64, 256, 70, 170, 70));
+    seed("games/monster/gfx/attacks/scratch.bmp", makeBmp24(32, 64, 230, 230, 60));
+    seed("games/monster/gfx/attacks/catch_ball.bmp", makeBmp24(32, 64, 240, 240, 240));
+    seed("games/monster/gfx/attacks/rareCandy.bmp", makeBmp24(32, 32, 240, 120, 240));
+    seed("games/monster/gfx/safari/Bush1_1.bmp", makeBmp24(124, 96, 30, 110, 30));
+    seed("games/monster/gfx/safari/Bush1_2.bmp", makeBmp24(104, 75, 30, 110, 30));
+    seed("games/monster/gfx/safari/Bush1_3.bmp", makeBmp24(75, 58, 30, 110, 30));
+    seed("games/monster/gfx/safari/Bush1_4.bmp", makeBmp24(59, 40, 30, 110, 30));
+    seed("games/monster/gfx/interface/ball_caught_indicator.bmp", makeBmp24(7, 7, 60, 220, 60));
+    // gfx/win must exist and contain at least one file — the win screen path
+    // lookup errors out (fail loop) when the directory is missing/empty.
+    seed("games/monster/gfx/win/win1.bmp", makeBmp24(320, 240, 25, 85, 25));
+
+    // /gfx — splash + system status icons (drawSystemStats) + selection-page
+    // menu icons (refreshAndDrawMenuSprite) + update overlay.
+    seed("gfx/splash.bmp", makeBmp24(320, 240, 20, 30, 75));
+    seed("gfx/battery_low.bmp", makeBmp24(34, 20, 200, 40, 40));
+    seed("gfx/battery_half.bmp", makeBmp24(34, 20, 220, 180, 40));
+    seed("gfx/battery_full.bmp", makeBmp24(34, 20, 60, 200, 60));
+    seed("gfx/battery_charging.bmp", makeBmp24(34, 20, 140, 240, 140));
+    seed("gfx/wifi.bmp", makeBmp24(34, 20, 60, 120, 220));
+    seed("gfx/nowifi.bmp", makeBmp24(34, 20, 110, 110, 110));
+    seed("gfx/progressionmenu.bmp", makeBmp24(16, 16, 200, 200, 200));
+    seed("gfx/executionlist.bmp", makeBmp24(16, 16, 200, 200, 200));
+    seed("gfx/systemupdate.bmp", makeBmp24(16, 16, 220, 220, 120));
+
+    if (seeded > 0) {
+        printf("[PEPitCompat] Seeded %d missing factory data file(s) in %s\n", seeded, rootDir_.c_str());
+    }
+    fflush(stdout);
 }
 
 void SD_MMC_Class::setPins(uint8_t sclk, uint8_t mosi, uint8_t miso) {
