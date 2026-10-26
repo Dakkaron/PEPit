@@ -2,11 +2,19 @@
 
 Phases:
   boot     : wait for the session to reach profile selection (state 1)
-  profile  : pick the profile with the joystick (click = button press)
-  gamesel  : pick the game (index discovered from the session boot log)
+  profile  : pick the profile (slot tap; level-triggered, bulletproof)
+  gamesel  : pick the game (slot tap; index discovered from the boot log)
   rotate   : tap through between-task "rotate the device" screens
   play     : loop  shot -> extract -> decide (rulebot | llm) -> apply
   finish   : release inputs, write the summary
+
+Menu fast path (autonav): pepit_compat accepts --profile/--game and makes
+the firmware pick them itself (shim/autonav.cpp). When a session was
+launched with those flags (auto_profile/auto_game set here), the profile
+and gamesel phases WAIT for the firmware to advance and only tap as a
+fallback if the page is still up after a grace window — the shim stops
+tapping permanently once it gives up, so a fallback tap can never collide
+with one of its.
 
 Decision sources:
   rulebot : deterministic game heuristics (games/*.py)
@@ -32,8 +40,10 @@ import time
 
 from .control import ControlChannel
 from . import extract as E
+from .frames import FrameSaver
 from .games import get_game
 from .llm import LLMClient
+from .verifier import FastVerifier
 
 PEPIT_BINARY = "/root/repos/PEPit/PEPitCompat/build/pepit_compat"
 STATUS_DIR = "/tmp/opencode"
@@ -46,6 +56,10 @@ RE_GAME_COUNT = re.compile(r"Number of games: (\d+)")
 RE_ROTATE = re.compile(r"##### DISPLAY ROTATE ######")
 RE_ROTATING_TO = re.compile(r"Rotating to: ([A-Za-z+ ]+?)\s*$")
 RE_TARGET_DUR = re.compile(r"Target Duration: (\d+)")
+# autonav (shim/autonav.cpp) terminal lines — after any of these the shim
+# will never tap that stage again, so the runner may fall back to a tap.
+RE_AUTONAV_TERMINAL = re.compile(
+    r"\[autoNav\] (profile|game): (gave up after retries|not resolved|not selectable)")
 ROTATE_TASK_NAMES = {
     "Short blows": "pepShort",
     "Long blows": "pepLong",
@@ -56,6 +70,19 @@ ROTATE_TASK_NAMES = {
 }
 
 STATE_BOOT, STATE_PROFILE, STATE_GAMESEL, STATE_RUNNING, STATE_ENDING, STATE_WIN = range(6)
+
+
+def ini_name(path: str) -> str | None:
+    """The `name = ...` value of an INI file (first occurrence), or None."""
+    try:
+        text = open(path).read()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        m = re.match(r"\s*name\s*=\s*(\S.*?)\s*$", line)
+        if m:
+            return m.group(1)
+    return None
 
 
 def parse_profiles(path: str) -> list:
@@ -115,6 +142,8 @@ class LogFollower:
         self.rotate_pending = 0     # "##### DISPLAY ROTATE ######" seen
         self.next_task = None       # "Rotating to: X"
         self.target_duration_ms = None
+        # autonav stage -> True once its shim gave up (terminal; no more taps)
+        self.autonav_terminal = {"profile": False, "game": False}
 
     def read(self) -> str:
         try:
@@ -151,6 +180,9 @@ class LogFollower:
                 self._pending_game = None
             elif "does not support" in s or "is hidden" in s:
                 self._pending_game = None
+            m = RE_AUTONAV_TERMINAL.search(s)
+            if m:
+                self.autonav_terminal[m.group(1)] = True
         self.blow_starts += chunk.count("Blowing... ")
         self.blow_ends += chunk.count("Ending blow")
         self.blow_successes += chunk.count(" successfully")
@@ -165,6 +197,10 @@ class LogFollower:
         m = RE_TARGET_DUR.search(chunk)
         if m:
             self.target_duration_ms = int(m.group(1))
+        for line in chunk.splitlines():
+            m = RE_AUTONAV_TERMINAL.search(line)
+            if m:
+                self.autonav_terminal[m.group(1)] = True
 
 
 class PolicyRunner:
@@ -178,7 +214,11 @@ class PolicyRunner:
                  llm_model: str = "cloudflare_clef-flash",
                  llm_base: str = "http://192.168.0.68:1234",
                  run_id: str | None = None,
-                 own_session: bool = False):
+                 own_session: bool = False,
+                 auto_profile: str | None = None,
+                 auto_game: str | None = None,
+                 autonav: bool | None = None,
+                 verify: bool = True):
         self.game_name = game
         self.game = get_game(game)
         self.source = source  # rulebot | llm | llm-text | llm-image
@@ -190,9 +230,37 @@ class PolicyRunner:
         self.llm = LLMClient(model=llm_model, base_url=llm_base) if source.startswith("llm") else None
 
         self.control = ControlChannel()
+        self.frames = FrameSaver(self.run_id)
+        # Fast in-loop visual verifier (decision model, ~1.7 s/call).
+        # Short timeout: it must never stall gameplay on a slow LAN peer.
+        self.verifier = FastVerifier(
+            LLMClient(model=llm_model, base_url=llm_base, timeout=8.0),
+            self.run_id, frames_dir=self.frames.dir, enabled=verify)
         self.log_path = log_path
         self.logf = LogFollower(log_path)
         self.profiles = parse_profiles(os.path.join(datadir, "profiles.ini"))
+
+        # Menu fast path (autonav): the specs passed to / received from
+        # pepit_compat --profile/--game. None = stage navigated the classic
+        # way (runner taps). When we own the session and no explicit spec
+        # was given, derive them (profile by index — unambiguous; game by
+        # the gameconfig.ini display name — robust to list reordering).
+        if autonav is None:
+            autonav = own_session
+        # Derive missing specs only when WE launch the binary (own_session):
+        # then we control the flags. When attaching to a running session the
+        # flags are fixed, so use exactly what was passed (None = that stage
+        # was not auto-nav'd -> classic tap navigation, never re-derive).
+        if autonav and own_session:
+            if auto_profile is None:
+                auto_profile = str(profile_index)
+            if auto_game is None:
+                auto_game = self._ini_game_name(game)
+        elif not autonav:
+            auto_profile = auto_game = None
+        self.auto_profile = auto_profile
+        self.auto_game = auto_game
+        self.autonav = autonav
 
         self.ctx = {
             "now": 0.0,
@@ -223,6 +291,14 @@ class PolicyRunner:
         self.status_path = os.path.join(STATUS_DIR, f"pepit_policy_{self.run_id}.json")
         self.stop_path = os.path.join(STATUS_DIR, f"pepit_policy_stop_{self.run_id}")
 
+    def _ini_game_name(self, game_dir: str) -> str | None:
+        """Display name from <datadir>/games/<game_dir>/gameconfig.ini.
+
+        The autonav --game spec is matched against the gameconfig.ini `name`
+        key (that's what the shim resolves), not the directory name.
+        """
+        return ini_name(os.path.join(self.datadir, "games", game_dir, "gameconfig.ini"))
+
     # ------------------------------------------------------------------
     # Session lifecycle (only when we own the session)
     # ------------------------------------------------------------------
@@ -233,8 +309,13 @@ class PolicyRunner:
         env["SDL_AUDIODRIVER"] = "dummy"
         os.makedirs(os.path.dirname(self.log_path) or ".", exist_ok=True)
         logf = open(self.log_path, "ab")
+        cmd = [PEPIT_BINARY, "--data-dir", self.datadir, "--scale", "1"]
+        if self.auto_profile is not None:
+            cmd += ["--profile", self.auto_profile]
+        if self.auto_game is not None:
+            cmd += ["--game", self.auto_game]
         self._child = subprocess.Popen(
-            [PEPIT_BINARY, "--data-dir", self.datadir, "--scale", "1"],
+            cmd,
             stdin=subprocess.DEVNULL, stdout=logf, stderr=subprocess.STDOUT,
             env=env, start_new_session=True)
 
@@ -272,6 +353,10 @@ class PolicyRunner:
             "last_state": {k: v for k, v in self.last_state.items() if k != "bars"}
             or {k: v for k, v in self.state.items() if k != "bars"},
             "last_actions": [str(a) for a in self.actions],
+            "autonav": {"profile": self.auto_profile, "game": self.auto_game},
+            "frames": self.frames.summary(),
+            "verifier": {"checks": self.verifier.checks,
+                          "mismatches": self.verifier.mismatches},
             "error": self.error,
         }
         if extra:
@@ -285,24 +370,32 @@ class PolicyRunner:
     # ------------------------------------------------------------------
     # Phases
     # ------------------------------------------------------------------
-    def _wait_state(self, want, timeout=120.0):
+    def _wait_state(self, want, timeout=120.0, want_extra=None):
         # monotonic, not wall clock: the host suspends when idle (CLOCK_REALTIME
         # jumps on resume, CLOCK_MONOTONIC does not — the game clock is
         # monotonic too, so only it can be used for gameplay deadlines)
+        accept = {want} | (want_extra or set())
         deadline = time.monotonic() + timeout
         last = -1
         while time.monotonic() < deadline and not self.stop_event.is_set():
             img, meta = self.control.shot(timeout=5)
             last = int(meta.get("systemState", -1))
-            if last == want:
+            if last in accept:
                 return last, img, meta
             time.sleep(0.25)
         return last, None, None
 
     def _phase_boot(self):
         self.phase = "boot"
-        st, img, meta = self._wait_state(STATE_PROFILE, timeout=150)
-        if st != STATE_PROFILE:
+        accept = {STATE_PROFILE}
+        if self.auto_profile or self.auto_game:
+            # Autonav races through the menu: the profile page is only up
+            # for ~1-2 s, so our polling can legitimately miss it. Accept
+            # any past-boot state instead of waiting for state 1 in vain.
+            accept |= {STATE_GAMESEL, STATE_RUNNING, STATE_ENDING, STATE_WIN}
+        st, img, meta = self._wait_state(STATE_PROFILE, timeout=150,
+                                         want_extra=accept - {STATE_PROFILE})
+        if st not in accept:
             self.error = f"boot: session stuck at state {st}"
             return False
         return True
@@ -367,15 +460,75 @@ class PolicyRunner:
         self.error = f"selection: expected state {want}, got state {st}"
         return False
 
+    def _wait_autonav(self, targets, timeout=30.0):
+        """Wait for the shim's autonav to move us out of the current menu
+        page into one of `targets` (a set of systemStates).
+
+        Returns (result, last_state):
+          "done"     — firmware advanced into a target state
+          "gave_up"  — the shim logged a terminal failure for this stage and
+                       will never tap again — a fallback tap is safe
+          "timeout"  — neither happened within `timeout`; the caller must
+                       check `last_state` before tapping (a shim still
+                       mid-retry must not be second-guessed)
+        """
+        key = "profile" if self.phase == "profile" else "game"
+        deadline = time.monotonic() + timeout
+        last = -1
+        while time.monotonic() < deadline and not self.stop_event.is_set():
+            img, meta = self.control.shot(timeout=5)
+            last = int(meta.get("systemState", -1))
+            self.logf.scan(self.logf.read())
+            if last in targets:
+                return "done", last
+            if self.logf.autonav_terminal.get(key):
+                return "gave_up", last
+            time.sleep(0.25)
+        img, meta = self.control.shot(timeout=5)
+        if img is not None:
+            last = int(meta.get("systemState", -1))
+        self.logf.scan(self.logf.read())
+        if self.logf.autonav_terminal.get(key):
+            return "gave_up", last
+        return "timeout", last
+
     def _phase_profile(self):
         self.phase = "profile"
         if self.profiles:
             self.ctx["task_profile"] = self.profiles[self.profile_index]
+        if self.auto_profile:
+            # The firmware navigates this page itself (autonav). Wait for it
+            # to advance. The fallback tap below is only reached when the
+            # shim declared a terminal failure (or the window expired with
+            # the page still up) — it never fires while the shim is still
+            # retrying, so the two tap sources cannot collide.
+            res, st = self._wait_autonav({STATE_GAMESEL, STATE_RUNNING})
+            if st in (STATE_GAMESEL, STATE_RUNNING):
+                return True  # includes manometer mode (skips game selection)
+            if res == "done":
+                return True
+            if st != STATE_PROFILE:
+                self.error = f"profile: session left the menu (state {st})"
+                return False
+            # still on the profile page: the shim gave up — classic fallback
         return self._select_via_tap(self.profile_index, len(self.profiles),
                                      STATE_GAMESEL, STATE_PROFILE)
 
     def _phase_gamesel(self):
         self.phase = "gamesel"
+        if self.auto_game:
+            # The firmware navigates this page itself (autonav) — wait for it
+            # to start the game; fallback tap only if the shim gave up and
+            # the page is still up (see _phase_profile for the collision
+            # argument; _wait_autonav keys on self.phase, set above).
+            res, st = self._wait_autonav(
+                {STATE_RUNNING, STATE_ENDING, STATE_WIN})
+            if st in (STATE_RUNNING, STATE_ENDING, STATE_WIN):
+                return True
+            if st != STATE_GAMESEL:
+                self.error = f"gamesel: session left the menu (state {st})"
+                return False
+            # still on the game page: the shim gave up — classic fallback
         # discover where our game sits in the firmware's filtered list.
         # Wait until the enumeration is *complete* (the "Number of games: N"
         # line), with a grace period in case it never appears.
@@ -451,6 +604,7 @@ class PolicyRunner:
             if img is None:
                 time.sleep(0.2)
                 continue
+            self.frames.save(img, meta, self._frame_ctx())  # throttled to 1/s
             if self._step_change_screen(img, meta, time.monotonic()):
                 return self._gameplay_live()
             time.sleep(0.3)
@@ -515,6 +669,23 @@ class PolicyRunner:
         self.ctx["blow_start"] = self.ctx.get("now", 0.0)
         self.ctx["blow_end"] = self.ctx.get("now", 0.0)
 
+    def _frame_ctx(self, reason: str | None = None) -> dict:
+        """Compact per-frame context for the FrameSaver metadata record."""
+        c = {
+            "phase": self.phase,
+            "ctx_now": round(self.ctx.get("now", 0.0), 2),
+            "reason": reason,
+            "decisions": self.decisions,
+        }
+        task = self.ctx.get("task") or {}
+        if task:
+            c["task_type"] = task.get("type")
+            c["task_index"] = task.get("index")
+            c["reps_done"] = task.get("reps_done")
+        if self.ctx.get("blowing"):
+            c["blowing"] = True
+        return c
+
     # ------------------------------------------------------------------
     def _phase_play(self):
         self.phase = "play"
@@ -530,6 +701,7 @@ class PolicyRunner:
         while not self.stop_event.is_set():
             self.ctx["now"] = time.monotonic() - t0
             self._update_ctx_from_log()
+            self.ctx["in_rotate"] = self._in_rotate
 
             if time.monotonic() - t0 > self.duration:
                 self.phase = "timeout"
@@ -546,24 +718,38 @@ class PolicyRunner:
             st = int(meta.get("systemState", -1))
             if st in (STATE_ENDING, STATE_WIN):
                 self.phase = "win" if st == STATE_WIN else "ended"
+                self.frames.save(img, meta, self._frame_ctx(self.phase), force=True)
+                # final screen: clear expectations (no bars on a win screen)
+                self.ctx.pop("in_rotate", None)
+                self.ctx.pop("bars_present", None)
+                self.verifier.maybe(img, meta, self.ctx, reason=self.phase)
                 break
+
+            self.frames.save(img, meta, self._frame_ctx())  # throttled to 1/s
 
             self.state = self.game.extract(img, meta, self.ctx)
             ext = E.Extractor(img, meta)
             bars_present = ext.bars()["pressure"]["present"]
+            self.ctx["bars_present"] = bars_present
             button = E.ok_button(img)
 
             if self._in_rotate:
                 # on the between-task change screen: no gameplay decisions
                 self.actions = []
                 self._step_change_screen(img, meta, self.ctx["now"])
+                if button:
+                    # button drawn = definitively the change screen; verify it
+                    self.verifier.maybe(img, meta, self.ctx, reason="change-screen")
                 time.sleep(0.3)
                 continue
             if button:
                 # change screen's button drawn — definitive signal
                 self._in_rotate = True
+                self.ctx["in_rotate"] = True   # sync for the verifier's expectation
                 self._rotate_since = self.ctx["now"]
                 self._last_ok_tap = 0.0
+                self.frames.save(img, meta, self._frame_ctx("button"), force=True)
+                self.verifier.maybe(img, meta, self.ctx, reason="button")
                 self.actions = []
                 time.sleep(0.3)
                 continue
@@ -575,6 +761,7 @@ class PolicyRunner:
                     self._in_rotate = True
                     self._rotate_since = self.ctx["now"]
                     self._last_ok_tap = 0.0
+                    self.frames.save(img, meta, self._frame_ctx("change-screen"), force=True)
                 self.actions = []
                 time.sleep(0.3)
                 continue
@@ -587,6 +774,11 @@ class PolicyRunner:
                 self.actions = self._decide_llm(img)
             self.decisions += 1
             self.actions = self._apply(self.actions)
+
+            # Fast visual cross-check (rate-limited; skipped mid-blow so a
+            # slow LLM round-trip can never disturb rep timing).
+            if not self.ctx.get("blowing"):
+                self.verifier.maybe(img, meta, self.ctx, reason="loop")
 
             if loop_s:
                 time.sleep(loop_s)
@@ -659,6 +851,8 @@ class PolicyRunner:
                 self.control.touch_up()
             except Exception:
                 pass
+            self.frames.close()   # contact sheet + metadata flush
+            self.verifier.close()
             self._status()
             if self.own_session:
                 self._stop_session()
@@ -678,12 +872,23 @@ def main() -> None:
     ap.add_argument("--llm-base", default="http://192.168.0.68:1234")
     ap.add_argument("--attach", action="store_true",
                     help="use an already-running session instead of starting one")
+    ap.add_argument("--no-autonav", action="store_true",
+                    help="disable the menu fast path (pepit_compat "
+                         "--profile/--game) and navigate with taps like the "
+                         "classic flow — for the sessions we start ourselves")
+    ap.add_argument("--no-verify", action="store_true",
+                    help="disable the in-loop visual verifier (decision-model "
+                         "cross-check of frames while playing)")
     args = ap.parse_args()
 
     runner = PolicyRunner(
         game=args.game, source=args.source, datadir=args.data_dir,
         profile_index=args.profile, duration=args.duration, log_path=args.log,
-        llm_model=args.model, llm_base=args.llm_base, own_session=not args.attach)
+        llm_model=args.model, llm_base=args.llm_base, own_session=not args.attach,
+        # attaching: a foreign session may or may not autonav — default to the
+        # classic (immediate-tap) flow; own session: autonav unless disabled
+        autonav=(None if args.attach else not args.no_autonav),
+        verify=not args.no_verify)
     status = runner.run()
     print(json.dumps(status, indent=2, default=str))
     print(f"status file: {runner.status_path}")

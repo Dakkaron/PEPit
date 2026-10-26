@@ -42,7 +42,7 @@ from PIL import Image as PILImage
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
-from PEPitMCP.policy.runner import PolicyRunner  # noqa: E402
+from PEPitMCP.policy.runner import PolicyRunner, ini_name  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants / paths
@@ -58,6 +58,9 @@ PEPIT_LOG = "/tmp/opencode/pepit_mcp_pepit_compat.log"
 # ---------------------------------------------------------------------------
 _child = None
 _data_dir = "/tmp/opencode/pepit_data"  # last value passed to pepit_session_start
+# what the running session was launched with (menu fast path), or None:
+_auto_profile: str | None = None
+_auto_game: str | None = None
 
 
 def _child_running() -> bool:
@@ -174,24 +177,38 @@ def _capture_image() -> Image:
 server = MCPServer(name="pepit_compat", version="0.1.0")
 
 
-@server.tool(name="pepit_session_start", description="Start a headless emulated PEPit session (pepit_compat via SDL dummy driver).")
-def pepit_session_start(data_dir: str = "/tmp/opencode/pepit_data") -> str:
-    global _child, _data_dir
+@server.tool(name="pepit_session_start", description="Start a headless emulated PEPit session (pepit_compat via SDL dummy driver). "
+              "Optional profile/game drop straight into a game: pass the profile name (profiles.ini `name`) or 0-based "
+              "slot index, and the game name (gameconfig.ini `name`) or 0-based slot index. Without them the session "
+              "stops at the profile-selection menu for manual navigation.")
+def pepit_session_start(data_dir: str = "/tmp/opencode/pepit_data",
+                        profile: str | None = None,
+                        game: str | None = None) -> str:
+    global _child, _data_dir, _auto_profile, _auto_game
     if _child_running():
         return "Session already running"
     _data_dir = data_dir
+    _auto_profile, _auto_game = profile, game
     env = os.environ.copy()
     env["SDL_VIDEODRIVER"] = "dummy"
     env["SDL_AUDIODRIVER"] = "dummy"
+    cmd = [PEPIT_BINARY, "--data-dir", data_dir, "--scale", "1"]
+    if profile is not None:
+        cmd += ["--profile", profile]
+    if game is not None:
+        cmd += ["--game", game]
     _child = subprocess.Popen(
-        [PEPIT_BINARY, "--data-dir", data_dir, "--scale", "1"],
+        cmd,
         stdin=subprocess.DEVNULL,
         stdout=open(PEPIT_LOG, "ab"),
         stderr=subprocess.STDOUT,
         env=env,
         start_new_session=True,
     )
-    return f"Session started with pid {_child.pid}"
+    note = ""
+    if profile is not None or game is not None:
+        note = f" (auto-nav: profile={profile!r} game={game!r})"
+    return f"Session started with pid {_child.pid}{note}"
 
 
 @server.tool(name="pepit_session_status", description="Return the current status of the emulated PEPit session.")
@@ -246,7 +263,7 @@ def pepit_set_pressure(value: float) -> str:
 
 @server.tool(name="pepit_session_kill", description="Kill the running emulated PEPit session.")
 def pepit_session_kill() -> str:
-    global _child
+    global _child, _auto_profile, _auto_game
     if _child_running():
         _write_control("QUIT")
         try:
@@ -254,6 +271,8 @@ def pepit_session_kill() -> str:
         except subprocess.TimeoutExpired:
             _child.kill()
             _child.wait()
+    _child = None
+    _auto_profile = _auto_game = None
     return "Session killed"
 
 
@@ -277,18 +296,34 @@ def pepit_policy_run(game: str,
                      profile_index: int = 0,
                      model: str = "cloudflare_clef-flash",
                      llm_base: str = "http://192.168.0.68:1234") -> str:
-    global _data_dir
+    global _data_dir, _auto_profile, _auto_game
+    # Menu fast path: the session (running or freshly started) is launched
+    # with --profile/--game so the firmware picks them itself. Profile by
+    # index (unambiguous), game by gameconfig.ini display name (the shim
+    # matches on that); if the name can't be read the stage falls back to
+    # the runner's tap navigation.
+    game_name = ini_name(os.path.join(data_dir, "games", game, "gameconfig.ini"))
+    profile_spec = str(profile_index)
     if _child_running():
         own_session = False
         _data_dir = _data_dir or data_dir
+        # A running binary can't gain --profile/--game after launch, so
+        # respect how it was actually started (_auto_* as set by
+        # pepit_session_start; possibly None -> classic tap navigation).
     else:
         # start our own session (with the policy data dir), like pepit_session_start
         _data_dir = data_dir
+        _auto_profile, _auto_game = profile_spec, game_name
         env = os.environ.copy()
         env["SDL_VIDEODRIVER"] = "dummy"
         env["SDL_AUDIODRIVER"] = "dummy"
+        cmd = [PEPIT_BINARY, "--data-dir", data_dir, "--scale", "1"]
+        if _auto_profile is not None:
+            cmd += ["--profile", _auto_profile]
+        if _auto_game is not None:
+            cmd += ["--game", _auto_game]
         _child = subprocess.Popen(
-            [PEPIT_BINARY, "--data-dir", data_dir, "--scale", "1"],
+            cmd,
             stdin=subprocess.DEVNULL,
             stdout=open(PEPIT_LOG, "ab"),
             stderr=subprocess.STDOUT,
@@ -301,7 +336,9 @@ def pepit_policy_run(game: str,
         game=game, source=source, datadir=_data_dir,
         profile_index=profile_index, duration=duration_seconds,
         log_path=PEPIT_LOG, llm_model=model, llm_base=llm_base,
-        run_id=time.strftime("run_%H%M%S") + f"_{game}", own_session=own_session)
+        run_id=time.strftime("run_%H%M%S") + f"_{game}", own_session=own_session,
+        auto_profile=_auto_profile, auto_game=_auto_game,
+        autonav=(_auto_profile is not None or _auto_game is not None))
     _policy_runs[run.run_id] = run
     t = threading.Thread(target=run.run, name=f"policy-{run.run_id}", daemon=True)
     t.start()

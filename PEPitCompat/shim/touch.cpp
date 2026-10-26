@@ -9,6 +9,7 @@
  */
 
 #include "xpt2046.h"
+#include "autonav.h"
 #include <SDL2/SDL.h>
 #include <algorithm>
 #include <cstdio>
@@ -54,6 +55,20 @@ void setTouchDisplayParams(int w, int h, int scale) {
     g_displayW = w;
     g_displayH = h;
     g_scaleFactor = scale;
+}
+
+// Simulated touch press/release for the auto-nav (shim/autonav.cpp).
+// Same channel as the MCP TOUCH_DOWN/TOUCH_UP commands: the pending flag is
+// consumed at the next frame boundary in updateMouseState(). Display coords.
+void simTouchPress(int x, int y) {
+    g_simX = x;
+    g_simY = y;
+    g_simDown = true;
+    g_simPending = true;
+}
+
+void simTouchRelease() {
+    g_simDown = false;  // g_simActive clears at the next frame boundary
 }
 
 // Shim functions invoked by the MCP / control-file input processor
@@ -182,6 +197,12 @@ static void updateMouseState() {
 
     // Check for new simulated input commands
     checkSimulatedInput();
+
+    // Auto-nav: when --profile/--game were given, tap the requested menu
+    // slot as soon as the firmware's selection page appears. Runs from
+    // inside the original blocking selection loops (they query touch every
+    // iteration), so no external navigation is needed.
+    autoNavTick();
 
     SDL_Window* window = getSDLWindow();
     if (!window) return;

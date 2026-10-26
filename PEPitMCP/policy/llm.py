@@ -31,9 +31,10 @@ class LLMClient:
         image:      base64 data URL of the frame (vision mode; may combine
                     with state_text for the hybrid mode)
         """
-        body = {"model": self.model, "questions": questions}
-        if state_text is not None:
-            body["state"] = state_text
+        # `state` is required by the endpoint (even when only an image is
+        # provided) — send an empty string rather than omitting it.
+        body = {"model": self.model, "state": state_text or "",
+                "questions": questions}
         if image is not None:
             body["images"] = [image]
 
