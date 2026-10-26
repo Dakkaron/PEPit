@@ -24,6 +24,9 @@
 #include <cstdlib>
 #include <string>
 
+// Auto-nav (menu fast-path): --profile/--game direct start, see shim/autonav.h
+#include "autonav.h"
+
 // Shim initialization functions (declared in respective shim files)
 extern void initDisplay(SDL_Window** window, SDL_Renderer** renderer);
 extern void initSignalHandlers(sigjmp_buf* jumpBuf);
@@ -66,6 +69,8 @@ static const struct option cliOptions[] = {
     {"fullscreen",        no_argument,       0, 'f'},
     {"low-pressure-key",  required_argument, 0, 'l'},
     {"good-pressure-key", required_argument, 0, 'g'},
+    {"profile",           required_argument, 0, 'p'},
+    {"game",              required_argument, 0, 'G'},
     {"help",              no_argument,       0, 'h'},
     {0, 0, 0, 0}
 };
@@ -81,6 +86,14 @@ static void printUsage(const char* progName) {
     fprintf(stderr, "  -f, --fullscreen              Start in fullscreen mode\n");
     fprintf(stderr, "  -l, --low-pressure-key <key>  Keyboard key for low pressure (default: A)\n");
     fprintf(stderr, "  -g, --good-pressure-key <key> Keyboard key for good pressure (default: S)\n");
+    fprintf(stderr, "  -p, --profile <name|id>       Drop straight in: select this profile on the\n");
+    fprintf(stderr, "                                profile page (by profiles.ini `name`, or 0-based\n");
+    fprintf(stderr, "                                slot index; index must be < 8) instead of waiting\n");
+    fprintf(stderr, "                                for menu input\n");
+    fprintf(stderr, "      --game <name|id>          Drop straight in: select this game on the game\n");
+    fprintf(stderr, "                                page (by gameconfig.ini `name`, or 0-based slot\n");
+    fprintf(stderr, "                                index; index must be < 8) instead of waiting for\n");
+    fprintf(stderr, "                                menu input\n");
     fprintf(stderr, "  -h, --help                    Show this help message\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Keyboard keys use SDL scancode names:\n");
@@ -130,10 +143,12 @@ int main(int argc, char* argv[]) {
     bool fullscreen = false;
     int lowPressureKey = SDL_SCANCODE_A;
     int goodPressureKey = SDL_SCANCODE_S;
-    
+    const char* autoProfile = nullptr;  // --profile <name|id>
+    const char* autoGame = nullptr;     // --game <name|id>
+
     // Parse CLI arguments
     int opt;
-    while ((opt = getopt_long(argc, argv, "d:s:fl:g:h", cliOptions, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "d:s:fl:g:p:G:h", cliOptions, nullptr)) != -1) {
         switch (opt) {
             case 'd':
                 dataDir = optarg;
@@ -155,6 +170,12 @@ int main(int argc, char* argv[]) {
                 if (key >= 0) goodPressureKey = key;
                 break;
             }
+            case 'p':
+                autoProfile = optarg;
+                break;
+            case 'G':
+                autoGame = optarg;
+                break;
             case 'h':
                 printUsage(argv[0]);
                 return 0;
@@ -168,7 +189,11 @@ int main(int argc, char* argv[]) {
     if (!dataDir.empty() && dataDir.back() != '/') {
         dataDir += '/';
     }
-    
+
+    // Register auto-nav targets (menu fast-path). Names are resolved lazily
+    // when each selection page appears, so this is safe to call before setup().
+    autoNavConfigure(autoProfile, autoGame);
+
     // Initialize SDL2 (window + renderer)
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;

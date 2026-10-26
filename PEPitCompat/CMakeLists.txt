@@ -23,6 +23,7 @@ set(SHIM_LIB_SOURCES
     shim/sensor.cpp
     shim/joystick.cpp
     shim/touch.cpp
+    shim/autonav.cpp
     shim/thread.cpp
     shim/instances.cpp
     shim/appinit.cpp
