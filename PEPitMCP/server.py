@@ -11,6 +11,9 @@ Tools:
   - pepit_joystick_control: joystick axis (adcX, adcY) + button
   - pepit_set_pressure    : set emulated air-pressure sensor value
   - pepit_session_kill    : kill the running session
+  - pepit_policy_run      : delegate gameplay to the fast policy loop
+                            (pepit_policy_run / pepit_policy_status /
+                             pepit_policy_stop, see policy/)
 
 Control channel: polled control file /tmp/pepit_control (written here, read by the C++ shim).
 Screenshot channel: /tmp/pepit_shot.raw (RGB888) + /tmp/pepit_shot.json written by the C++ shim.
@@ -23,6 +26,8 @@ import json
 import os
 import re
 import subprocess
+import sys
+import threading
 import time
 from typing import Any
 
@@ -31,6 +36,13 @@ from mcp.server.mcpserver.utilities.types import Image
 from mcp.types import TextContent
 
 from PIL import Image as PILImage
+
+# Make the policy package importable no matter how this file is launched
+# (it runs as a plain script, not as part of the PEPitMCP package).
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+from PEPitMCP.policy.runner import PolicyRunner  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants / paths
@@ -243,6 +255,95 @@ def pepit_session_kill() -> str:
             _child.kill()
             _child.wait()
     return "Session killed"
+
+
+# ---------------------------------------------------------------------------
+# Policy runner ("System 1") — delegate gameplay to a fast policy loop
+# ---------------------------------------------------------------------------
+_policy_runs: dict[str, PolicyRunner] = {}
+
+
+@server.tool(name="pepit_policy_run",
+             description="Delegate gameplay to the policy runner: it navigates "
+                         "(profile -> game -> rotate screens) and plays the given "
+                         "lua game (miner/plane/farm) until the duration expires or "
+                         "the game finishes. source: 'rulebot' (deterministic) or "
+                         "'llm'/'llm-text'/'llm-image' (LM Studio decision model). "
+                         "Attaches to the running session, or starts one if none.")
+def pepit_policy_run(game: str,
+                     source: str = "rulebot",
+                     duration_seconds: float = 300.0,
+                     data_dir: str = "/tmp/opencode/pepit_data_lua",
+                     profile_index: int = 0,
+                     model: str = "cloudflare_clef-flash",
+                     llm_base: str = "http://192.168.0.68:1234") -> str:
+    global _data_dir
+    if _child_running():
+        own_session = False
+        _data_dir = _data_dir or data_dir
+    else:
+        # start our own session (with the policy data dir), like pepit_session_start
+        _data_dir = data_dir
+        env = os.environ.copy()
+        env["SDL_VIDEODRIVER"] = "dummy"
+        env["SDL_AUDIODRIVER"] = "dummy"
+        _child = subprocess.Popen(
+            [PEPIT_BINARY, "--data-dir", data_dir, "--scale", "1"],
+            stdin=subprocess.DEVNULL,
+            stdout=open(PEPIT_LOG, "ab"),
+            stderr=subprocess.STDOUT,
+            env=env,
+            start_new_session=True,
+        )
+        own_session = False  # the MCP server owns the child, not the runner
+
+    run = PolicyRunner(
+        game=game, source=source, datadir=_data_dir,
+        profile_index=profile_index, duration=duration_seconds,
+        log_path=PEPIT_LOG, llm_model=model, llm_base=llm_base,
+        run_id=time.strftime("run_%H%M%S") + f"_{game}", own_session=own_session)
+    _policy_runs[run.run_id] = run
+    t = threading.Thread(target=run.run, name=f"policy-{run.run_id}", daemon=True)
+    t.start()
+    return (f"Policy run {run.run_id} started ({game}, {source}, "
+            f"{duration_seconds}s) — status: {run.status_path}")
+
+
+@server.tool(name="pepit_policy_status",
+             description="Status of a policy run: phase (boot/profile/gamesel/"
+                         "rotate/play/timeout/win), decisions made, last extracted "
+                         "state, last actions, and ground-truth blow stats from the "
+                         "session log.")
+def pepit_policy_status(run_id: str = "") -> str:
+    if not run_id:
+        if len(_policy_runs) == 1:
+            run_id = next(iter(_policy_runs))
+        elif _policy_runs:
+            run_id = max(_policy_runs)  # most recent by name
+        else:
+            return "No policy runs in this server session"
+    run = _policy_runs.get(run_id)
+    if run is None:
+        return f"No run {run_id} in this server session"
+    try:
+        with open(run.status_path) as f:
+            return f.read()
+    except OSError as e:
+        return f"status file unreadable: {e}"
+
+
+@server.tool(name="pepit_policy_stop", description="Stop the policy run and release all inputs.")
+def pepit_policy_stop(run_id: str = "") -> str:
+    if not run_id:
+        if len(_policy_runs) == 1:
+            run_id = next(iter(_policy_runs))
+        else:
+            return "Ambiguous — pass run_id (or there are no runs)"
+    run = _policy_runs.get(run_id)
+    if run is None:
+        return f"No run {run_id} in this server session"
+    run.request_stop()
+    return f"Stop requested for {run_id}"
 
 
 def main() -> None:
