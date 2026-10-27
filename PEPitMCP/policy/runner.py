@@ -60,6 +60,13 @@ RE_TARGET_DUR = re.compile(r"Target Duration: (\d+)")
 # will never tap that stage again, so the runner may fall back to a tap.
 RE_AUTONAV_TERMINAL = re.compile(
     r"\[autoNav\] (profile|game): (gave up after retries|not resolved|not selectable)")
+# The shim emits PRE_SETUP_MARKER once per process (right before setup())
+# and an exit line when it dies (shim/main.cpp). The firmware log is
+# SHARED across sessions — every session appends to the same file — so a
+# follower must ingest only bytes from its own session's marker onward;
+# anything earlier belongs to earlier sessions (see LogFollower).
+SESSION_START_MARK = b"PRE_SETUP_MARKER\n"
+SESSION_END_MARKS = (b"Exiting cleanly", b"Signal received, exiting")
 ROTATE_TASK_NAMES = {
     "Short blows": "pepShort",
     "Long blows": "pepLong",
@@ -126,12 +133,42 @@ def parse_profiles(path: str) -> list:
     return out
 
 
+def _session_start_offset(path: str) -> tuple[int, bool]:
+    """(offset, started) for a fresh follower on the shared session log.
+
+    Returns the byte offset just past the last session-start marker.
+    `started` is False when the marker's own session has already exited
+    (an exit marker follows it) or no marker exists: then the follower
+    must wait for the next session's marker before ingesting anything,
+    so earlier sessions' blow/rotate lines can never be re-counted.
+    """
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return 0, False
+    idx = data.rfind(SESSION_START_MARK)
+    if idx == -1:
+        return 0, False
+    tail = data[idx + len(SESSION_START_MARK):]
+    for end in SESSION_END_MARKS:
+        if end in tail:
+            return idx + len(SESSION_START_MARK), False  # that session is dead
+    return idx + len(SESSION_START_MARK), True
+
+
 class LogFollower:
-    """Tail the session log; expose marker-derived facts to the runner."""
+    """Tail the session log; expose marker-derived facts to the runner.
+
+    The log file is shared across sessions (each appends to it), so this
+    follower only ingests bytes from the current session's start marker
+    (SESSION_START_MARK, one per process) onward. Bytes before it belong
+    to earlier sessions and are consumed from the file but never scanned.
+    """
 
     def __init__(self, path: str):
         self.path = path
-        self.offset = 0
+        self.offset, self._session_started = _session_start_offset(path)
         self.games_confirmed = []   # ordered, in the order the firmware found them
         self._pending_game = None
         self.selected_game = None
@@ -152,6 +189,7 @@ class LogFollower:
             return ""
         if size < self.offset:  # truncated/rotated
             self.offset = 0
+            self._session_started = False
         if size == self.offset:
             return ""
         with open(self.path, "rb") as f:
@@ -163,8 +201,18 @@ class LogFollower:
         last_nl = chunk.rfind(b"\n")
         if last_nl == -1:
             return ""
+        head = chunk[: last_nl + 1]
+        if not self._session_started:
+            # Bytes before this session's start marker belong to earlier
+            # sessions: consume them from the file, but never ingest.
+            idx = head.rfind(SESSION_START_MARK)
+            if idx == -1:
+                self.offset += last_nl + 1
+                return ""
+            self._session_started = True
+            head = head[idx + len(SESSION_START_MARK):]
         self.offset += last_nl + 1
-        return chunk[: last_nl + 1].decode("utf-8", errors="replace")
+        return head.decode("utf-8", errors="replace")
 
     def scan(self, chunk: str) -> None:
         if not chunk:
@@ -308,6 +356,14 @@ class PolicyRunner:
         env["SDL_VIDEODRIVER"] = "dummy"
         env["SDL_AUDIODRIVER"] = "dummy"
         os.makedirs(os.path.dirname(self.log_path) or ".", exist_ok=True)
+        # We own this session: start the shared firmware log clean, so the
+        # file holds exactly this session's output (LogFollower also skips
+        # bytes before the session's start marker, so stale content from
+        # earlier sessions can never be ingested).
+        try:
+            os.truncate(self.log_path, 0)
+        except OSError:
+            pass
         logf = open(self.log_path, "ab")
         cmd = [PEPIT_BINARY, "--data-dir", self.datadir, "--scale", "1"]
         if self.auto_profile is not None:
@@ -815,6 +871,10 @@ class PolicyRunner:
                     self.control.touch_up()
                 elif a.cmd == "joystick_x":
                     self.control.joystick_x(a.args[0])
+                elif a.cmd == "joystick_y":
+                    self.control.joystick_y(a.args[0])
+                elif a.cmd == "joystick_xy":
+                    self.control.joystick_xy(a.args[0], a.args[1])
                 elif a.cmd == "joystick_btn":
                     self.control.joystick(32768, 32768, a.args[0])
                 applied.append(a)

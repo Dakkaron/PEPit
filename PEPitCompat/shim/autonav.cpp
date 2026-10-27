@@ -84,13 +84,16 @@ constexpr int kWaitQueries = 100;    // pause between retries
 constexpr int kMaxAttempts = 10;     // then give up (leave page for manual control)
 // Settle before the first tap: let the firmware complete at least one full
 // selection-loop iteration (touch check + page draw + push) on the page.
-// The firmware's menu-sprite array is allocated in refreshMenuSprites(),
-// which only runs from drawProfileSelectionPage — i.e. on a *drawn* frame
-// (gfxHandler.cpp). A tap consumed inside the page's very first iteration
-// (the check runs before the draw) leaves zero drawn frames, and the next
-// page that uses the sprites (drawGameSelectionPage) dereferences the
-// still-null array and segfaults. 32 queries = ~2-3 iterations, so at
-// least one drawn frame has always happened by the time we tap.
+// Why: the firmware's menu-sprite array was allocated only in
+// refreshMenuSprites(), called from drawProfileSelectionPage — i.e. on a
+// *drawn* frame (gfxHandler.cpp). A tap consumed inside the page's very
+// first iteration (the check runs before the draw) left zero drawn frames,
+// and the game page's first draw dereferenced the still-null array and
+// segfaulted (reproduced under gdb). The firmware now self-allocates
+// (refreshAndDrawSprite calls refreshMenuSprites()), but the settle also
+// keeps a zero-draw-frame transition from flashing an undrawn page for a
+// frame. 32 queries = ~2-3 iterations, so at least one drawn frame has
+// always happened by the time we tap.
 constexpr int kSettleQueries = 32;
 
 enum class Phase { Idle, Tapping, Waiting, Done, GaveUp };
