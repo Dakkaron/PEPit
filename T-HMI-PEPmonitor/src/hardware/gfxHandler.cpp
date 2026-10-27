@@ -811,6 +811,12 @@ static void refreshMenuSprites() {
 }
 
 static void refreshAndDrawMenuSprite(DISPLAY_T* display, uint32_t slotId, String path, int32_t x, int32_t y) {
+  // Self-allocate (idempotent): this also runs from drawGameSelectionPage,
+  // which does not call refreshMenuSprites(). If the previous page was
+  // never drawn (e.g. a tap consumed in its very first loop iteration —
+  // the check runs before the draw), the array would still be null and the
+  // sprite dereference below would segfault.
+  refreshMenuSprites();
   if (!menuSpritePaths[slotId].equals(path)) {
     Serial.print("(Re-)loading menu sprite ");
     Serial.print(path);
