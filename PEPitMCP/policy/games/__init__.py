@@ -8,15 +8,17 @@ absent.
 """
 
 from .base import (Action, GameSpec, a_joystick_btn, a_joystick_x, a_pressure,
-                   a_tap, a_touch_down, a_touch_up)
+                   a_joystick_y, a_tap, a_touch_down, a_touch_move, a_touch_up)
 from .miner import MinerSpec
 from .plane import PlaneSpec
 from .farm import FarmSpec
+from .soccer import SoccerSpec
 
 GAMES = {
     "miner": MinerSpec,
     "plane": PlaneSpec,
     "farm": FarmSpec,
+    "soccer": SoccerSpec,
 }
 
 
@@ -28,6 +30,6 @@ def get_game(name: str) -> GameSpec:
 
 __all__ = [
     "GAMES", "get_game", "GameSpec", "Action",
-    "a_pressure", "a_tap", "a_joystick_x", "a_joystick_btn",
-    "a_touch_down", "a_touch_up",
+    "a_pressure", "a_tap", "a_joystick_x", "a_joystick_y", "a_joystick_btn",
+    "a_touch_down", "a_touch_move", "a_touch_up",
 ]

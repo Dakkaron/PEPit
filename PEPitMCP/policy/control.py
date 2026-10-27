@@ -129,6 +129,21 @@ class ControlChannel:
         adc_x = min(FULL, max(0, int(CENTER - max(-1.0, min(1.0, y)) * CENTER)))
         self.joystick(adc_x, CENTER, button_pressed)
 
+    def joystick_xy(self, x: float, y: float, button_pressed: bool = False) -> None:
+        """Set BOTH firmware-level axes (-1..1) in a single write.
+
+        joystick_x()/joystick_y() each center the other axis, so issuing
+        them as two commands cancels the first — games reading both axes
+        need this combined form.
+        """
+        cx = max(-1.0, min(1.0, x))
+        cy = max(-1.0, min(1.0, y))
+        # firmware: joystickX = (adc_y - CENTER)/CENTER,
+        #          joystickY = -(adc_x - CENTER)/CENTER
+        adc_x = min(FULL, max(0, int(CENTER - cy * CENTER)))
+        adc_y = min(FULL, max(0, int(CENTER + cx * CENTER)))
+        self.joystick(adc_x, adc_y, button_pressed)
+
     def joystick_reset(self) -> None:
         self.joystick()
 

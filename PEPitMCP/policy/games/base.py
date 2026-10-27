@@ -31,12 +31,24 @@ def a_joystick_x(v: float) -> Action:
     return Action("joystick_x", v)
 
 
+def a_joystick_y(v: float) -> Action:
+    return Action("joystick_y", v)
+
+
+def a_joystick_xy(x: float, y: float) -> Action:
+    return Action("joystick_xy", x, y)
+
+
 def a_joystick_btn(pressed: bool) -> Action:
     return Action("joystick_btn", pressed)
 
 
 def a_touch_down(x: int, y: int) -> Action:
     return Action("touch_down", x, y)
+
+
+def a_touch_move(x: int, y: int) -> Action:
+    return Action("touch_move", x, y)
 
 
 def a_touch_up() -> Action:
