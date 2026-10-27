@@ -1,34 +1,44 @@
 -- Soccer Penalty — per-frame game logic (runs in all five blow phases).
 -- Injected globals: CurrentlyBlowing, Ms, MsDelta, BlowStartMs,
 -- CurrentRepetition, NewRepetition, Repetitions, ... (gameLua.cpp).
+-- The ball is struck on NewRepetition: the firmware's one-frame pulse on
+-- every blow that reaches its target duration (blow END, not blow start).
 
 -- ---------------------------------------------------------------- state
-if NewRepetition then
-  -- a fresh rep forces a fresh penalty, even mid-animation
-  ResetKick()
-end
-
-local blowingRising = CurrentlyBlowing and not WasBlowing
-if blowingRising then
-  if (State == "idle" or State == "reset") and not HasKicked then
-    ShotTX, ShotTY = AimX, AimY
-    KeeperTX, KeeperTY = SampleKeeperTarget(Ms)
-    KeeperStartX, KeeperStartY = KeeperX, KeeperY
-    ShotStartMs = Ms
-    SavedLast = false
-    State = "shooting"
-    HasKicked = true
+-- Scoreboard log: detect a new task (the firmware resets blowCount per task,
+-- so NewRepetition is NOT a reliable boundary signal) and log reps that end
+-- without a shot.
+local repNow = CurrentRepetition or 0
+local totalNow = Repetitions or 1
+if repNow < PrevRep or totalNow ~= PrevTotal or (repNow == 1 and PrevRep ~= 1) then
+  KickLog = {}
+  PrevRep, PrevTotal = repNow, totalNow
+else
+  if repNow > PrevRep and State ~= "shooting" and #KickLog < repNow - 1 then
+    KickLog[#KickLog + 1] = 3
   end
-end
-WasBlowing = CurrentlyBlowing
-if not CurrentlyBlowing then
-  HasKicked = false
+  PrevRep = repNow
 end
 
--- Aim keeps tracking the input except mid-flight, when the shot is set.
-if State ~= "shooting" then
-  UpdateAim(Ms, MsDelta)
+-- The ball is struck the moment a blow FINISHES: the firmware pulses
+-- NewRepetition for one frame on every blow that reaches its target
+-- duration (a failed blow pulses nothing, so that rep simply waits to be
+-- blown again). The kick may interrupt any animation in flight: short
+-- tasks allow a new blow before the previous kick has finished, and every
+-- blow gets its own shot (the flight always restarts from the spot).
+if NewRepetition then
+  ShotTX, ShotTY = AimX, AimY
+  KeeperTX, KeeperTY = SampleKeeperTarget(Ms)
+  KeeperStartX, KeeperStartY = KeeperX, KeeperY
+  ShotStartMs = Ms
+  SavedLast = false
+  State = "shooting"
 end
+
+-- Aim always tracks the input: the shot is only set when the blow FINISHES
+-- (NewRepetition), so re-aiming at any point — including mid-blow and
+-- mid-flight — moves where the next ball goes.
+UpdateAim(Ms, MsDelta)
 
 -- ------------------------------------------------------------ animation
 if State == "idle" then
@@ -45,8 +55,10 @@ elseif State == "shooting" then
     SavedLast = math.sqrt(dx * dx + dy * dy) <= SAVE_RADIUS
     if SavedLast then
       Saves = Saves + 1
+      KickLog[#KickLog + 1] = 2
     else
       Goals = Goals + 1
+      KickLog[#KickLog + 1] = 1
     end
     ResultMs = Ms
     State = "result"
@@ -80,8 +92,7 @@ elseif State == "reset" then
 end
 
 -- --------------------------------------------------------------- drawing
--- stands behind the goal
-FillRect(0, 0, 320, GOAL_TOP - 8, COL_STANDS)
+-- pitch (the stands strip behind the goal is the scoreboard bar, drawn last)
 FillRect(0, GOAL_TOP - 8, 320, 240 - GOAL_TOP + 8, COL_PITCH)
 DrawFastHLine(0, GOAL_BOTTOM, 320, COL_PITCH2)
 
@@ -134,8 +145,5 @@ if State == "result" then
   SetTextSize(1)
 end
 
--- HUD
-SetTextColor(COL_WHITE)
-SetTextSize(1)
-DrawString("G:" .. Goals .. " S:" .. Saves, 4, 4)
-DrawString("Rep " .. CurrentRepetition .. "/" .. Repetitions, 236, 4)
+-- TV-style scoreboard (replaces the old "G:.. S:.." / "Rep N/M" text HUD)
+DrawScoreboard()

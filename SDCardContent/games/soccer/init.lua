@@ -1,8 +1,9 @@
 -- Soccer Penalty — prototype game (primitives only, no sprite assets)
 --
--- Rules: each blow is one penalty kick. Aim with the joystick or by
--- dragging the touch anywhere on the goal area. The keeper dives to where
--- you were aiming 500 ms before you blow.
+-- Rules: each blow is one penalty kick, struck the moment the blow
+-- FINISHES (so you can keep aiming for the whole blow). Aim with the
+-- joystick or by dragging the touch anywhere on the goal area. The keeper
+-- dives to where you were aiming 500 ms before the blow started.
 --
 -- init.lua runs once at game start (gameLua.cpp initGames_lua); mainGame.lua
 -- runs every frame in every blow phase and keeps the state below.
@@ -24,6 +25,19 @@ COL_CROSS  = rgb(255, 196, 0)
 COL_GOALTX = rgb(64, 230, 96)
 COL_SAVETX = rgb(238, 48, 48)
 COL_WHITE  = 0xFFFF
+
+-- TV-style scoreboard (the broadcast penalty-shootout overlay): a dark bar
+-- in the stands strip with team tags, the score, and one box per kick of
+-- the current task — solid green = goal, dark + red X = save, dim outline
+-- = not taken yet, pulsing outline = kick in flight.
+COL_SBAR   = rgb(8, 12, 26)       -- bar (darker than the stands)
+COL_SBX    = rgb(96, 108, 140)    -- dim outline: kick not taken yet
+COL_SBFLY  = rgb(120, 176, 255)   -- pulsing outline: kick in flight
+COL_SBSAVE = rgb(16, 22, 40)      -- dark fill of a save box
+SBAR_H = 50                       -- the whole stands strip (goal frame starts at y 54)
+SB_NAME_Y = 21                    -- "YOU" + score row (the firmware status strip owns y 0..19)
+SB_BOX_Y = 38                     -- box row: 10 px boxes, 38..48
+SB_PITCH = 13                     -- box + gap
 
 -- Goal geometry (320x240 screen; firmware chrome bars live at y>=190)
 GOAL_X0 = 92         -- inside edge of the left post
@@ -48,7 +62,7 @@ FLIGHT_MS = 350      -- ball flight spot -> target
 DIVE_MS = 300        -- keeper dive center -> sampled aim
 RESULT_MS = 2500     -- "GOAL!"/"SAVED!" display
 RESET_MS = 3000      -- ball + keeper travel back
-HIST_KEEP = 40       -- aim history samples to keep (~1 s at 30 fps)
+HIST_KEEP = 120      -- aim history samples to keep (~12 s at 10 Hz)
 KEEPER_SAMPLE_MS = 500  -- the keeper reads the aim this long before the blow
 
 -- Per-kick state
@@ -69,25 +83,20 @@ KeeperTY = KEEPER_HOME_Y
 ShotStartMs = 0
 ResultMs = 0
 ResetMs = 0
-WasBlowing = false
-HasKicked = false
 Goals = 0
 Saves = 0
 SavedLast = false
 AimHist = {}
 AimHistN = 0
 
-function ResetKick()
-  State = "idle"
-  BallX = SPOT_X
-  BallY = SPOT_Y
-  BallR = BALL_R
-  KeeperX = KEEPER_HOME_X
-  KeeperY = KEEPER_HOME_Y
-  KeeperStartX = KEEPER_HOME_X
-  KeeperStartY = KEEPER_HOME_Y
-  HasKicked = false
-end
+-- Scoreboard: outcome of each kick of the CURRENT task, appended as kicks
+-- resolve. 1 = goal, 2 = save, 3 = rep that produced no shot (miss).
+-- mainGame.lua clears it when the rep counter wraps or the task's rep count
+-- changes (the firmware resets blowCount per task, so NewRepetition is not a
+-- reliable task-boundary signal).
+KickLog = {}
+PrevRep = 1
+PrevTotal = 1
 
 -- Read joystick/touch, ease the aim point toward it, and record it in the
 -- history ring the keeper samples from.
@@ -109,17 +118,27 @@ function UpdateAim(Ms, MsDelta)
   AimX = AimX + (tx - AimX) * k
   AimY = AimY + (ty - AimY) * k
 
-  table.insert(AimHist, {ms = Ms, x = AimX, y = AimY})
-  AimHistN = AimHistN + 1
-  if AimHistN > HIST_KEEP then
-    table.remove(AimHist, 1)
-    AimHistN = AimHistN - 1
+  -- Record the history at ~10 Hz, not every frame: the keeper samples
+  -- blowStart - 500 AFTER the blow ends (the kick fires on NewRepetition),
+  -- so the ring must span a whole blow (up to ~5 s). At 10 Hz, 120 samples
+  -- cover 12 s, and 100 ms resolution is finer than the aim's 120 ms ease,
+  -- so "closest sample" is unaffected by the thinning.
+  if AimHistN == 0 or Ms - AimHist[AimHistN].ms >= 100 then
+    table.insert(AimHist, {ms = Ms, x = AimX, y = AimY})
+    AimHistN = AimHistN + 1
+    if AimHistN > HIST_KEEP then
+      table.remove(AimHist, 1)
+      AimHistN = AimHistN - 1
+    end
   end
 end
 
 function SampleKeeperTarget(Ms)
   -- The keeper commits to where the player was aiming KEEPER_SAMPLE_MS
   -- before the blow started (the closest history sample to that instant).
+  -- Note this is called at blow END (the kick fires on NewRepetition), so
+  -- the instant is a full blow in the past — the ring must reach back
+  -- across the whole blow (see UpdateAim / HIST_KEEP).
   local want = BlowStartMs - KEEPER_SAMPLE_MS
   local best = nil
   for i = 1, #AimHist do
@@ -136,4 +155,68 @@ end
 
 function lerp(a, b, t)
   return a + (b - a) * t
+end
+
+-- One penalty box. kind: 1 = goal, 2 = save, 3 = missed rep, 0 = pending.
+-- s = box size in px: DrawScoreboard shrinks it together with the pitch for
+-- long tasks; defaults to 10 (the SB_PITCH=13 spacing).
+function DrawKickBox(x, y, kind, current, s)
+  s = s or 10
+  if kind == 1 then
+    FillRect(x, y, s, s, COL_GOALTX)
+  elseif kind == 2 then
+    FillRect(x, y, s, s, COL_SBSAVE)
+    DrawRect(x, y, s, s, COL_SAVETX)
+    DrawLine(x + 2, y + 2, x + s - 2, y + s - 2, COL_SAVETX)
+    DrawLine(x + s - 2, y + 2, x + 2, y + s - 2, COL_SAVETX)
+  elseif kind == 3 then
+    DrawRect(x, y, s, s, COL_SBX)
+    DrawLine(x + 2, y + 2, x + s - 2, y + s - 2, COL_SAVETX)
+    DrawLine(x + s - 2, y + 2, x + 2, y + s - 2, COL_SAVETX)
+  else
+    DrawRect(x, y, s, s, COL_SBX)
+  end
+  if current then
+    DrawRect(x - 1, y - 1, s + 2, s + 2, COL_SBFLY)
+  end
+end
+
+-- The scoreboard bar. Reads the current task's kick log (KickLog) plus the
+-- firmware rep counters; safe to call every frame.
+--
+-- The box row shows one box per rep OF THE CURRENT TASK — `Repetitions` is
+-- the firmware's totalBlowCount for this task and is re-read every frame,
+-- so a 10-rep task shows 10 boxes, a 5-rep task 5, and a 20-rep task 20
+-- (the pitch shrinks to keep the row on screen beyond ~24). The row is
+-- cleared when the task changes (see mainGame.lua).
+function DrawScoreboard()
+  FillRect(0, 0, 320, SBAR_H, COL_SBAR)
+  DrawFastHLine(0, SBAR_H - 1, 320, COL_SBX)
+
+  local n = Repetitions or 10
+  if n < 1 then n = 1 end
+  local rep = CurrentRepetition or 0
+  local pitch = SB_PITCH
+  if n * pitch > 296 then pitch = math.floor(296 / n) end  -- fit long tasks full-width
+  local s = math.max(3, pitch - 3)
+
+  local inFlight = (State == "shooting")
+  local w = n * pitch - (pitch - s)
+  local x0 = 160 - w // 2
+
+  for i = 0, n - 1 do
+    local ki = i + 1
+    local kind = KickLog[ki] or 0
+    local cur = (kind == 0 and ki == rep and inFlight)
+    DrawKickBox(x0 + i * pitch, SB_BOX_Y, kind, cur, s)
+  end
+
+  -- (the firmware status strip — battery/wifi/clock + "Rep N/M" — owns
+  -- y 0..19 of this bar, so the scoreboard content starts at y 21)
+  SetTextSize(2)
+  SetTextColor(COL_WHITE)
+  DrawString("YOU", 8, SB_NAME_Y)
+  local sc = Goals .. " : " .. Saves
+  DrawString(sc, 160 - (#sc * 10) // 2, SB_NAME_Y)
+  SetTextSize(1)
 end
