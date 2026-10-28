@@ -144,6 +144,9 @@ void setup() {
   checkFailWithMessage(errorMessage);
   
   tft.fillScreen(TFT_BLACK);
+  spr.frameBuffer(0);
+  spr.fillSprite(TFT_BLACK);
+  spr.frameBuffer(1);
   spr.fillSprite(TFT_BLACK);
   if (!isSkipSplashScreen()) {
     loadBmp(&spr, "/gfx/splash.bmp");
@@ -168,6 +171,11 @@ void setup() {
   Serial.print(VERSION);
   Serial.println("' initialized");
 
+  tft.fillScreen(TFT_BLACK);
+  spr.frameBuffer(0);
+  spr.fillSprite(TFT_BLACK);
+  spr.frameBuffer(1);
+  spr.fillSprite(TFT_BLACK);
   checkForAndRunUpdateFromSD(&errorMessage, false);
   checkFailWithMessage(errorMessage);
 
