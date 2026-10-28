@@ -367,6 +367,8 @@ static void handleLogExecutions() {
       ntpTimeString = "N/A";
       errorMessage = "";
     }
+  } else {
+    getFormattedTime(&ntpDateString, &ntpTimeString, &errorMessage);
   }
   Serial.println("NTP Time: " + ntpDateString + " " + ntpTimeString);
 
