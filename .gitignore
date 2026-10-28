@@ -45,3 +45,5 @@ PepItEmulator/
 
 PepItEmulator/
 T-HMI-PEPmonitor/src/initModeConfig.h
+# Local work plans — never commit
+TASK_INFO/
