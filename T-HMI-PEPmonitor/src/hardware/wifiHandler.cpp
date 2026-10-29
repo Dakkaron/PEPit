@@ -94,10 +94,8 @@ void getFormattedTime(String* ntpDateString, String* ntpTimeString, String* erro
   static bool getLocalTimeFailedBefore = false;
   static String lastSavedDatetimeString = "";
   struct tm timeinfo;
-  if((wifiStatus==lastWifiStatus && getLocalTimeFailedBefore && !timeSetManually) || !getLocalTime(&timeinfo, 0)){
-    if (!(wifiStatus==lastWifiStatus && getLocalTimeFailedBefore)) {
-      Serial.println("Failed to obtain time from NTP");
-    }
+  if (!getLocalTime(&timeinfo, 0)) {
+    Serial.println("Failed to obtain time.");
     getLocalTimeFailedBefore = true;
     lastWifiStatus = wifiStatus;
     errorMessage->concat("Konnte Zeit nicht abrufen.\n");
