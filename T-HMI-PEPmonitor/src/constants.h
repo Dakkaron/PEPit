@@ -2,7 +2,7 @@
 #define __CONSTANTS_H__
 #include <Arduino.h>
 
-#define VERSION "10.6"
+#define VERSION "10.7"
 
 //#define INIT_MODE
 #ifdef INIT_MODE
