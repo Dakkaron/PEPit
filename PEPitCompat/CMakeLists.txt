@@ -12,11 +12,10 @@ find_package(SDL2 REQUIRED)
 find_package(SDL2_ttf REQUIRED)
 
 # ============================================================
-# Shim source files (our Linux implementations)
+# Shim source files (our Linux implementations, minus app entry point)
 # ============================================================
 
-set(SHIM_SOURCES
-    shim/main.cpp
+set(SHIM_LIB_SOURCES
     shim/arduino.cpp
     shim/display.cpp
     shim/filesystem.cpp
@@ -26,6 +25,7 @@ set(SHIM_SOURCES
     shim/touch.cpp
     shim/thread.cpp
     shim/instances.cpp
+    shim/appinit.cpp
 )
 
 # ============================================================
@@ -111,22 +111,20 @@ set(ESPLUA_SOURCES
 )
 
 # ============================================================
-# Executable target
+# Shared core library: shims + real TFT_eSPI + original sources + Lua
+#
+# Linked by both the app executable and the test executable.
 # ============================================================
 
-add_executable(pepit_compat
-    ${SHIM_SOURCES}
+add_library(pepit_core STATIC
+    ${SHIM_LIB_SOURCES}
     ${TFT_ESPI_SOURCES}
     ${ORIGINAL_SOURCES}
     ${LUA_SOURCES}
     ${ESPLUA_SOURCES}
 )
 
-# ============================================================
-# Include directories (ordered by priority — first = highest)
-# ============================================================
-
-target_include_directories(pepit_compat PRIVATE
+target_include_directories(pepit_core PUBLIC
     ${CMAKE_SOURCE_DIR}/compat                                    # 1. Shims (highest priority — intercept ESP32 headers)
     ${CMAKE_SOURCE_DIR}/shim                                      # 2. Shim implementation headers (internal)
     ${CMAKE_SOURCE_DIR}/third_party/TFT_eSPI                     # 3. Real TFT_eSPI lib root (User_Setup_Select.h, Processors/, etc.)
@@ -140,23 +138,36 @@ target_include_directories(pepit_compat PRIVATE
     ${CMAKE_SOURCE_DIR}/src                                       # 11. Original source code root (constants.h, pins.h)
 )
 
-# ============================================================
-# Compile definitions
-# ============================================================
-
-target_compile_definitions(pepit_compat PRIVATE
+target_compile_definitions(pepit_core PUBLIC
     LUA_USE_C89                          # Required by EspLuaEngine for C89-compatible Lua
     VERBOSE                              # Enable log_v (used by EspLuaEngine)
     PROCESSOR_INCLUDE="Processors/TFT_eSDL.h"  # Tell TFT_eSPI to use our SDL2 processor
     DISABLE_ALL_LIBRARY_WARNINGS         # Suppress hardware-specific warnings
 )
 
-# ============================================================
-# Link libraries
-# ============================================================
-
-target_link_libraries(pepit_compat PRIVATE
+target_link_libraries(pepit_core PUBLIC
     SDL2::SDL2
     SDL2_ttf::SDL2_ttf
-    pthread                              # Required by std::thread and pthread_self()
+    pthread                              # Required for std::thread and pthread_self()
 )
+
+# ============================================================
+# App executable (original firmware + shims, entry point = shim/main.cpp)
+# ============================================================
+
+add_executable(pepit_compat
+    shim/main.cpp
+)
+
+target_link_libraries(pepit_compat PRIVATE pepit_core)
+
+# NOTE: the app's setup()/loop() call graph references every module, so all
+# objects (and their global constructors) are pulled in from the archive.
+
+# ============================================================
+# Unit tests (Catch2, run on the host — see TESTING.md in the app repo)
+# ============================================================
+
+enable_testing()  # must be at the top level for ctest to collect subdirectory tests
+
+add_subdirectory(tests)

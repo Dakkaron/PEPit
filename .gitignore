@@ -44,5 +44,6 @@ PepItEmulator/
 .vscode/
 
 PepItEmulator/
-PEPitCompat/
+# NOTE: the "PEPitCompat/" ignore line was removed — the project (and its
+# tests/, shim/, third_party/) is tracked now. PEPitCompat/build/ stays ignored.
 T-HMI-PEPmonitor/src/initModeConfig.h

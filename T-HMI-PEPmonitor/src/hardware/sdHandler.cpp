@@ -444,7 +444,7 @@ void getIniValueFromSection(char* sectionData, String key, String* output, Strin
   while (sectionData[i]!=0) {
     if (sectionData[i] == '\n') {
       if (keyEndMarker!=-1) {
-        if (strncmp(key.c_str(), sectionData + lineStartMarker, key.length()) == 0) {
+        if (key.length() == keyEndMarker-lineStartMarker+1 && strncmp(key.c_str(), sectionData + lineStartMarker, key.length()) == 0) {
           strncpy(buffer, sectionData + valStartMarker, i-valStartMarker);
           buffer[i-valStartMarker] = 0;
           output->clear();

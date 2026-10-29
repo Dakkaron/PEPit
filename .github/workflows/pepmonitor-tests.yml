@@ -1,0 +1,42 @@
+# Runs the native unit tests for the PEPit firmware (T-HMI-PEPmonitor) via the
+# PEPitCompat Linux compatibility layer. See T-HMI-PEPmonitor/TESTING.md.
+#
+# The tests run the real (unmodified) firmware source on the host against
+# SDL2/POSIX shims — no ESP32 toolchain, no hardware, no firmware download.
+
+name: PEPit unit tests
+
+on:
+  push:
+    paths:
+      - 'T-HMI-PEPmonitor/**'
+      - 'PEPitCompat/**'
+      - '.github/workflows/pepmonitor-tests.yml'
+  pull_request:
+    paths:
+      - 'T-HMI-PEPmonitor/**'
+      - 'PEPitCompat/**'
+      - '.github/workflows/pepmonitor-tests.yml'
+
+jobs:
+  native-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      working-directory: PEPitCompat
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SDL2
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libsdl2-ttf-2.0-dev
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j2
+
+      - name: Run unit tests (headless)
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: ctest --test-dir build --output-on-failure

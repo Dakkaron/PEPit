@@ -231,7 +231,7 @@ float Preferences::getFloat(const char* key, float def) const {
     try { return std::stof(val.data); } catch (...) { return def; }
 }
 
-size_t Preferences::getBytesLength(const char* key) const {
+size_t Preferences::getBytesLength(const char* key) {
     auto val = lookup(data_, key);
     if (val.type != "blob" || val.data.empty()) return 0;
     
@@ -244,12 +244,12 @@ size_t Preferences::getBytesLength(const char* key) const {
     return (b64len * 3 / 4) - padding;
 }
 
-size_t Preferences::getBytes(const char* key, uint8_t* buf, size_t maxlen) const {
+size_t Preferences::getBytes(const char* key, void* buf, size_t maxLen) {
     auto val = lookup(data_, key);
     if (val.type != "blob" || val.data.empty() || !buf) return 0;
     
-    size_t outLen = maxlen;
-    base64Decode(val.data, buf, outLen);
+    size_t outLen = maxLen;
+    base64Decode(val.data, static_cast<uint8_t*>(buf), outLen);
     
     return outLen;
 }
@@ -321,12 +321,14 @@ void Preferences::putString(const char* key, const char* value) {
     const_cast<Preferences*>(this)->saveFile();
 }
 
-void Preferences::putBytes(const char* key, const uint8_t* buf, size_t len) {
+size_t Preferences::putBytes(const char* key, const void* value, size_t len) {
+    if (!key || !value || len == 0) return 0;  // matches arduino-esp32 core
     Preferences::JsonValue val;
     val.type = "blob";
-    val.data = base64Encode(buf, len);
+    val.data = base64Encode(static_cast<const uint8_t*>(value), len);
     data_[key] = val;
     const_cast<Preferences*>(this)->saveFile();
+    return len;
 }
 
 void Preferences::clear() {

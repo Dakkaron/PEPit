@@ -44,8 +44,10 @@ public:
     float getFloat(const char* key, float def = 0.0f) const;
     
     // Binary blob storage (base64-encoded in JSON)
-    size_t getBytesLength(const char* key) const;
-    size_t getBytes(const char* key, uint8_t* buf, size_t maxlen) const;
+    // Signatures match the arduino-esp32 core (non-const, void* buffer,
+    // returns 0 on failure / length on success)
+    size_t getBytesLength(const char* key);
+    size_t getBytes(const char* key, void* buf, size_t maxLen);
     
     // Setters (in-memory, saved on end())
     void putUInt(const char* key, uint32_t value);
@@ -58,7 +60,7 @@ public:
     void putChar(const char* key, int8_t value);
     void putFloat(const char* key, float value);
     void putString(const char* key, const char* value);
-    void putBytes(const char* key, const uint8_t* buf, size_t len);
+    size_t putBytes(const char* key, const void* value, size_t len);
     
     // Namespace operations
     void clear(); // Remove all keys in current namespace

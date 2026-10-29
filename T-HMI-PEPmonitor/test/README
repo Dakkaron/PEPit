@@ -1,6 +1,11 @@
 
 This directory is intended for PlatformIO Test Runner and project tests.
 
+NOTE: This project's unit tests live in ../PEPitCompat/tests/ and are built
+with CMake/CTest (see ../PEPitCompat/README.md and TESTING.md in this
+directory). Do not put Catch2-based tests here — they would be picked up by
+`pio test` for the ESP32 and fail to build.
+
 Unit Testing is a software testing method by which individual units of
 source code, sets of one or more MCU program modules together with associated
 control data, usage procedures, and operating procedures, are tested to
