@@ -1,15 +1,12 @@
 /*
  * PEPitCompat — Unit tests: time handling (src/hardware/wifiHandler.cpp)
  *
- * Shim semantics (shim/arduino.cpp + compat/Arduino.h):
- *  - getLocalTime() always succeeds and returns realSystemTime + offset.
- *  - The app's settimeofday() never touches the HOST clock; it records the
- *    requested time as an offset. The faked clock keeps running with real
- *    elapsed time, offset to the manually set time — like the device RTC.
- *  - pepit_compat_resetClockOffset() (test-only) restores real time.
+ * Shim semantics: settimeofday() records an offset that getLocalTime()
+ * applies (the host clock is never touched); pepit_compat_resetClockOffset()
+ * restores real time.
  *
- * All cases repoint the SD root first: getFormattedTime() writes the
- * "lastDateTime" blob into the "system" prefs of the current root.
+ * All cases repoint the SD root: getFormattedTime() writes a "lastDateTime"
+ * blob into the "system" prefs of the current root.
  */
 
 #include "catch_amalgamated.hpp"
@@ -26,15 +23,6 @@
 using namespace pepit_test;
 
 namespace {
-
-/** App-style formatting for cross-checks (independent of getFormattedTime). */
-std::string formatClock(time_t t, const char* fmt) {
-    struct tm tmv;
-    localtime_r(&t, &tmv);
-    char buf[32];
-    strftime(buf, sizeof(buf), fmt, &tmv);
-    return std::string(buf);
-}
 
 /** Reset the shim's time offset when the test exits. */
 struct ClockOffsetGuard {
@@ -75,7 +63,7 @@ TEST_CASE("getFormattedTime: produces 'YYYY-MM-DD' and 'HH:MM' from the real clo
 
 TEST_CASE("setTimeFromString: app time reads return the faked time; the host clock is untouched", "[time]") {
     makeSdRoot("time-setstr");
-    ClockOffsetGuard offset;  // restore the real clock when the test exits
+    ClockOffsetGuard offset;
 
     const time_t hostBefore = time(nullptr);
 
@@ -88,11 +76,10 @@ TEST_CASE("setTimeFromString: app time reads return the faked time; the host clo
     REQUIRE(date == "2026-05-06");
     REQUIRE(timeStr == "07:08");
 
-    // The REAL system clock must simply have advanced — not jumped to 2026-05-06.
     const time_t hostAfter = time(nullptr);
     REQUIRE((hostAfter >= hostBefore && hostAfter <= hostBefore + 5));
 
-    // A second read still reflects the faked clock (the offset persists).
+    // the offset persists across reads
     String date2, time2, err2;
     getFormattedTime(&date2, &time2, &err2);
     REQUIRE(date2 == "2026-05-06");

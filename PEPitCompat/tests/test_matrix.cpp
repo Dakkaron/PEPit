@@ -1,12 +1,9 @@
 /*
  * PEPitCompat — Unit tests: 2D vector/matrix math (src/hardware/matrix.cpp)
  *
- * Pure math, no shims involved — the cheapest tests in the suite.
- *
- * Conventions used by the firmware:
- *  - Matrix2D {a,b,c,d} is a column-vector matrix: [a b; c d]
- *    (multMV: x' = a*x + b*y, y' = c*x + d*y)
- *  - The int variants are Q8.8 fixed point (>> 8 after each product).
+ * Conventions: Matrix2D {a,b,c,d} is a column-vector matrix ([a b; c d], so
+ * multMV: x' = a*x + b*y, y' = c*x + d*y); the int variants are Q8.8 fixed
+ * point (>> 8 after each product).
  */
 
 #include "catch_amalgamated.hpp"
@@ -19,18 +16,13 @@ namespace {
 
 const double HALF_PI = M_PI / 2.0;  // matrix.h pulls in Arduino.h -> <cmath>
 
-// Absolute tolerance (margin), not relative — Approx's relative epsilon
-// degenerates to zero for an expected value of 0, which would reject the
-// ~1e-7 rounding of cos(pi/2).
+// Absolute margin, not relative: a relative epsilon degenerates to zero for
+// an expected value of 0 (would reject cos(pi/2)'s ~1e-7 rounding).
 Catch::Approx near(float expected) {
     return Catch::Approx(static_cast<double>(expected)).margin(1e-4);
 }
 
 }  // namespace
-
-// ============================================================
-// vectorFromAngle
-// ============================================================
 
 TEST_CASE("vectorFromAngle: angle 0 points along +x, scaled by length", "[matrix]") {
     Vector2D v{};
@@ -53,10 +45,6 @@ TEST_CASE("vectorFromAngle: two-arg overload returns the unit vector", "[matrix]
     REQUIRE(v.y == near(1.0f));
 }
 
-// ============================================================
-// dotProduct
-// ============================================================
-
 TEST_CASE("dotProduct: vector-vector", "[matrix]") {
     Vector2D a{1.0f, 2.0f};
     Vector2D b{3.0f, 4.0f};
@@ -70,15 +58,9 @@ TEST_CASE("dotProduct: vector against an angle", "[matrix]") {
     REQUIRE(dotProduct(&b, static_cast<float>(HALF_PI)) == near(1.0f));
 }
 
-// ============================================================
-// normalizeVector
-// ============================================================
-
 TEST_CASE("KNOWN QUIRK normalizeVector: scales the OUTPUT in place, caller must pre-copy input into it", "[matrix]") {
-    // The function reads the input's length but multiplies OUTPUT, so
-    // output must be a copy of input before the call; a zeroed output
-    // stays zero. (Currently uncalled in the firmware — pinned here so a
-    // future caller starts from the documented contract.)
+    // Uncalled in the firmware today — pinned so a future caller starts from
+    // the documented contract (output must be a pre-copy of input).
     Vector2D in{3.0f, 4.0f};
     Vector2D pre{3.0f, 4.0f};  // pre-copy usage
     normalizeVector(&in, &pre);
@@ -91,17 +73,13 @@ TEST_CASE("KNOWN QUIRK normalizeVector: scales the OUTPUT in place, caller must 
     REQUIRE(zeroed.y == 0.0f);
 }
 
-// ============================================================
-// Float matrix ops
-// ============================================================
-
 TEST_CASE("multMV: matrix-vector product (column-vector convention)", "[matrix]") {
     Matrix2D m{1.0f, 2.0f, 3.0f, 4.0f};
     Vector2D v{1.0f, 1.0f};
     Vector2D out{};
     multMV(&m, &v, &out);
-    REQUIRE(out.x == near(3.0f));  // 1*1 + 2*1
-    REQUIRE(out.y == near(7.0f));  // 3*1 + 4*1
+    REQUIRE(out.x == near(3.0f));
+    REQUIRE(out.y == near(7.0f));
 }
 
 TEST_CASE("multMF: scalar matrix scale", "[matrix]") {
@@ -137,10 +115,6 @@ TEST_CASE("multMMF: composing scale-2 and rotate-90", "[matrix]") {
     REQUIRE(out.d == near(0.0f));
 }
 
-// ============================================================
-// Int (Q8.8 fixed point) ops
-// ============================================================
-
 TEST_CASE("multMV (fixed point): Q8.8 products shifted by 8", "[matrix]") {
     // a=256(1.0), b=512(2.0), c=768(3.0), d=1024(4.0), vector (1,1)
     Matrix2Di m{256, 512, 768, 1024};
@@ -175,10 +149,6 @@ TEST_CASE("addVV / subVV (fixed point): no shift, plain integer math", "[matrix]
     REQUIRE(diff.y == 2);
 }
 
-// ============================================================
-// invertM
-// ============================================================
-
 TEST_CASE("invertM: inverse round-trips through multMV", "[matrix]") {
     Matrix2D m{2.0f, 3.0f, 4.0f, 5.0f};  // det = -2
     Matrix2D inv{};
@@ -204,8 +174,7 @@ TEST_CASE("invertM: inverse round-trips through multMV", "[matrix]") {
 }
 
 TEST_CASE("KNOWN QUIRK invertM: a singular matrix silently leaves the output unmodified", "[matrix]") {
-    // det = 1*4 - 2*2 = 0 -> the function returns without touching *out
-    // and reports no error; the caller is left with whatever was in *out.
+    // det = 1*4 - 2*2 = 0: the function early-returns, leaving *out untouched.
     Matrix2D singular{1.0f, 2.0f, 2.0f, 4.0f};
     Matrix2D out{9.0f, 9.0f, 9.0f, 9.0f};
     invertM(&singular, &out);

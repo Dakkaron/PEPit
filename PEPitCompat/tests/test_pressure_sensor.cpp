@@ -1,24 +1,18 @@
 /*
  * PEPitCompat — Unit tests: pressure sensor filtering (src/hardware/pressuresensor.cpp)
  *
- * The HX711 shim is keyboard-driven in the app; tests use the test-only
- * Adafruit_HX711::testQueueRead() hook to script deterministic readings.
+ * Readings are scripted via the test-only Adafruit_HX711::testQueueRead()
+ * (the app's keyboard-driven shim is bypassed). readPressure() perceives
+ * `pct` percent of target as readChannel = pct * 65 * targetPressure.
  *
- * readPressure() computes: sensorValue = readChannel / (65 * targetPressure),
- * so a reading representing `pct` percent of target is readChannel = pct*65*target.
- *
- * WARNING — static state and test ordering:
- *   The smoothing state (window, readIndex, total, skips, tare) is static
- *   inside readPressure() and persists across test cases for the whole
- *   process. resetFilter() re-derives a clean state by feeding ten zero
- *   readings, which works as long as `total` is consistent with the window.
- *
- *   The idle-timeout quirk (last test) breaks that consistency: it zeroes
- *   the window WITHOUT resetting `total`, injecting "phantom mass" that
- *   NO sequence of readings can wash out (overwriting a slot changes both
- *   total and the window sum by the same amount — the difference is
- *   invariant). Therefore the quirk test must run LAST: Catch2 executes
- *   test cases in declaration order, so keep it at the bottom of this file.
+ * WARNING — the smoothing state (window, total, skips, tare) is static and
+ * persists across test cases; resetFilter() re-derives a clean state by
+ * feeding ten zero readings, which works only while `total` is consistent
+ * with the window. The idle-timeout quirk (last test) breaks that
+ * consistency permanently (it zeroes the window but NOT the total, and
+ * overwriting a slot changes total and window sum by the same amount, so
+ * the difference is invariant). The quirk test must therefore stay LAST
+ * (Catch2 runs cases in declaration order).
  */
 
 #include "catch_amalgamated.hpp"
@@ -55,11 +49,8 @@ void feed(BlowData& b, float channelValue) {
     readPressure(&b);
 }
 
-/**
- * Restore a clean, self-consistent filter state: ten in-range zero readings
- * replace the whole window and drive `total` back to zero (valid only when
- * the state is consistent — i.e. this test did NOT run after the quirk test).
- */
+// Restore a clean filter state: ten zero readings replace the whole window
+// and drive `total` back to zero (valid only while the state is consistent).
 void resetFilter() {
     Adafruit_HX711::testClearQueuedReads();
     systemConfig.simulateBlows = false;
@@ -158,33 +149,24 @@ TEST_CASE("pressure: cumulative error is untouched outside the target duration",
     REQUIRE(b.cumulativeError == 500);
 }
 
-// ============================================================
-// MUST STAY LAST — see the file header:
-// the idle-timeout branch zeros the window but keeps the stale
-// running total, permanently polluting every later real-sensor test.
-// ============================================================
+// MUST STAY LAST — permanently pollutes the static filter state (see header).
 
 TEST_CASE("KNOWN QUIRK pressure: idle timeout zeros the window but keeps the stale running total", "[pressure]") {
-    // After a pause of >5s the window is zeroed, but the running total is
-    // NOT reset, so the first readings after the pause are inflated by up
-    // to 10x the pre-pause average (takes 10 readings to wash out).
     resetFilter();
     BlowData b = makeBlow();
 
     for (int i = 0; i < 10; i++) feed(b, channelFor(100, 100));
     REQUIRE((b.pressure > 99.5f && b.pressure < 100.5f));  // total = 10*100
 
-    // Let the 5s idle timeout expire: the stale branch fires when
-    // blowData->ms + 4999 < millis(). (Cannot backdate b.ms — it is
-    // unsigned and the test process is younger than the timeout.)
+    // Let the 5s idle timeout expire (can't backdate b.ms — it is unsigned
+    // and the test process is younger than the timeout).
     b.ms = 0;
     std::this_thread::sleep_for(std::chrono::milliseconds(5200));
 
     Adafruit_HX711::testQueueRead(channelFor(100, 100));
     readPressure(&b);
 
-    // The window was zeroed but `total` was NOT, so the new reading
-    // replaces a zeroed slot: (10*100 + 100 - 0) / 10 = 110,
-    // minus negligible tare drift.
+    // The window was zeroed but `total` was NOT, so the new reading replaces
+    // a zero slot: (10*100 + 100) / 10 = 110, minus negligible tare drift.
     REQUIRE((b.pressure > 109.5f && b.pressure < 110.5f));
 }

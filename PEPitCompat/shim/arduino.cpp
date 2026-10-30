@@ -456,13 +456,8 @@ void esp_restart() {
 // ============================================================
 // Time API (POSIX getLocalTime)
 //
-// The app's settimeofday() does NOT change the host clock (that would be
-// rude on a dev machine, and a no-op on the device where it only affects
-// the ESP32 RTC). Instead it records an OFFSET (in microseconds) and all
-// app time reads (getLocalTime) return:  realSystemTime + offset.
-//
-// The faked clock therefore keeps running with real elapsed time, offset
-// to the manually set time — matching what the device's RTC would do.
+// settimeofday() does NOT touch the host clock; it records an offset that
+// getLocalTime() applies, so the faked clock runs with real elapsed time.
 // ============================================================
 
 #include <atomic>
@@ -492,7 +487,6 @@ void pepit_compat_resetClockOffset() {
 bool getLocalTime(struct tm* timeinfo, uint32_t milliseconds) {
     if (!timeinfo) return false;
 
-    // Real wall clock, shifted by the manually set time (see above).
     time_t now = (realTimeMicros() + g_timeOffsetMicros.load()) / 1000000LL;
 
     // Apply optional timezone offset (milliseconds)
@@ -519,15 +513,9 @@ bool getLocalTime(struct tm* timeinfo) {
 // ============================================================
 
 void initArduino() {
-    // Emulate the device's timezone baseline: until the app calls
-    // configTime() (which sets a DST-free TZ like "UTC+0" from the
-    // configured timezoneOffset), the ESP32 runs with TZ=UTC.
-    //
-    // This matters for consistency: the app's set-time path converts the
-    // entered time with mktime(tm_isdst=0) and getLocalTime() displays via
-    // the DST-aware localtime(). If the host's DST-aware local timezone
-    // leaked in before/without configTime, the set→read round-trip would be
-    // off by the DST delta. UTC has no DST, so the round-trip is exact.
+    // Device baseline until the app calls configTime(): the ESP32 runs
+    // TZ=UTC, so the app's set-time mktime/localtime round-trip is exact
+    // even if a DST-aware host timezone would otherwise leak in.
     setenv("TZ", "UTC", 1);
     tzset();
 

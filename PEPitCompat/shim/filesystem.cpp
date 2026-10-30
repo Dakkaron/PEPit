@@ -143,8 +143,7 @@ File SD_MMC_Class::open(const char* path, uint8_t mode, bool create) {
         fmode = create ? "w" : "r";  // Create if doesn't exist
     } else if (mode == FILE_APPEND) {
         // The arduino-esp32 core's FILE_APPEND (O_WRONLY|O_CREAT|O_APPEND)
-        // always creates a missing file — even via the create-less overload.
-        // POSIX "a" has the same semantics, so don't fall back to "r".
+        // always creates a missing file; POSIX "a" matches, so no "r" fallback.
         fmode = "a";
     }
 

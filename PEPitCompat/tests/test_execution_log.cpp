@@ -1,19 +1,13 @@
 /*
  * PEPitCompat — Unit tests: execution log CSV (/executionsLog.csv)
  *
- * Covers both directions of the log:
- *  - WRITE: logExecutionToSD() (new file gets the header row, later calls
- *    append; fields: profileName; executionDate; executionTime; successes;
- *    fails; duration)
- *  - READ:  the app's own readers — readFileToNewPSBuffer() (whole file,
- *    consumed by the execution-list UI) and readFileLineToString() — plus
- *    field-level round-trip checks of the date, time, results and duration.
+ * WRITE: logExecutionToSD() — a new file gets the header row, later calls
+ * append (profileName; executionDate; executionTime; successes; fails; duration).
+ * READ:  the app's own readers (readFileToNewPSBuffer, readFileLineToString)
+ * plus per-field round-trip checks.
  *
- * displayExecutionList() (the UI that renders the parsed lines) is an
- * interactive screen loop — deliberately not unit tested.
- *
- * NOTE: a failed open() cannot be induced on the shim (files always create),
- * so the write error branch is not covered.
+ * Not covered: displayExecutionList() (interactive UI loop) and the write
+ * error branch (the shim's open() always creates the file).
  */
 
 #include "catch_amalgamated.hpp"
@@ -79,10 +73,6 @@ std::vector<std::string> splitLines(const std::string& content) {
 
 }  // namespace
 
-// ============================================================
-// Writing (logExecutionToSD)
-// ============================================================
-
 TEST_CASE("execution log write: a new file gets the header row plus the entry", "[logging]") {
     auto root = makeSdRoot("execlog-new");
 
@@ -122,17 +112,13 @@ TEST_CASE("execution log write: multiple executions append in call order, all fi
     ProfileData pd3 = namedProfile("PEP S");
     logExecutionToSD(&pd3, "2026-01-04", "19:45:12",  0, 5,  60000, &err);
 
-    REQUIRE(err.isEmpty());  // nothing to report on success
+    REQUIRE(err.isEmpty());
     REQUIRE(readSdFile(root, "executionsLog.csv") ==
             std::string(EXEC_LOG_HEADER) +
             "PEP S;2026-01-02;03:04:05;10;0;240000\n"
             "RC Cornet+;2026-01-03;08:15:30;6;3;180000\n"
             "PEP S;2026-01-04;19:45:12;0;5;60000\n");
 }
-
-// ============================================================
-// Reading (the app's own readers)
-// ============================================================
 
 TEST_CASE("execution log read: readFileToNewPSBuffer round-trips exactly what was written", "[logging]") {
     auto root = makeSdRoot("execlog-read");
@@ -144,19 +130,19 @@ TEST_CASE("execution log read: readFileToNewPSBuffer round-trips exactly what wa
     logExecutionToSD(&pd2, "2026-01-03", "08:15:30",  6, 3, 180000, &err);
     REQUIRE(err.isEmpty());
 
-    // The app reads the whole file this way (physioProtocolHandler: the execution list)
+    // how the app reads it (the execution-list UI)
     char* buffer = readFileToNewPSBuffer("/executionsLog.csv");
     REQUIRE(buffer != nullptr);
 
     std::string content(buffer);
-    free(buffer);  // the shim's heap_caps_malloc is plain malloc
+    free(buffer);
 
     REQUIRE(content ==
             std::string(EXEC_LOG_HEADER) +
             "PEP S;2026-01-02;03:04:05;10;0;240000\n"
             "RC Cornet+;2026-01-03;08:15:30;6;3;180000\n");
 
-    // ...and a line count over that buffer sees header + 2 entries
+    // line count over the buffer: header + 2 entries
     std::vector<std::string> lines = splitLines(content);
     REQUIRE(lines.size() == 3);
 }
@@ -196,11 +182,11 @@ TEST_CASE("execution log read: date, time, results and duration parse back per r
     std::vector<std::string> f = splitFields(lines[1], ';');
     REQUIRE(f.size() == 6);
     REQUIRE(f[0] == "PEP S");
-    REQUIRE(f[1] == "2026-03-01");   // executionDate  (YYYY-MM-DD)
-    REQUIRE(f[2] == "06:30:00");     // executionTime  (HH:MM:SS)
-    REQUIRE(f[3] == "12");           // successes (ok)
-    REQUIRE(f[4] == "0");            // fails
-    REQUIRE(f[5] == "300000");       // duration (ms = 5 min)
+    REQUIRE(f[1] == "2026-03-01");
+    REQUIRE(f[2] == "06:30:00");
+    REQUIRE(f[3] == "12");
+    REQUIRE(f[4] == "0");
+    REQUIRE(f[5] == "300000");  // duration (ms)
 
     // Row 2: a fully failed execution, at a date boundary
     f = splitFields(lines[2], ';');
@@ -217,7 +203,7 @@ TEST_CASE("execution log write: the date/time come out in the app's clock format
     auto root = makeSdRoot("execlog-clock");
 
     String date, time, err;
-    getFormattedTime(&date, &time, &err);  // exercises the (faked/real) app clock
+    getFormattedTime(&date, &time, &err);
     REQUIRE(err.isEmpty());
 
     REQUIRE(std::regex_match(date.c_str(), std::regex("\\d{4}-\\d{2}-\\d{2}")));

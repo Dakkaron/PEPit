@@ -28,9 +28,8 @@ extern void setTouchDisplayParams(int w, int h, int scale);
 extern void setPressureSensorKeys(int lowKey, int goodKey);
 
 int main(int argc, char* argv[]) {
-    // Boot the shim exactly like the app: initArduino() also sets the
-    // device-equivalent TZ baseline (UTC, DST-free), which the tests need
-    // for the set-time/get-time round-trip (see shim/arduino.cpp).
+    // Boot the shim exactly like the app (also sets the device-equivalent
+    // TZ=UTC baseline the time tests rely on).
     initArduino();
 
     // SDL2 window + renderer (dummy video driver when headless)
