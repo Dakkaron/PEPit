@@ -1,8 +1,6 @@
-# Runs the native unit tests for the PEPit firmware (T-HMI-PEPmonitor) via the
-# PEPitCompat Linux compatibility layer. See T-HMI-PEPmonitor/TESTING.md.
-#
-# The tests run the real (unmodified) firmware source on the host against
-# SDL2/POSIX shims — no ESP32 toolchain, no hardware, no firmware download.
+# Native unit tests for the PEPit firmware: the unmodified firmware source runs
+# on the host via the PEPitCompat shims (SDL2/POSIX — no ESP32 toolchain, no
+# hardware). See T-HMI-PEPmonitor/TESTING.md.
 
 name: PEPit unit tests
 
@@ -22,7 +20,8 @@ jobs:
   native-tests:
     runs-on: ubuntu-latest
     defaults:
-      working-directory: PEPitCompat
+      run:
+        working-directory: PEPitCompat
     steps:
       - uses: actions/checkout@v4
 
