@@ -19,10 +19,8 @@
 namespace pepit_test {
 
 /**
- * Create a unique temp directory, point the SD_MMC shim at it, and begin.
- *
  * Safe to call multiple times per test file — each call replaces the previous
- * root and the directory is recreated fresh. Returns the directory path.
+ * root and the directory is recreated fresh.
  */
 inline std::filesystem::path makeSdRoot(const std::string& name) {
     static int counter = 0;

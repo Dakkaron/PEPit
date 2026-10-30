@@ -1,10 +1,6 @@
 /*
  * PEPitCompat — Unit tests: config parsing (src/hardware/sdHandler.cpp)
  *
- * Covers readSystemConfig(), readProfileData(), getNumberOfProfiles() and
- * gameconfig parsing, run against the POSIX-backed SD_MMC shim with per-test
- * fixture files.
- *
  * FIXTURES MUST BE COMPLETE for the task types they use: missing required
  * keys make readProfileData() call checkFailWithMessage(), which is an
  * infinite loop even on the shim.
@@ -44,10 +40,6 @@ const char* FULL_SYSTEM_CONFIG =
     "manometerMode = true\n";
 
 }  // namespace
-
-// ============================================================
-// readSystemConfig
-// ============================================================
 
 TEST_CASE("readSystemConfig: maps all fields", "[config]") {
     auto root = makeSdRoot("sysconfig-full");
@@ -89,17 +81,13 @@ TEST_CASE("readSystemConfig: absent keys fall back to defaults", "[config]") {
     REQUIRE(cfg.touchScreenZThreshold == 250);  // sensitivity 0 -> 2.5 * 100
     REQUIRE(cfg.simulateTrampoline == false);
     REQUIRE(cfg.simulateBlows == false);
-    REQUIRE(cfg.leftHandMode == true);          // default
-    REQUIRE(cfg.manometerMode == false);        // default
+    REQUIRE(cfg.leftHandMode == true);
+    REQUIRE(cfg.manometerMode == false);
     REQUIRE(cfg.timezoneOffset == 0);
     REQUIRE(cfg.logExecutions == false);
 }
 
 TEST_CASE("REGRESSION readSystemConfig: wifiSSID and wifiSSID2 resolve independently regardless of order", "[config]") {
-    // Regression test: the old parser prefix-matched keys (strncmp without
-    // a length check), so a file listing wifiSSID2 BEFORE wifiSSID gave
-    // both fields the same value. Keys now match exactly, so each field
-    // must get its own line's value.
     auto root = makeSdRoot("sysconfig-order");
     writeSdFile(root, "systemConfig.ini",
                 "[system]\n"
@@ -115,10 +103,6 @@ TEST_CASE("REGRESSION readSystemConfig: wifiSSID and wifiSSID2 resolve independe
     REQUIRE(cfg.wifiSsid == "NetA");
     REQUIRE(cfg.wifiSsid2 == "NetB");
 }
-
-// ============================================================
-// readProfileData
-// ============================================================
 
 TEST_CASE("readProfileData: multi-task profile with legacy alias", "[config]") {
     auto root = makeSdRoot("profile-multi");
@@ -242,10 +226,6 @@ TEST_CASE("readProfileData: equalBlows alias maps to EQUALBLOWS", "[config]") {
 // both call checkFailWithMessage() (infinite loop) — not unit-testable
 // without a firmware change. Deliberately not covered.
 
-// ============================================================
-// getNumberOfProfiles
-// ============================================================
-
 TEST_CASE("getNumberOfProfiles: counts until the first missing profile section", "[config]") {
     auto root = makeSdRoot("profile-count");
     writeSdFile(root, "profiles.ini",
@@ -266,10 +246,6 @@ TEST_CASE("getNumberOfProfiles: empty file yields 0 and an error message", "[con
     REQUIRE(getNumberOfProfiles(&err) == 0);
     REQUIRE(err == "No profiles found!\n");
 }
-
-// ============================================================
-// readGameConfig
-// ============================================================
 
 TEST_CASE("readGameConfig: maps game fields", "[config]") {
     auto root = makeSdRoot("gameconfig");

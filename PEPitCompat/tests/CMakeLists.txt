@@ -31,9 +31,7 @@ target_include_directories(pepit_tests PRIVATE
 
 target_link_libraries(pepit_tests PRIVATE pepit_core)
 
-# ============================================================
 # CTest integration (enable_testing() is called in the top-level CMakeLists)
-# ============================================================
 
 add_test(NAME unit_tests COMMAND pepit_tests)
 

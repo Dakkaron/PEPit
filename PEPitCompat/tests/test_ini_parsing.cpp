@@ -1,10 +1,6 @@
 /*
  * PEPitCompat — Unit tests: INI parsing (src/hardware/sdHandler.cpp)
  *
- * These tests pin the CURRENT behavior of the hand-rolled INI parser,
- * including its quirks. If a quirk looks like a bug, the test documents it
- * with "KNOWN QUIRK" — fixing the behavior is a firmware decision.
- *
  * NOTE: paths that call checkFailWithMessage() (infinite loop on device)
  * must never be triggered from tests.
  */
@@ -32,10 +28,6 @@ const char* BASIC_INI =
     "d = 4\n";
 
 }  // namespace
-
-// ============================================================
-// getIniValueFromSection (pure string parsing, no filesystem)
-// ============================================================
 
 TEST_CASE("getIniValueFromSection: simple 'key = value'", "[ini]") {
     char section[] = "key = value\nother = 2\n";
@@ -102,9 +94,6 @@ TEST_CASE("getIniValueFromSection: first occurrence of a key wins", "[ini]") {
 }
 
 TEST_CASE("REGRESSION getIniValueFromSection: key must not match a longer key sharing its prefix", "[ini]") {
-    // The key is matched with an exact length check + strncmp, so a line
-    // whose key merely starts with the searched key must NOT match
-    // ("wifiSSID" must not match a "wifiSSID2 = ..." line).
     char section[] = "wifiSSID2 = foo\n";
     String out, err;
     getIniValueFromSection(section, "wifiSSID", &out, &err);
@@ -129,10 +118,6 @@ TEST_CASE("getIniValueFromSection: skips non-matching and comment lines", "[ini]
     REQUIRE(err.isEmpty());
     REQUIRE(out == "t");
 }
-
-// ============================================================
-// getBoolIniValueFromSection / stringIsTrue semantics
-// ============================================================
 
 TEST_CASE("getBoolIniValueFromSection: 'true' and '1' are true (any case, trimmed)", "[ini]") {
     String out;
@@ -164,10 +149,6 @@ TEST_CASE("getBoolIniValueFromSection: missing key returns default and sets erro
     REQUIRE_FALSE(err.isEmpty());
 }
 
-// ============================================================
-// getIntIniValueFromSection
-// ============================================================
-
 TEST_CASE("getIntIniValueFromSection: parses numbers, tolerates whitespace", "[ini]") {
     String err;
     char s1[] = "k = 42\n";
@@ -191,20 +172,12 @@ TEST_CASE("getIntIniValueFromSection: missing key returns the default", "[ini]")
     REQUIRE_FALSE(err.isEmpty());
 }
 
-// ============================================================
-// isKeyInSection
-// ============================================================
-
 TEST_CASE("isKeyInSection: present and absent keys", "[ini]") {
     char section[] = "a = 1\nb = 2\n";
     REQUIRE(isKeyInSection(section, "a") == true);
     REQUIRE(isKeyInSection(section, "b") == true);
     REQUIRE(isKeyInSection(section, "c") == false);
 }
-
-// ============================================================
-// getIniSection (file-based section extraction)
-// ============================================================
 
 TEST_CASE("getIniSection: extracts the section, drops comments, keeps blank lines", "[ini]") {
     auto root = makeSdRoot("getini");

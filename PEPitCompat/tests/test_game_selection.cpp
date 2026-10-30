@@ -1,20 +1,9 @@
 /*
  * PEPitCompat — Unit tests: game selection (src/hardware/sdHandler.cpp)
  *
- * Covers gameSupportsTaskTypesAndIsNotHidden(), getNumberOfGames() and
- * getGamePath() against a fixture /games tree:
- *
- *   monsterGame/   template=monster            -> supports all 4 base types
- *   scriptGame/    4 existing script files     -> supports all 4 base types
- *   hiddenGame/    template=race, isHidden     -> excluded
- *   partialGame/   only 2 script files         -> supports 2 types only
- *   notAGame/      no gameconfig.ini           -> ignored
- *
- * NOTE: getGamePath() on a gameId that matches no game calls
- * checkFailWithMessage() (infinite loop) — deliberately not covered.
- *
- * The directory enumeration order (readdir) is not guaranteed, so the
- * getGamePath() tests assert set membership, not order.
+ * Not covered: getGamePath() with a non-matching id — checkFailWithMessage()
+ * is an infinite loop. readdir order is not guaranteed, so the getGamePath()
+ * tests assert set membership, not order.
  */
 
 #include "catch_amalgamated.hpp"
@@ -22,7 +11,7 @@
 #include <algorithm>
 
 #include "sdHandler.h"
-#include "gfxHandler.hpp"   // HIDDEN_GAME_ID
+#include "gfxHandler.hpp"
 #include "constants.h"
 #include "test_helpers.h"
 
@@ -72,7 +61,6 @@ const char* SCRIPT_INI_INCOMPLETE =
     "pepLongScriptPath=scripts/long.lua\n"
     "isHidden=false\n";
 
-/** Build the standard fixture tree; returns the SD root path. */
 auto buildGameTree() {
     auto root = makeSdRoot("gametree");
     writeSdFile(root, "games/monsterGame/gameconfig.ini", MONSTER_INI);
@@ -90,10 +78,6 @@ auto buildGameTree() {
 }
 
 }  // namespace
-
-// ============================================================
-// gameSupportsTaskTypesAndIsNotHidden
-// ============================================================
 
 TEST_CASE("gameSupportsTaskTypesAndIsNotHidden: template shortcut gives all 4 base types", "[game]") {
     buildGameTree();
@@ -127,10 +111,6 @@ TEST_CASE("gameSupportsTaskTypesAndIsNotHidden: a hidden game never qualifies, e
     REQUIRE(err.isEmpty());  // the function reports nothing — callers check the bool
 }
 
-// ============================================================
-// getNumberOfGames
-// ============================================================
-
 TEST_CASE("getNumberOfGames: counts only qualifying (non-hidden) games", "[game]") {
     buildGameTree();
     String err;
@@ -145,10 +125,6 @@ TEST_CASE("getNumberOfGames: with a single required type, the partial game count
     // monster + script + partial all support short blows
     REQUIRE(getNumberOfGames(&err, REQUIRED_TASK_TYPE_SHORTBLOWS) == 3);
 }
-
-// ============================================================
-// getGamePath
-// ============================================================
 
 TEST_CASE("getGamePath: ids 0 and 1 map onto the two qualifying games (order-independent)", "[game]") {
     buildGameTree();

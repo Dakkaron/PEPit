@@ -25,16 +25,10 @@
 #include <strings.h>  // For strcasecmp (used by serialHandler)
 #include <sys/time.h> // For gettimeofday / struct timeval
 
-// The host must NEVER have its system clock rewritten. On the device,
-// settimeofday() just sets the ESP32's own RTC; on a Linux host it changes
-// the machine's clock whenever the process has CAP_SYS_TIME (e.g. running
-// as root).
-//
-// The app's settimeofday() calls are redirected to a shim implementation
-// (shim/arduino.cpp) that records the requested time as an OFFSET — all app
-// time reads (getLocalTime) then return realSystemTime + offset, i.e. the
-// faked clock keeps running with real elapsed time, offset to the manually
-// set time. The system clock itself is never touched.
+// The host's system clock must never be rewritten (on a device settimeofday
+// only sets the ESP32 RTC; on Linux run as root it would change the machine
+// clock). The app's calls are redirected to the shim (shim/arduino.cpp),
+// which records the requested time as an offset getLocalTime() applies.
 #define settimeofday pepit_compat_settimeofday
 int pepit_compat_settimeofday(const struct timeval* tv, struct timezone* tz);
 void pepit_compat_resetClockOffset();  // test-only: back to unmodified time

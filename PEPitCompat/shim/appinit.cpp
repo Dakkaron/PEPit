@@ -13,13 +13,11 @@ bool initCompatApp(SDL_Window** window, SDL_Renderer** renderer, int scale, bool
     *window = nullptr;
     *renderer = nullptr;
 
-    // Initialize SDL video subsystem
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         fprintf(stderr, "Failed to initialize SDL video: %s\n", SDL_GetError());
         return false;
     }
 
-    // Initialize SDL_ttf for text rendering
     if (TTF_Init() < 0) {
         fprintf(stderr, "Failed to initialize SDL_ttf: %s\n", TTF_GetError());
         SDL_Quit();
@@ -30,7 +28,6 @@ bool initCompatApp(SDL_Window** window, SDL_Renderer** renderer, int scale, bool
     int w = 320 * scale;
     int h = 240 * scale;
 
-    // Create window
     uint32_t flags = SDL_WINDOW_SHOWN;  // No RESIZABLE — fixed 320x240 display
     if (fullscreen) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 

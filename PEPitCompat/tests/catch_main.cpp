@@ -1,10 +1,5 @@
 /*
  * PEPitCompat — Test Entry Point
- *
- * Initializes the shims exactly like the app entry point (shim/main.cpp)
- * — headless via SDL_VIDEODRIVER=dummy — then hands over to the Catch2
- * session. Individual tests can repoint the SD_MMC shim at a temp directory
- * (see test_helpers.h) for filesystem isolation.
  */
 
 #define CATCH_CONFIG_RUNNER
@@ -28,19 +23,16 @@ extern void setTouchDisplayParams(int w, int h, int scale);
 extern void setPressureSensorKeys(int lowKey, int goodKey);
 
 int main(int argc, char* argv[]) {
-    // Boot the shim exactly like the app: initArduino() also sets the
-    // device-equivalent TZ baseline (UTC, DST-free), which the tests need
-    // for the set-time/get-time round-trip (see shim/arduino.cpp).
+    // Boot the shim exactly like the app (also sets the device-equivalent
+    // TZ=UTC baseline the time tests rely on).
     initArduino();
 
-    // SDL2 window + renderer (dummy video driver when headless)
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;
     if (!initCompatApp(&window, &renderer, /*scale*/ 1, /*fullscreen*/ false)) {
         return 2;
     }
 
-    // Same initialization sequence as shim/main.cpp
     initDisplay(&window, &renderer);
     setTouchDisplayParams(320, 240, 1);
     setPressureSensorKeys(SDL_SCANCODE_A, SDL_SCANCODE_S);
