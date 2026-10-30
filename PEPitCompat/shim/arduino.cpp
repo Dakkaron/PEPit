@@ -455,12 +455,45 @@ void esp_restart() {
 
 // ============================================================
 // Time API (POSIX getLocalTime)
+//
+// The app's settimeofday() does NOT change the host clock (that would be
+// rude on a dev machine, and a no-op on the device where it only affects
+// the ESP32 RTC). Instead it records an OFFSET (in microseconds) and all
+// app time reads (getLocalTime) return:  realSystemTime + offset.
+//
+// The faked clock therefore keeps running with real elapsed time, offset
+// to the manually set time — matching what the device's RTC would do.
 // ============================================================
+
+#include <atomic>
+
+static std::atomic<long long> g_timeOffsetMicros(0);
+
+static long long realTimeMicros() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return (long long)tv.tv_sec * 1000000LL + (long long)tv.tv_usec;
+}
+
+// Intercepted by the #define in compat/Arduino.h (app code calls settimeofday).
+int pepit_compat_settimeofday(const struct timeval* tv, struct timezone* tz) {
+    (void)tz;
+    if (!tv) return 0;
+    long long requested = (long long)tv->tv_sec * 1000000LL + (long long)tv->tv_usec;
+    g_timeOffsetMicros = requested - realTimeMicros();
+    return 0;  // pretend success, like the device
+}
+
+// Test-only: restore unmodified (real) time readings.
+void pepit_compat_resetClockOffset() {
+    g_timeOffsetMicros = 0;
+}
 
 bool getLocalTime(struct tm* timeinfo, uint32_t milliseconds) {
     if (!timeinfo) return false;
 
-    time_t now = time(nullptr);
+    // Real wall clock, shifted by the manually set time (see above).
+    time_t now = (realTimeMicros() + g_timeOffsetMicros.load()) / 1000000LL;
 
     // Apply optional timezone offset (milliseconds)
     if (milliseconds > 0) {
@@ -486,6 +519,18 @@ bool getLocalTime(struct tm* timeinfo) {
 // ============================================================
 
 void initArduino() {
+    // Emulate the device's timezone baseline: until the app calls
+    // configTime() (which sets a DST-free TZ like "UTC+0" from the
+    // configured timezoneOffset), the ESP32 runs with TZ=UTC.
+    //
+    // This matters for consistency: the app's set-time path converts the
+    // entered time with mktime(tm_isdst=0) and getLocalTime() displays via
+    // the DST-aware localtime(). If the host's DST-aware local timezone
+    // leaked in before/without configTime, the set→read round-trip would be
+    // off by the DST delta. UTC has no DST, so the round-trip is exact.
+    setenv("TZ", "UTC", 1);
+    tzset();
+
     auto now = std::chrono::steady_clock::now();
     bootTime = now;
     // Seed with actual system time (millis() is 0 here, so use epoch count directly)

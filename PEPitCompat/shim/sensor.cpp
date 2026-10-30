@@ -12,6 +12,7 @@
 #include "Adafruit_HX711.h"
 #include <SDL2/SDL.h>
 #include <cstdio>
+#include <deque>
 
 // Global config for keyboard keys (set from CLI in main.cpp, defaults here)
 static int lowPressureKey_ = SDL_SCANCODE_A;   // Default: 'A' key
@@ -22,6 +23,9 @@ static int32_t g_targetPressure = 0;
 
 // Whether we're in init phase (before first gameplay reading)
 static bool g_sensorInitialized = false;
+
+// Test-only: scripted readChannel() values (see Adafruit_HX711::testQueueRead)
+static std::deque<float> g_testReads;
 
 // CLI key configuration setters (called from main.cpp after parsing --low-pressure-key / --good-pressure-key)
 void setPressureSensorKeys(int lowKey, int goodKey) {
@@ -80,6 +84,11 @@ void Adafruit_HX711::tareA(long rawValue) {
 }
 
 float Adafruit_HX711::readChannel(uint8_t gain) {
+    if (!g_testReads.empty()) {
+        float v = g_testReads.front();
+        g_testReads.pop_front();
+        return v;
+    }
     long raw = readChannelRaw(gain);
     return (float)(raw - tareOffset_);
 }
@@ -90,4 +99,16 @@ void Adafruit_HX711::powerDown(bool down) {
 
 void Adafruit_HX711::setTargetPressure(int32_t pressure) {
     g_targetPressure = pressure;
+}
+
+void Adafruit_HX711::testQueueRead(float value) {
+    g_testReads.push_back(value);
+}
+
+void Adafruit_HX711::testClearQueuedReads() {
+    g_testReads.clear();
+}
+
+bool Adafruit_HX711::testHasQueuedReads() {
+    return !g_testReads.empty();
 }

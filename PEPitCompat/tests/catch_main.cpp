@@ -28,7 +28,9 @@ extern void setTouchDisplayParams(int w, int h, int scale);
 extern void setPressureSensorKeys(int lowKey, int goodKey);
 
 int main(int argc, char* argv[]) {
-    // Capture boot time so millis() behaves like on the device.
+    // Boot the shim exactly like the app: initArduino() also sets the
+    // device-equivalent TZ baseline (UTC, DST-free), which the tests need
+    // for the set-time/get-time round-trip (see shim/arduino.cpp).
     initArduino();
 
     // SDL2 window + renderer (dummy video driver when headless)

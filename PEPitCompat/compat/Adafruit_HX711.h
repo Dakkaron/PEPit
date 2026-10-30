@@ -47,6 +47,13 @@ public:
     // Called by the shim when targetPressure is known from game config
     static void setTargetPressure(int32_t pressure);
 
+    // Test-only: queue scripted readChannel() values. While the queue is
+    // non-empty, readChannel() pops and returns the next queued value
+    // (keyboard simulation is bypassed). Keeps unit tests deterministic.
+    static void testQueueRead(float value);
+    static void testClearQueuedReads();
+    static bool testHasQueuedReads();
+
 private:
     long tareOffset_;
 };

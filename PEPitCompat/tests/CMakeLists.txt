@@ -16,6 +16,11 @@ add_executable(pepit_tests
     catch_main.cpp
     test_ini_parsing.cpp
     test_config_parsing.cpp
+    test_pressure_sensor.cpp
+    test_execution_log.cpp
+    test_game_selection.cpp
+    test_time_handling.cpp
+    test_matrix.cpp
     ${CMAKE_SOURCE_DIR}/third_party/Catch2/catch_amalgamated.cpp
 )
 
