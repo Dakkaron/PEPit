@@ -38,6 +38,7 @@ void readPressure(BlowData* blowData) {
     for (int i=0;i<PRESSURE_SENSOR_SMOOTHING_NUM_READINGS;i++) {
       readings[i] = 0;
     }
+    total = 0;
   }
   if (systemConfig.simulateBlows) {
     uint32_t blowDuration = blowData->ms - blowData->blowStartMs;

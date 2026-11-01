@@ -58,19 +58,24 @@ TEST_CASE("dotProduct: vector against an angle", "[matrix]") {
     REQUIRE(dotProduct(&b, static_cast<float>(HALF_PI)) == near(1.0f));
 }
 
-TEST_CASE("KNOWN QUIRK normalizeVector: scales the OUTPUT in place, caller must pre-copy input into it", "[matrix]") {
-    // Uncalled in the firmware today — pinned so a future caller starts from
-    // the documented contract (output must be a pre-copy of input).
+TEST_CASE("REGRESSION normalizeVector: a zeroed output receives the normalized input (was scaled in place)", "[matrix]") {
     Vector2D in{3.0f, 4.0f};
     Vector2D pre{3.0f, 4.0f};
     normalizeVector(&in, &pre);
     REQUIRE(pre.x == near(0.6f));
     REQUIRE(pre.y == near(0.8f));
 
+    // The old implementation scaled the output in place, so a fresh/zeroed
+    // output stayed zero; it must now be the normalized input.
     Vector2D zeroed{0.0f, 0.0f};
     normalizeVector(&in, &zeroed);
-    REQUIRE(zeroed.x == 0.0f);
-    REQUIRE(zeroed.y == 0.0f);
+    REQUIRE(zeroed.x == near(0.6f));
+    REQUIRE(zeroed.y == near(0.8f));
+
+    Vector2D v{3.0f, 4.0f};
+    normalizeVector(&v, &v);
+    REQUIRE(v.x == near(0.6f));
+    REQUIRE(v.y == near(0.8f));
 }
 
 TEST_CASE("multMV: matrix-vector product (column-vector convention)", "[matrix]") {
@@ -151,7 +156,7 @@ TEST_CASE("addVV / subVV (fixed point): no shift, plain integer math", "[matrix]
 TEST_CASE("invertM: inverse round-trips through multMV", "[matrix]") {
     Matrix2D m{2.0f, 3.0f, 4.0f, 5.0f};
     Matrix2D inv{};
-    invertM(&m, &inv);
+    REQUIRE(invertM(&m, &inv));
 
     // det = 2*5 - 3*4 = -2 -> inv = {-2.5, 1.5, 2, -1}
     REQUIRE(inv.a == near(-2.5f));
@@ -172,11 +177,11 @@ TEST_CASE("invertM: inverse round-trips through multMV", "[matrix]") {
     REQUIRE(result.y == near(4.0f));
 }
 
-TEST_CASE("KNOWN QUIRK invertM: a singular matrix silently leaves the output unmodified", "[matrix]") {
-    // det = 1*4 - 2*2 = 0: the function early-returns, leaving *out untouched.
+TEST_CASE("REGRESSION invertM: a singular matrix returns false (was a silent no-op)", "[matrix]") {
+    // det = 1*4 - 2*2 = 0: now reported via the return value, output untouched.
     Matrix2D singular{1.0f, 2.0f, 2.0f, 4.0f};
     Matrix2D out{9.0f, 9.0f, 9.0f, 9.0f};
-    invertM(&singular, &out);
+    REQUIRE(invertM(&singular, &out) == false);
     REQUIRE(out.a == 9.0f);
     REQUIRE(out.b == 9.0f);
     REQUIRE(out.c == 9.0f);

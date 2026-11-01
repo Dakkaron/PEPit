@@ -34,10 +34,13 @@ void checkForPrefsReset() {
 bool stringIsTrue(String str, bool defaultValue) {
   str.trim();
   str.toLowerCase();
-  if (defaultValue) {
-    return str != "false" && str != "0";
+  if (str == "false" || str == "0") {
+    return false;
+  } else if (str == "true" || str == "1") {
+    return true;
+  } else {
+    return defaultValue;
   }
-  return str == "true" || str == "1";
 }
 
 void readSystemConfig(SystemConfig* systemConfig, String* errorMessage) {
@@ -371,6 +374,7 @@ void getIniSection(String iniPath, String section, char* resultBuffer, uint16_t 
     if (!file.available() && lineBuffer[i] != '\n') { // Add a \n at the end of the file if it's missing
       lineBuffer[i+1] = '\n';
       lineBuffer[i+2] = 0;
+      i = i + 1;
     }
     if (lineBuffer[i] == '\n' || lineBuffer[i] == '\r') {
       lineBuffer[i] = '\n';

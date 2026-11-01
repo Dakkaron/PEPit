@@ -236,10 +236,9 @@ TEST_CASE("KNOWN QUIRK getIniSection: CRLF input yields extra blank lines", "[in
     REQUIRE(std::string(buffer) == "\nx = 1\n\n");
 }
 
-TEST_CASE("KNOWN QUIRK getIniSection: final line without trailing newline is silently dropped", "[ini]") {
-    // The reader loop is driven by file.available(); once the last character
-    // has been read, available() is false and the in-flight line (with the
-    // \n that the code appends) is never copied. No error is reported.
+TEST_CASE("REGRESSION getIniSection: final line without trailing newline is kept", "[ini]") {
+    // The reader loop is driven by file.available(); without the fix, the
+    // in-flight final line (with the \n the code appends) was never copied.
     auto root = makeSdRoot("getini-notrail");
     writeSdFile(root, "notrail.ini", "[alpha]\na = 1");
 
@@ -250,7 +249,7 @@ TEST_CASE("KNOWN QUIRK getIniSection: final line without trailing newline is sil
     getIniSection("/notrail.ini", "[alpha]", buffer, sizeof(buffer), &err);
 
     REQUIRE(err.isEmpty());
-    REQUIRE(std::string(buffer).empty());
+    REQUIRE(std::string(buffer) == "a = 1\n");
 }
 
 TEST_CASE("getIniSection: a section repeated later is not appended (first block wins)", "[ini]") {

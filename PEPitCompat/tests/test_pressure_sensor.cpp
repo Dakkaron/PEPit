@@ -7,12 +7,10 @@
  *
  * WARNING — the smoothing state (window, total, skips, tare) is static and
  * persists across test cases; resetFilter() re-derives a clean state by
- * feeding ten zero readings, which works only while `total` is consistent
- * with the window. The idle-timeout quirk (last test) breaks that
- * consistency permanently (it zeroes the window but NOT the total, and
- * overwriting a slot changes total and window sum by the same amount, so
- * the difference is invariant). The quirk test must therefore stay LAST
- * (Catch2 runs cases in declaration order).
+ * feeding ten zero readings, which works only while `total` stays consistent
+ * with the window. (The idle timeout used to break that by zeroing the
+ * window but NOT the total; it now zeroes both, so the state stays
+ * consistent for the rest of the process.)
  */
 
 #include "catch_amalgamated.hpp"
@@ -148,9 +146,10 @@ TEST_CASE("pressure: cumulative error is untouched outside the target duration",
     REQUIRE(b.cumulativeError == 500);
 }
 
-// MUST STAY LAST — permanently pollutes the static filter state (see header).
+// Slowest test (5.2 s sleep) — kept last. It no longer pollutes the static
+// filter state: the idle timeout resets the total along with the window.
 
-TEST_CASE("KNOWN QUIRK pressure: idle timeout zeros the window but keeps the stale running total", "[pressure]") {
+TEST_CASE("REGRESSION pressure: idle timeout resets the running total with the window (was a permanent phantom)", "[pressure]") {
     resetFilter();
     BlowData b = makeBlow();
 
@@ -165,7 +164,10 @@ TEST_CASE("KNOWN QUIRK pressure: idle timeout zeros the window but keeps the sta
     Adafruit_HX711::testQueueRead(channelFor(100, 100));
     readPressure(&b);
 
-    // The window was zeroed but `total` was NOT, so the new reading replaces
-    // a zero slot: (10*100 + 100) / 10 = 110, minus negligible tare drift.
-    REQUIRE((b.pressure > 109.5f && b.pressure < 110.5f));
+    // The window AND the total were reset, so the first reading after the
+    // pause re-arms from zero: 100/10 = 10, minus negligible tare drift.
+    REQUIRE((b.pressure > 9.5f && b.pressure < 10.5f));
+
+    for (int i = 0; i < 9; i++) feed(b, channelFor(100, 100));
+    REQUIRE((b.pressure > 99.5f && b.pressure < 100.5f));
 }

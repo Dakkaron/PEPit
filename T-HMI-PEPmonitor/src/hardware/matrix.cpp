@@ -22,8 +22,8 @@ float dotProduct(const Vector2D* a, float angle) {
 
 void normalizeVector(Vector2D* input, Vector2D* output) {
   float invLen = 1.0f/std::sqrt(input->x*input->x + input->y*input->y);
-  output->x *= invLen;
-  output->y *= invLen;
+  output->x = input->x * invLen;
+  output->y = input->y * invLen;
 }
 
 void multMV(Matrix2D* matrix, Vector2D* vector, Vector2D* output) {
@@ -79,12 +79,13 @@ void subVV(Vector2Di* vector1, Vector2Di* vector2, Vector2Di* output) {
   output->y = vector1->y - vector2->y;
 }
 
-void invertM(Matrix2D* in, Matrix2D* out) {
+bool invertM(Matrix2D* in, Matrix2D* out) {
   float det = in->a * in->d - in->b * in->c;
-  if (fabs(det) < 1e-6) return; // Non-invertible
+  if (fabs(det) < 1e-6) return false; // Non-invertible
 
   out->a =  in->d / det;
   out->b = -in->b / det;
   out->c = -in->c / det;
   out->d =  in->a / det;
+  return true;
 }

@@ -34,16 +34,18 @@ same ctest step on every change to `T-HMI-PEPmonitor/` or `PEPitCompat/`.
    branches (shim always creates the file).
 3. **Pin quirks, don't hide them.** Current-but-odd behavior →
    `TEST_CASE("KNOWN QUIRK ...")` asserting it; fixed bugs → `REGRESSION`
-   tests. Pinned: INI CRLF blank lines; dropped final line; garbage bool with
-   `def=true` → true; non-numeric int → 0; `readPressure` idle timeout zeroes
-   the window but not the running total; `invertM` singular → silent no-op;
-   `normalizeVector` scales output in place.
+   tests. Pinned quirks: INI CRLF blank lines; garbage bool with `def=true`
+   → true; non-numeric int → 0. Fixed (REGRESSION): `invertM` singular →
+   returns false (was a silent no-op); `normalizeVector` → output is the
+   normalized input (was an in-place scale); INI final line without trailing
+   newline → kept (was dropped); `readPressure` idle timeout → resets the
+   running total (was a permanent phantom).
 4. **Static state persists across test cases** in `readPressure()` (window /
    total / tare). Script sensor readings with the test-only
    `Adafruit_HX711::testQueueRead()` / `testClearQueuedReads()` — never rely
-   on keyboard state (the sim is dead, see below). The idle-timeout branch
-   injects a **permanent** phantom into `total` that no readings wash out →
-   that quirk test must stay **last** in `test_pressure_sensor.cpp`.
+   on keyboard state (the sim is dead, see below). `resetFilter()` (ten zero
+   readings) re-derives a clean state; the idle timeout zeroes the window and
+   the total together, so the state stays consistent (regression-pinned).
 5. **Time.** `setTimeFromString()`/`setTime()` never touch the host clock;
    they record an offset that `getLocalTime()` applies (faked clock runs with
    real elapsed time, like the device RTC). Tests that set the time must
