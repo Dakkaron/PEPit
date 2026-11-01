@@ -455,12 +455,39 @@ void esp_restart() {
 
 // ============================================================
 // Time API (POSIX getLocalTime)
+//
+// settimeofday() does NOT touch the host clock; it records an offset that
+// getLocalTime() applies, so the faked clock runs with real elapsed time.
 // ============================================================
+
+#include <atomic>
+
+static std::atomic<long long> g_timeOffsetMicros(0);
+
+static long long realTimeMicros() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return (long long)tv.tv_sec * 1000000LL + (long long)tv.tv_usec;
+}
+
+// Intercepted by the #define in compat/Arduino.h (app code calls settimeofday).
+int pepit_compat_settimeofday(const struct timeval* tv, struct timezone* tz) {
+    (void)tz;
+    if (!tv) return 0;
+    long long requested = (long long)tv->tv_sec * 1000000LL + (long long)tv->tv_usec;
+    g_timeOffsetMicros = requested - realTimeMicros();
+    return 0;  // pretend success, like the device
+}
+
+// Test-only: restore unmodified (real) time readings.
+void pepit_compat_resetClockOffset() {
+    g_timeOffsetMicros = 0;
+}
 
 bool getLocalTime(struct tm* timeinfo, uint32_t milliseconds) {
     if (!timeinfo) return false;
 
-    time_t now = time(nullptr);
+    time_t now = (realTimeMicros() + g_timeOffsetMicros.load()) / 1000000LL;
 
     // Apply optional timezone offset (milliseconds)
     if (milliseconds > 0) {
@@ -486,6 +513,12 @@ bool getLocalTime(struct tm* timeinfo) {
 // ============================================================
 
 void initArduino() {
+    // Device baseline until the app calls configTime(): the ESP32 runs
+    // TZ=UTC, so the app's set-time mktime/localtime round-trip is exact
+    // even if a DST-aware host timezone would otherwise leak in.
+    setenv("TZ", "UTC", 1);
+    tzset();
+
     auto now = std::chrono::steady_clock::now();
     bootTime = now;
     // Seed with actual system time (millis() is 0 here, so use epoch count directly)

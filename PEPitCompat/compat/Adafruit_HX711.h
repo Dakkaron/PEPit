@@ -47,6 +47,11 @@ public:
     // Called by the shim when targetPressure is known from game config
     static void setTargetPressure(int32_t pressure);
 
+    // Test-only: queue scripted readChannel() values (bypasses keyboard sim).
+    static void testQueueRead(float value);
+    static void testClearQueuedReads();
+    static bool testHasQueuedReads();
+
 private:
     long tareOffset_;
 };

@@ -8,7 +8,7 @@ and testing, using SDL2 and POSIX shims to replace hardware dependencies.
 
 ```bash
 # 1. Install build dependencies (Debian/Ubuntu)
-sudo apt install build-essential cmake libsdl2-dev libsdl2-ttf-2.0-dev
+sudo apt install build-essential cmake libsdl2-dev libsdl2-ttf-dev
 
 # 2. Clone the repos
 git clone https://github.com/Dakkaron/PEPit.git
@@ -47,6 +47,22 @@ cmake --build build -j$(nproc)
 Keyboard keys use SDL scancode names: `A`, `S`, `LEFT`, `RIGHT`, `UP`, `DOWN`, `SPACE`, `RETURN`, etc.
 
 Press **Escape** or **Ctrl+C** to exit at any time.
+
+## Unit Tests
+
+This project is also the native test harness for the firmware
+(`T-HMI-PEPmonitor`): the same shims and original sources are linked into a
+Catch2-based test binary (`tests/`), see `T-HMI-PEPmonitor/TESTING.md`.
+
+```bash
+cmake -B build
+cmake --build build -j$(nproc)
+ctest --test-dir build --output-on-failure   # runs headless via SDL dummy driver
+# or directly:
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ./build/tests/pepit_tests
+```
+
+CI runs this on every push/PR that touches `T-HMI-PEPmonitor/` or `PEPitCompat/`.
 
 ## What's Shimmed
 
@@ -114,7 +130,7 @@ PEPitCompat/
 | `build-essential` (gcc, g++, make) | C++17 compiler and build tools |
 | `cmake` (≥ 3.16) | Build system |
 | `libsdl2-dev` | Display rendering and input handling |
-| `libsdl2-ttf-2.0-dev` | Text rendering (TrueType fonts) |
+| `libsdl2-ttf-dev` | Text rendering (TrueType fonts) |
 
 On other distributions:
 - **Fedora/RHEL**: `gcc-c++ cmake SDL2-devel SDL2_ttf-devel`

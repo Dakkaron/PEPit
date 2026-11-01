@@ -23,7 +23,15 @@
 #include <unistd.h>
 #include <time.h>
 #include <strings.h>  // For strcasecmp (used by serialHandler)
-#include <sys/time.h> // For settimeofday (used by gfxHandler)
+#include <sys/time.h> // For gettimeofday / struct timeval
+
+// The host's system clock must never be rewritten (on a device settimeofday
+// only sets the ESP32 RTC; on Linux run as root it would change the machine
+// clock). The app's calls are redirected to the shim (shim/arduino.cpp),
+// which records the requested time as an offset getLocalTime() applies.
+#define settimeofday pepit_compat_settimeofday
+int pepit_compat_settimeofday(const struct timeval* tv, struct timezone* tz);
+void pepit_compat_resetClockOffset();  // test-only: back to unmodified time
 
 // ESP-IDF logging macros (log_e, log_v, etc.) — needed by EspLuaEngine
 #include "esp_log.h"
