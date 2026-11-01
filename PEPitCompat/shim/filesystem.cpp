@@ -355,7 +355,16 @@ size_t File::println(uint32_t num) {
 bool File::available() {
     if (isDir_) return dir_ != nullptr;  // Directory is "available" while open
     if (!fp_) return false;
-    return !feof(fp_) && !ferror(fp_);
+    if (ferror(fp_)) return false;
+    // The arduino-esp32 core reports the exact byte count; feof() only trips
+    // after a failed read, which would let while(available()) loops read one
+    // phantom 0 byte past EOF.
+    long pos = ftell(fp_);
+    if (pos < 0) return false;
+    fseek(fp_, 0, SEEK_END);
+    long size = ftell(fp_);
+    fseek(fp_, pos, SEEK_SET);
+    return size > pos;
 }
 
 void File::seek(uint32_t pos) {
