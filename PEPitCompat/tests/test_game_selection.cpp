@@ -63,6 +63,10 @@ const char* SCRIPT_INI_INCOMPLETE =
 
 auto buildGameTree() {
     auto root = makeSdRoot("gametree");
+    // SD_MMC.begin() seeds factory data, which includes the factory monster
+    // game (/games/monster). These tests count exact game numbers, so remove
+    // it to keep the tree fully controlled.
+    std::filesystem::remove_all(root / "games" / "monster");
     writeSdFile(root, "games/monsterGame/gameconfig.ini", MONSTER_INI);
     writeSdFile(root, "games/scriptGame/gameconfig.ini", SCRIPT_INI);
     writeSdFile(root, "games/scriptGame/scripts/short.lua", "-- short\n");

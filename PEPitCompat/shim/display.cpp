@@ -8,8 +8,10 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <unistd.h>
 
 // Forward declarations — these are implemented in our custom processor (TFT_eSDL.c)
 extern "C" {
