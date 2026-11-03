@@ -17,7 +17,7 @@ Deterministic signals:
              into it — centroid stays within ~2 px of the envelope centre)
   crashing : the dead balloon is a grey blob (the envelope colours vanish)
   fuel     : height of the green/red fill inside the gauge at x 7..22
-  obstacles: white cloud blobs, dark bird blobs
+  obstacles: dark grey-blue storm cloud blobs, dark bird blobs
 
 Rulebot (open loop): continuous blow cycle (wait ~1 s, blow past the target
 duration, release) so every repetition pays +40 fuel; steer only vertically,
@@ -45,8 +45,11 @@ def _deq565(c):
 
 
 # exact 565-quantized references (what gen_sprites.py writes into the BMPs)
-CLOUD_REF = np.array(_deq565(_q565(240, 246, 252)), dtype=np.int16)
+STORM_REF = np.array(_deq565(_q565(92, 104, 140)), dtype=np.int16)
+STORM_LO_REF = np.array(_deq565(_q565(66, 78, 104)), dtype=np.int16)
+STORM_EDGE_REF = np.array(_deq565(_q565(46, 54, 76)), dtype=np.int16)
 BIRD_REF = np.array(_deq565(_q565(38, 42, 54)), dtype=np.int16)
+WING_REF = np.array(_deq565(_q565(120, 154, 190)), dtype=np.int16)
 OUTLINE_REF = np.array(_deq565(_q565(34, 26, 32)), dtype=np.int16)
 DEAD_REF = np.array(_deq565(_q565(128, 132, 138)), dtype=np.int16)
 DEAD_DK_REF = np.array(_deq565(_q565(96, 100, 106)), dtype=np.int16)
@@ -104,10 +107,13 @@ class BalloonSpec(GameSpec):
         # restricted to the playfield band so firmware chrome never counts
         band = np.zeros(px.shape[:2], dtype=bool)
         band[33:PLAY_BOTTOM, :] = True
-        cloud = np.all(np.abs(px - CLOUD_REF) <= 22, axis=2) & band
+        cloud = ((np.all(np.abs(px - STORM_REF) <= 22, axis=2)
+                  | np.all(np.abs(px - STORM_LO_REF) <= 22, axis=2)
+                  | np.all(np.abs(px - STORM_EDGE_REF) <= 22, axis=2)) & band)
         cloud[:, :30] = False
-        bird = (np.all(np.abs(px - BIRD_REF) <= 30, axis=2)
-                | np.all(np.abs(px - OUTLINE_REF) <= 25, axis=2)) & band
+        bird = ((np.all(np.abs(px - BIRD_REF) <= 5, axis=2)
+                 | np.all(np.abs(px - OUTLINE_REF) <= 5, axis=2)
+                 | np.all(np.abs(px - WING_REF) <= 6, axis=2)) & band)
         bird[:, :30] = False
 
         obstacles = []
