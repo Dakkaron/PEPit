@@ -1,6 +1,7 @@
 -- Progression menu: plain recap + "Fertig" (same pattern as soccer/plane).
 -- Runs every frame while the menu is open.
-FillRect(0, 0, 320, 240, 0x0000)
+FillRect(0, 0, 320, 240, COL_BLACK)
+DrawSprite(SBalloon, 20, 90)
 SetTextSize(3)
 DrawString("Heißluftballon", 62, 10)
 SetTextSize(2)
