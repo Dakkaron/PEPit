@@ -56,12 +56,12 @@ end
 if State == "flying" then
   BalloonX = Constrain(BalloonX + VelX * (MsDelta / 1000), 30, 285)
   BalloonY = Constrain(BalloonY + VelY * (MsDelta / 1000),
-                       PLAY_TOP + BALLOON_R + 2, PLAY_BOTTOM - BALLOON_R)
+                       PLAY_TOP + BALLOON_R + 2, GROUND_Y - BASKET_DROP)
 else
   -- the balloon drops out of the sky, then the run resets
   VelY = VelY + 160 * (MsDelta / 1000)
   BalloonY = BalloonY + VelY * (MsDelta / 1000)
-  if BalloonY > PLAY_BOTTOM then BalloonY = PLAY_BOTTOM end
+  if BalloonY > GROUND_Y - BASKET_DROP then BalloonY = GROUND_Y - BASKET_DROP end
   if Ms - CrashMs > CRASH_MS then
     Fuel = FUEL_START
     BalloonX, BalloonY = START_X, START_Y
@@ -74,8 +74,7 @@ else
 end
 
 -- --------------------------------------------------------------- drawing
-FillRect(0, PLAY_TOP, 320, PLAY_BOTTOM - PLAY_TOP + 1, COL_SKY)
-FillRect(0, GROUND_Y, 320, PLAY_BOTTOM - GROUND_Y + 1, COL_HAZE)
+DrawSprite(SBackground, 0, PLAY_TOP)
 
 for _, o in ipairs(Obstacles) do
   if o.kind == 0 then
