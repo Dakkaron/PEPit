@@ -13,7 +13,7 @@ Mechanics (mainGame.lua):
 
 Deterministic signals:
   ball   : the only solid pure-white blob (net/frame are pale blue-gray)
-  keeper : blue blob (rgb 28,68,208, 565-quantized)
+  keeper : blue blob (sprite shirt, rgb 7,112,177 565-quantized)
   banner : green "GOAL!" / red "SAVED!" text in the y 130..165 band
   cross  : yellow aim crosshair, only while idle
 
@@ -48,7 +48,7 @@ def _deq565(c):
 # exact 565-quantized references (what init.lua's rgb() draws)
 BANNER_GREEN = np.array(_deq565(_q565(64, 230, 96)), dtype=np.int16)
 BANNER_RED = np.array(_deq565(_q565(238, 48, 48)), dtype=np.int16)
-KEEPER_BLUE = np.array(_deq565(_q565(28, 68, 208)), dtype=np.int16)
+KEEPER_BLUE = np.array(_deq565(_q565(7, 112, 177)), dtype=np.int16)  # sprite shirt
 CROSS_YELLOW = np.array(_deq565(_q565(255, 196, 0)), dtype=np.int16)
 WHITE = np.array([255, 255, 255], dtype=np.int16)
 

@@ -1,4 +1,4 @@
--- Soccer Penalty — prototype game (primitives only, no sprite assets)
+-- Soccer Penalty — penalty shootout with a bone-animated keeper.
 --
 -- Rules: each blow is one penalty kick, struck the moment the blow
 -- FINISHES (so you can keep aiming for the whole blow). Aim with the
@@ -13,18 +13,68 @@ function rgb(r, g, b)
 end
 
 -- 565 colors
-COL_STANDS = rgb(18, 26, 58)
-COL_PITCH  = rgb(0, 158, 60)
-COL_PITCH2 = rgb(0, 138, 50)
-COL_FRAME  = rgb(200, 208, 220)  -- pale blue-gray goal frame + net (NOT pure white, so the white ball stays the only solid-white blob)
-COL_BALL   = 0xFFFF
-COL_BLACK  = 0x0000
-COL_KEEPER = rgb(28, 68, 208)
-COL_KHEAD  = rgb(12, 30, 96)
+COL_FRAME  = rgb(200, 208, 220)  -- goal line (NOT pure white, so the ball stays the only solid-white blob)
 COL_CROSS  = rgb(255, 196, 0)
 COL_GOALTX = rgb(64, 230, 96)
 COL_SAVETX = rgb(238, 48, 48)
 COL_WHITE  = 0xFFFF
+
+-- Sprites: 16-bit RGB565 BMPs, pink is the transparent mask colour.
+MASK        = 0xF81F
+CENTER      = ALIGN_H_CENTER | ALIGN_V_CENTER
+SBackground = LoadSprite("gfx/bg.bmp")
+SGoal       = LoadSprite("gfx/goal.bmp", 0, MASK)
+SBall       = LoadAnimSprite("gfx/ball.bmp", 16, 16, 0, MASK)
+SKeeperBody = LoadSprite("gfx/keeper_body.bmp", 0, MASK)
+SArmUpL     = LoadSprite("gfx/arm_up.bmp", 0, MASK)
+SArmUpR     = LoadSprite("gfx/arm_up_r.bmp", 0, MASK)
+SArmForeL   = LoadSprite("gfx/arm_fore.bmp", 0, MASK)
+SArmForeR   = LoadSprite("gfx/arm_fore_r.bmp", 0, MASK)
+SGloveL     = LoadSprite("gfx/glove.bmp", 0, MASK)
+SGloveR     = LoadSprite("gfx/glove_r.bmp", 0, MASK)
+
+-- Keeper skeleton geometry (from gen_sprites.py): every arm part is
+-- padded so its joint pixel is the exact sprite centre, which is the
+-- pivot DrawSprite rotates around. Angles are radians, positive =
+-- clockwise on screen. Idle: arms hang at ~90 deg.
+SHOULDER_DX  = 8
+SHOULDER_DY  = -6
+ARM_UP_LEN   = 12
+ARM_FORE_LEN = 8
+DIVE_PHI     = 1.0   -- body tilt at full dive
+DIVE_UP      = 0.6   -- arm raise past horizontal at full dive
+ARM_FOLD     = 0.35  -- forearm angle relative to the upper arm
+IDLE_UP_L    = 1.745
+IDLE_UP_R    = 1.396
+
+-- Draw the keeper at pelvis (x, y), dove by ke (0..1) toward sign dir.
+function DrawKeeper(x, y, ke, dir)
+  if dir == 0 then dir = 1 end
+  local phi = dir * DIVE_PHI * ke
+  local cs, ss = math.cos(phi), math.sin(phi)
+  local tgt = dir > 0 and -DIVE_UP or math.pi + DIVE_UP
+  local upL = lerp(IDLE_UP_L, tgt, ke)
+  local upR = lerp(IDLE_UP_R, tgt, ke)
+  local foL = lerp(math.pi / 2, upL + ARM_FOLD, ke)
+  local foR = lerp(math.pi / 2, upR + ARM_FOLD, ke)
+  local dxL, dyL = -SHOULDER_DX, SHOULDER_DY
+  local dxR, dyR = SHOULDER_DX, SHOULDER_DY
+  local shLx = x + cs * dxL - ss * dyL
+  local shLy = y + ss * dxL + cs * dyL
+  local shRx = x + cs * dxR - ss * dyR
+  local shRy = y + ss * dxR + cs * dyR
+  DrawSprite(SArmUpL, shLx, shLy, {angle = upL, flags = CENTER})
+  DrawSprite(SArmUpR, shRx, shRy, {angle = upR, flags = CENTER})
+  DrawSprite(SKeeperBody, x, y, {angle = phi, flags = CENTER})
+  DrawSprite(SArmForeL, shLx + ARM_UP_LEN * math.cos(upL), shLy + ARM_UP_LEN * math.sin(upL),
+            {angle = foL, flags = CENTER})
+  DrawSprite(SArmForeR, shRx + ARM_UP_LEN * math.cos(upR), shRy + ARM_UP_LEN * math.sin(upR),
+            {angle = foR, flags = CENTER})
+  DrawSprite(SGloveL, shLx + (ARM_UP_LEN + ARM_FORE_LEN) * math.cos(foL),
+            shLy + (ARM_UP_LEN + ARM_FORE_LEN) * math.sin(foL), {angle = foL, flags = CENTER})
+  DrawSprite(SGloveR, shRx + (ARM_UP_LEN + ARM_FORE_LEN) * math.cos(foR),
+            shRy + (ARM_UP_LEN + ARM_FORE_LEN) * math.sin(foR), {angle = foR, flags = CENTER})
+end
 
 -- TV-style scoreboard (the broadcast penalty-shootout overlay): a dark bar
 -- in the stands strip with team tags, the score, and one box per kick of
@@ -54,7 +104,7 @@ SPOT_X = 160         -- penalty spot
 SPOT_Y = 152
 
 KEEPER_HOME_X = GOAL_MID_X
-KEEPER_HOME_Y = GOAL_BOTTOM - 9
+KEEPER_HOME_Y = GOAL_BOTTOM - 24
 
 BALL_R = 7
 SAVE_RADIUS = 30     -- keeper covers a 30 px radius around the dive target
