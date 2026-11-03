@@ -92,39 +92,36 @@ elseif State == "reset" then
 end
 
 -- --------------------------------------------------------------- drawing
--- pitch (the stands strip behind the goal is the scoreboard bar, drawn last)
-FillRect(0, GOAL_TOP - 8, 320, 240 - GOAL_TOP + 8, COL_PITCH)
-DrawFastHLine(0, GOAL_BOTTOM, 320, COL_PITCH2)
+-- backdrop: stands behind the goal, grass in front (the scoreboard bar
+-- drawn last covers its top strip)
+DrawSprite(SBackground, 0, SBAR_H)
 
--- goal mouth: pale net grid (deliberately not pure white)
-for x = GOAL_X0 + 10, GOAL_X1 - 10, 10 do
-  DrawLine(x, GOAL_TOP, x, GOAL_BOTTOM, COL_FRAME)
-end
-for y = GOAL_TOP + 10, GOAL_BOTTOM, 10 do
-  DrawLine(GOAL_X0, y, GOAL_X1, y, COL_FRAME)
-end
--- frame on top of the net
-FillRect(GOAL_X0 - POST_W, GOAL_TOP - POST_W, GOAL_X1 - GOAL_X0 + 2 * POST_W, POST_W, COL_FRAME)
-FillRect(GOAL_X0 - POST_W, GOAL_TOP, POST_W, GOAL_BOTTOM - GOAL_TOP + POST_W, COL_FRAME)
-FillRect(GOAL_X1, GOAL_TOP, POST_W, GOAL_BOTTOM - GOAL_TOP + POST_W, COL_FRAME)
+-- goal: posts and net from the sprite, aligned with the game geometry
+DrawSprite(SGoal, GOAL_X0 - POST_W, GOAL_TOP - POST_W)
 DrawFastHLine(30, GOAL_BOTTOM, 260, COL_FRAME)  -- goal line
 
--- keeper: head + body, arms out while diving
-if State == "shooting" or (State == "result" and SavedLast) then
-  FillCircle(KeeperX, KeeperY - 13, 4, COL_KHEAD)
-  FillRect(KeeperX - 7, KeeperY - 9, 14, 17, COL_KEEPER)
-  DrawLine(KeeperX - 7, KeeperY - 6, KeeperX - 13, KeeperY - 12, COL_KEEPER)
-  DrawLine(KeeperX + 7, KeeperY - 6, KeeperX + 13, KeeperY - 12, COL_KEEPER)
+-- keeper: bone-animated dive (ke = dive progress, dir = dive side)
+local ke, dir
+if State == "shooting" then
+  local kt = (Ms - ShotStartMs) / DIVE_MS
+  if kt > 1 then kt = 1 end
+  ke = kt * kt * (3 - 2 * kt)
+  dir = KeeperTX >= KeeperStartX and 1 or -1
+elseif State == "result" then
+  ke, dir = 1, KeeperTX >= KEEPER_HOME_X and 1 or -1
+elseif State == "reset" then
+  local t = (Ms - ResetMs) / RESET_MS
+  if t > 1 then t = 1 end
+  ke, dir = 1 - t, KeeperTX >= KEEPER_HOME_X and 1 or -1
 else
-  FillCircle(KeeperX, KeeperY - 13, 4, COL_KHEAD)
-  FillRect(KeeperX - 6, KeeperY - 9, 12, 17, COL_KEEPER)
+  ke, dir = 0, 1
 end
+DrawKeeper(KeeperX, KeeperY, ke, dir)
 
--- ball: white with a dark pentagon-ish dot pattern
-FillCircle(BallX, BallY, BallR, COL_BALL)
-FillCircle(BallX, BallY, 2, COL_BLACK)
-FillCircle(BallX - BallR + 2, BallY, 1, COL_BLACK)
-FillCircle(BallX + BallR - 2, BallY, 1, COL_BLACK)
+-- ball: rolling spin frames, shrinking into the goal
+local spin = State == "idle" and 0 or ((Ms - ShotStartMs) // 150) % 4
+DrawSprite(SBall, BallX, BallY, {scaleX = BallR / 8, scaleY = BallR / 8,
+                                 frame = spin, flags = CENTER})
 
 -- aim crosshair (idle only)
 if State == "idle" then
