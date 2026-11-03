@@ -27,10 +27,11 @@ FLAME_MID = (252, 196, 60)
 FLAME_IN = (252, 240, 150)
 DEAD = (128, 132, 138)
 DEAD_DK = (96, 100, 106)
-CLOUD = (240, 246, 252)
-CLOUD_SHADE = (198, 214, 232)
+STORM = (92, 104, 140)
+STORM_LO = (66, 78, 104)
+STORM_EDGE = (46, 54, 76)
 BIRD = (38, 42, 54)
-BIRD_HI = (92, 116, 146)
+BIRD_HI = (120, 154, 190)
 GLASS = (214, 224, 234)
 GLASS_DK = (140, 152, 164)
 GOLD = (232, 200, 90)
@@ -175,45 +176,80 @@ def flame():
 
 
 def cloud():
-    """34x20 puffy cloud, centre (17, 10)."""
+    """34x20 angry storm cloud, centre (17, 10): dark tumbling grey-blue."""
     c = Canvas(34, 20)
-    c.disc(17, 9, 8, CLOUD)
-    c.disc(9, 11, 6, CLOUD)
-    c.disc(25, 11, 6, CLOUD)
-    c.disc(13, 6, 6, CLOUD)
-    c.disc(21, 7, 5, CLOUD)
+    c.disc(17, 9, 8, STORM)
+    c.disc(9, 11, 6, STORM)
+    c.disc(25, 11, 6, STORM)
+    c.disc(13, 6, 6, STORM)
+    c.disc(21, 7, 5, STORM)
+    # darker, jagged underbelly
     for x in range(34):
         column = [y for y in range(20) if c.opaque(x, y)]
         if not column:
             continue
         low = max(column)
-        for y in range(low - 2, low + 1):
+        for y in range(low - 3, low + 1):
             if c.opaque(x, y):
-                c.px[y][x] = CLOUD_SHADE
-    c.outline(CLOUD_SHADE)
+                c.px[y][x] = STORM_LO if (x % 2 or y < low) else STORM_EDGE
+    c.outline(STORM_EDGE)
     return c
 
 
 def bird():
-    """Animated 20x14 sprite, 2 frames (wings up / wings down)."""
+    """Animated 20x14 sprite, 2 frames (wing up / wing down), classic gull.
+
+    Broad swept wings flapping up and down above/below a compact body, head
+    with a gold beak to the left. The body gets the outline first so the
+    thin wing tips are not eaten by the border.
+    """
+    up = [
+        "....................",
+        "....................",
+        "....W.........W....",
+        "....WW.......WW....",
+        "....WWW.....WWW....",
+        ".....WWW...WWW.....",
+        "......WWWWWWW......",
+        ".......bbbbb.......",
+        "....K.bbbbbb.......",
+        "......bbbbb........",
+        ".......bbb.........",
+        "........b..........",
+        "....................",
+        "....................",
+    ]
+    down = [
+        "....................",
+        "....................",
+        ".......bbbbb.......",
+        "....K.bbbbbb.......",
+        "......bbbbb........",
+        ".......bbb.........",
+        "......WWWWWWW......",
+        ".....WWW...WWW.....",
+        "....WWW.....WWW....",
+        "....WW.......WW....",
+        "....W.........W....",
+        "....................",
+        "....................",
+        "....................",
+        "....................",
+    ]
     frames = []
-    for f in range(2):
+    for grid in (up, down):
         c = Canvas(20, 14)
-        c.disc(10, 8, 3, BIRD)
-        c.rect(6, 7, 13, 9, BIRD)
-        c.disc(14, 6, 2, BIRD)
-        c.set(16, 5, GOLD)
-        c.set(16, 6, GOLD)
-        c.polygon([(7, 8), (2, 6), (2, 10), (7, 10)], BIRD)
-        if f == 0:
-            c.polygon([(10, 9), (4, 2), (4, 9)], BIRD)
-            c.polygon([(10, 9), (16, 2), (16, 9)], BIRD)
-        else:
-            c.polygon([(10, 7), (4, 13), (4, 7)], BIRD)
-            c.polygon([(10, 7), (16, 13), (16, 7)], BIRD)
-        c.disc(9, 7, 1, BIRD_HI)
-        c.set(13, 5, BIRD_HI)
+        for y, row in enumerate(grid):
+            for x, ch in enumerate(row):
+                if ch == "b":
+                    c.set(x, y, BIRD)
         c.outline(OUTLINE)
+        for y, row in enumerate(grid):
+            for x, ch in enumerate(row):
+                if ch == "W":
+                    c.set(x, y, BIRD_HI)
+                elif ch == "K":
+                    c.set(x, y, GOLD)
         frames.append(c)
     return frames
 
@@ -234,26 +270,50 @@ def gauge():
 
 
 def sky():
-    """320x167 playfield background: banded sky, distant cloud puffs, ground."""
+    """320x167 playfield background: smooth sky, heavily blurred haze, ground."""
     W, H = 320, 167
     c = Canvas(W, H)
     top = (24, 92, 158)
     bot = (150, 202, 236)
-    bands = 7
-    for b in range(bands):
-        t = b / (bands - 1)
+    # smooth per-pixel vertical gradient (no hard bands)
+    for y in range(H):
+        t = y / (H - 1)
         col = tuple(int(top[i] + (bot[i] - top[i]) * t) for i in range(3))
-        c.rect(0, b * (H // bands), W - 1, (b + 1) * (H // bands) - 1, col)
-    # sun, top right (pixel-art disc with chunky rays)
+        c.rect(0, y, W - 1, y, col)
+    # distant haze: wide ellipses with a soft gaussian falloff, then blurred
+    # away so they read as mist and never as cloud obstacles
+    haze = (220, 233, 246)
+    for cx, cy, rx, ry in ((56, 66, 26, 11), (120, 50, 20, 9),
+                           (196, 80, 28, 12), (258, 62, 18, 8)):
+        for y in range(cy - ry - 2, cy + ry + 3):
+            for x in range(cx - rx - 2, cx + rx + 3):
+                d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
+                if d >= 1:
+                    continue
+                w = (1 - d) ** 2 * 0.55
+                bg = c.px[y][x]
+                c.set(x, y, tuple(int(bg[i] + (haze[i] - bg[i]) * w)
+                                  for i in range(3)))
+    # box-blur the sky (two passes) so the haze merges into the gradient
+    for _ in range(2):
+        src = [row[:] for row in c.px]
+        for y in range(H):
+            for x in range(W):
+                acc = [0, 0, 0]
+                n = 0
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        yy, xx = y + dy, x + dx
+                        if 0 <= yy < H and 0 <= xx < W:
+                            n += 1
+                            for i in range(3):
+                                acc[i] += src[yy][xx][i]
+                c.set(x, y, tuple(v // n for v in acc))
+    # sun, top right (pixel-art disc with chunky rays), crisp on the haze
     c.disc(304, 34, 8, GOLD)
     c.disc(304, 34, 5, (252, 232, 130))
     for dx, dy in ((-11, 0), (11, 0), (0, -11), (0, 11)):
         c.rect(304 + dx - 1, 34 + dy - 1, 304 + dx + 1, 34 + dy + 1, GOLD)
-    # distant haze puffs so the field is not a flat gradient
-    for cx, cy, r in ((60, 62, 9), (120, 48, 7), (200, 78, 8), (260, 60, 6)):
-        c.disc(cx, cy, r, CLOUD_SHADE)
-        c.disc(cx - r, cy + 2, r - 2, CLOUD_SHADE)
-        c.disc(cx + r, cy + 2, r - 2, CLOUD_SHADE)
     # ground strip at the bottom: flat, the moving tufts drawn by
     # mainGame.lua are the only texture so the scroll is visible
     gy = H - 24
@@ -299,13 +359,18 @@ def logo():
 
 
 def write_bmp(path, frames, frame_w, frame_h):
-    """16-bit RGB565, BI_BITFIELDS, rows bottom-up, rows padded to 4 bytes."""
-    total_w = frame_w * len(frames)
+    """16-bit RGB565, BI_BITFIELDS, rows bottom-up, rows padded to 4 bytes.
+
+    Animation frames are stacked vertically. DrawSprite indexes frame n at
+    buffer row n*frameH, and buffer row 0 is the last line written to a
+    bottom-up BMP, so frame 0 must be written last: it ends up as the top
+    block of the image.
+    """
     row_bytes = frame_w * 2
     padding = (4 - (row_bytes & 3)) & 3
     data = bytearray()
-    for row in range(frame_h - 1, -1, -1):
-        for f in frames:
+    for f in reversed(frames):
+        for row in range(frame_h - 1, -1, -1):
             for x in range(frame_w):
                 r, g, b = f.px[row][x]
                 v = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3)
@@ -313,7 +378,8 @@ def write_bmp(path, frames, frame_w, frame_h):
             data += bytes(padding)
     offset = 54 + 12  # BITMAPINFOHEADER + BI_BITFIELDS masks
     header = struct.pack("<2sIII", b"BM", offset + len(data), 0, offset)
-    header += struct.pack("<IiiHHIIiiII", 40, total_w, frame_h, 1, 16, 3, len(data), 2835, 2835, 0, 0)
+    header += struct.pack("<IiiHHIIiiII", 40, frame_w, frame_h * len(frames), 1, 16, 3,
+                          len(data), 2835, 2835, 0, 0)
     header += struct.pack("<III", 0x7C00, 0x03E0, 0x001F)
     with open(path, "wb") as fh:
         fh.write(header + data)
