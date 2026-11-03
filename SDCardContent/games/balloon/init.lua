@@ -5,6 +5,9 @@
 -- pulses at blow END, like in soccer). Fuel drains constantly and
 -- maneuvering drains it faster. Hitting an obstacle costs fuel. When the
 -- fuel runs out the balloon falls and resets.
+-- Flying distance earns coins (one per DIST_PER_COIN px). Coins and
+-- upgrades are persisted in the game's Prefs namespace and bought in
+-- progressionMenu.lua.
 --
 -- init.lua runs once at game start (gameLua.cpp initGames_lua); mainGame.lua
 -- runs every frame in every blow phase and keeps the state below.
@@ -28,7 +31,12 @@ GROUND_Y    = PLAY_BOTTOM - 23  -- top of the grass strip drawn by gfx/sky.bmp
 -- Sprites: 16-bit RGB565 BMPs, pink is the transparent mask colour.
 MASK        = 0xF81F
 SBackground = LoadSprite("gfx/sky.bmp")
-SBalloon    = LoadSprite("gfx/balloon.bmp", 0, MASK)
+BalloonSkin = {
+  LoadSprite("gfx/balloon.bmp", 0, MASK),
+  LoadSprite("gfx/balloon_blue.bmp", 0, MASK),
+  LoadSprite("gfx/balloon_green.bmp", 0, MASK),
+  LoadSprite("gfx/balloon_gold.bmp", 0, MASK),
+}
 SBalloonDead = LoadSprite("gfx/balloon_dead.bmp", 0, MASK)
 SFlame      = LoadAnimSprite("gfx/flame.bmp", 14, 16, 0, MASK)
 SCloud      = LoadSprite("gfx/cloud.bmp", 0, MASK)
@@ -40,16 +48,36 @@ ENV_CX, ENV_CY = 22, 17
 BASKET_DROP = 33  -- envelope centre -> basket floor in balloon.bmp
 GAUGE_X, GAUGE_Y = 4, PLAY_TOP + 2
 
--- Physics / game balance
+-- Physics / game balance (upgrade levels adjust these)
 BALLOON_R     = 16
 START_X       = 70
 START_Y       = 105
-MAX_SPEED     = 70   -- px/s, joystick full deflection
 FUEL_MAX      = 100
 FUEL_START    = 60
-FUEL_PER_BLOW = 40   -- one successful blow
-IDLE_DRAIN    = 2.0  -- fuel/s
-STEER_DRAIN   = 5.0  -- extra fuel/s at full input
+
+-- Persistent upgrades (prefs namespace: game-balloon)
+DIST_PER_COIN    = 200  -- px flown per coin earned
+PX_PER_M         = 10   -- px per displayed meter
+SPEED_STEP       = 15   -- px/s per "Düse" level
+BURNER_STEP      = 10   -- fuel per blow per "Brenner" level
+INSUL_IDLE_STEP  = 0.7  -- idle drain reduced per "Isolierung" level
+INSUL_STEER_STEP = 1.5  -- steer drain reduced per "Isolierung" level
+SPEED_PRICE      = { 25, 50, 75 }
+BURNER_PRICE     = { 30, 60 }
+INSUL_PRICE      = { 40, 80 }
+SKIN_PRICE       = { 0, 20, 40, 70 }  -- index = skin, 0 = default
+
+SPEED_LEVEL      = PrefsGetInt("speedLevel")
+BURNER_LEVEL     = PrefsGetInt("burnerLevel")
+INSULATION_LEVEL = PrefsGetInt("insulationLevel")
+SKINS_UNLOCKED   = PrefsGetInt("skinsUnlocked") | 1
+SKIN             = Constrain(PrefsGetInt("skin"), 0, 3)
+if ((SKINS_UNLOCKED >> SKIN) & 1) == 0 then SKIN = 0 end
+
+MAX_SPEED     = 70 + SPEED_LEVEL * SPEED_STEP
+FUEL_PER_BLOW = 40 + BURNER_LEVEL * BURNER_STEP
+IDLE_DRAIN    = 2.0 - INSULATION_LEVEL * INSUL_IDLE_STEP
+STEER_DRAIN   = 5.0 - INSULATION_LEVEL * INSUL_STEER_STEP
 BLOW_GAIN     = 6.0  -- fuel/s while actively blowing (the flame is stoked)
 HIT_COST      = 30   -- fuel lost per obstacle hit
 CRASH_MS      = 2200 -- how long the balloon falls before the reset
@@ -58,13 +86,14 @@ DRIFT_SPEED   = 32   -- px/s, obstacles drift leftward
 
 -- Mutable state (globals so it survives between scripts)
 Fuel        = FUEL_START
+Distance    = 0      -- px flown this session (coins are banked per DIST_PER_COIN)
+EarnedSaved = 0      -- coins already written to Prefs
 BalloonX    = START_X
 BalloonY    = START_Y
 VelX        = 0
 VelY        = 0
-Obstacles   = {}     -- {x, y, r, kind, passed}; kind 0 = cloud, 1 = bird
+Obstacles   = {}     -- {x, y, r, kind}; kind 0 = cloud, 1 = bird
 LastSpawnMs = 0
-Passed      = 0
 Crashes     = 0
 State       = "flying"  -- flying | crashing
 CrashMs     = 0
@@ -73,8 +102,7 @@ FlameUntilMs = 0
 function SpawnObstacle()
   local r = 10 + math.random(0, 8)
   local y = PLAY_TOP + r + 8 + math.random(0, GROUND_Y - PLAY_TOP - 2 * (r + 8))
-  table.insert(Obstacles, { x = 322 + r, y = y, r = r,
-                            kind = math.random(0, 1), passed = false })
+  table.insert(Obstacles, { x = 322 + r, y = y, r = r, kind = math.random(0, 1) })
 end
 
 -- Joystick axes or touch drag -> eased target velocity.
@@ -115,7 +143,7 @@ end
 
 function DrawBalloon(Ms)
   local lit = CurrentlyBlowing or Ms < FlameUntilMs
-  DrawSprite(State == "crashing" and SBalloonDead or SBalloon,
+  DrawSprite(State == "crashing" and SBalloonDead or BalloonSkin[SKIN + 1],
              BalloonX - ENV_CX, BalloonY - ENV_CY)
   if lit then
     DrawSprite(SFlame, BalloonX - 7, BalloonY + BALLOON_R + 2 - 16,
