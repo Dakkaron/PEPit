@@ -33,6 +33,11 @@ DEAD_DK = (96, 100, 106)
 STORM = (92, 104, 140)
 STORM_LO = (66, 78, 104)
 STORM_EDGE = (46, 54, 76)
+WING = (48, 92, 72)
+WING_HI = (108, 146, 116)
+BIRD_BODY = (232, 240, 244)
+BIRD_BEAK = (242, 190, 72)
+BIRD_OUT = (24, 32, 34)
 GLASS = (214, 224, 234)
 GLASS_DK = (140, 152, 164)
 GOLD = (232, 200, 90)
@@ -53,10 +58,22 @@ class Canvas:
     def opaque(self, x, y):
         return self.get(x, y) != PINK
 
+    def paste(self, other, ox=0, oy=0):
+        for y in range(other.h):
+            for x in range(other.w):
+                if other.px[y][x] != PINK:
+                    self.set(ox + x, oy + y, other.px[y][x])
+
     def disc(self, cx, cy, r, c):
         for y in range(cy - r, cy + r + 1):
             for x in range(cx - r, cx + r + 1):
                 if (x - cx) ** 2 + (y - cy) ** 2 <= r * r:
+                    self.set(x, y, c)
+
+    def ellipse(self, cx, cy, rx, ry, c):
+        for y in range(cy - ry, cy + ry + 1):
+            for x in range(cx - rx, cx + rx + 1):
+                if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1.0:
                     self.set(x, y, c)
 
     def rect(self, x0, y0, x1, y1, c):
@@ -84,13 +101,23 @@ class Canvas:
                 for x in range(int(round(crossings[i])), int(round(crossings[i + 1])) + 1):
                     self.set(x, y, c)
 
-    def outline(self, c, width=1):
-        """Trace a hard border around every opaque blob (classic pixel-art edge)."""
+    def outline(self, c, width=1, min_neighbours=0):
+        """Trace a hard border around every opaque blob (classic pixel-art edge).
+
+        min_neighbours skips thin protrusions, which a 1px border would eat.
+        """
         edge = [(x, y) for y in range(self.h) for x in range(self.w)
                 if self.opaque(x, y) and any(not self.opaque(x + dx, y + dy)
-                                             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))]
+                                             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                and sum(1 for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+                        if self.opaque(x + dx, y + dy)) >= min_neighbours]
         for x, y in edge:
             self.set(x, y, c)
+
+    def bbox(self):
+        ys = [y for y in range(self.h) if any(self.px[y][x] != PINK for x in range(self.w))]
+        xs = [x for x in range(self.w) if any(self.px[y][x] != PINK for y in range(self.h))]
+        return min(xs), min(ys), max(xs), max(ys)
 
     def rows(self):
         return (c for row in self.px for c in row)
@@ -203,59 +230,78 @@ def cloud():
     return c
 
 
-def read_bmp16(path):
-    """Read a 16-bit RGB565 BMP into top-down rows of RGB triples."""
-    with open(path, "rb") as f:
-        d = f.read()
-    w, h = struct.unpack("<II", d[18:26])
-    off = struct.unpack("<I", d[10:14])[0]
-    rows = []
-    for y in range(h):
-        line = d[off + (h - 1 - y) * w * 2: off + (h - 1 - y) * w * 2 + w * 2]
-        rows.append([((v >> 11) * 255 // 31, ((v >> 5) & 31) * 255 // 31, (v & 31) * 255 // 31)
-                     for v in struct.unpack("<" + "H" * w, line)])
-    return w, h, rows
-
-
 def bird():
-    """Animated gull reusing the plane game's bird art (50x50, 2 frames).
+    """Animated gull assembled from head, torso, tail and two wing polygons.
 
-    Frame 0 is the plane sprite verbatim; frame 1 folds the wing pixels toward
-    the body's principal axis, which reads as a wingbeat without redrawing the
-    bird.
+    Every frame transforms the same part geometry, so the wingbeat is a rigid
+    rotation and foreshortening about the shoulder rather than four redraws.
     """
-    w, h, src = read_bmp16(os.path.join(HERE, "..", "..", "plane", "gfx", "bird.bmp"))
-    is_wing = lambda c: c[1] > c[0] and c[1] > c[2]
+    W, H = 32, 20
+    body_pts = [(-8, -2), (6, -3), (10, -1), (6, 2), (-6, 2)]
+    tail_pts = [(3, -2), (9, -3), (10, 0), (4, 1)]
+    wing_pts = [(0, -1), (11, -2), (14, 0), (14, 1), (4, 3), (0, 1)]
+    wing_hi = [(0, -1), (11, -2), (14, 0), (7, 0), (0, 0)]
+    neck_pts = [(-2, -2), (2, -2), (2, 2), (-2, 2)]
+    flap = math.radians(34.0)
 
-    body = [(x, y) for y in range(h) for x in range(w)
-            if src[y][x] != PINK and src[y][x][0] > 200 and src[y][x][1] > 140]
-    cx = sum(p[0] for p in body) / len(body)
-    cy = sum(p[1] for p in body) / len(body)
-    sxx = sum((p[0] - cx) ** 2 for p in body)
-    sxy = sum((p[0] - cx) * (p[1] - cy) for p in body)
-    syy = sum((p[1] - cy) ** 2 for p in body)
-    th = 0.5 * math.atan2(2 * sxy, sxx - syy)
-    ax, ay = math.cos(th), math.sin(th)
-    nx, ny = -ay, ax
+    def limb(pts, angle, anchor, sx=1.0, sy=1.0):
+        ca, sa = math.cos(angle), math.sin(angle)
+        return [(round(anchor[0] + (x * sx) * ca - (y * sy) * sa),
+                 round(anchor[1] + (x * sx) * sa + (y * sy) * ca)) for x, y in pts]
+
+    def head(bob, tilt):
+        c = Canvas(W, H)
+        c.disc(6, 7 + bob, 3, BIRD_BODY)
+        c.polygon(limb(neck_pts, tilt, (9, 8 + bob)), BIRD_BODY)
+        c.polygon([(3, 6 + bob), (0, 7 + bob), (3, 8 + bob)], BIRD_BEAK)
+        return c
+
+    def torso(bob, tilt):
+        c = Canvas(W, H)
+        c.polygon(limb(body_pts, tilt, (14, 11 + bob)), BIRD_BODY)
+        c.polygon(limb(tail_pts, tilt, (21, 11 + bob)), BIRD_BODY)
+        return c
+
+    def wing(bob, angle, dark, sx=1.0, sy=1.0, ox=0, oy=0):
+        c = Canvas(W, H)
+        c.polygon(limb(wing_pts, angle, (14 + ox, 9 + oy + bob), sx, sy), WING)
+        if not dark:
+            c.polygon(limb(wing_hi, angle, (14 + ox, 9 + oy + bob), sx, sy), WING_HI)
+        return c
 
     frames = []
-    for fold in (1.0, 0.45):
-        c = Canvas(w, h)
-        for y in range(h):
-            for x in range(w):
-                col = src[y][x]
-                if col == PINK:
-                    continue
-                if fold == 1.0 or not is_wing(col):
-                    c.set(x, y, col)
-                    continue
-                px, py = x + 0.5 - cx, y + 0.5 - cy
-                u = px * ax + py * ay
-                v = (px * nx + py * ny) * fold
-                c.set(int(round(u * ax - v * nx + cx - 0.5)),
-                      int(round(u * ay - v * ny + cy - 0.5)), col)
+    for k in range(4):
+        # sampling the beat a quarter period off centre gives four distinct
+        # poses instead of the two duplicate pairs a zero-phase cosine yields
+        cycle = math.cos(2 * math.pi * k / 4 + math.radians(30.0))
+        angle = cycle * flap
+        bob = int(round(-2 * cycle))
+        # the wing is broad on the downstroke and folds on the upstroke
+        sy = 1.0 if cycle > 0 else 0.6
+        c = Canvas(W, H)
+        # both wings beat in phase; the far one is smaller, darker and offset
+        # behind the body, which is what makes the flap read as depth
+        c.paste(wing(bob, angle, True, 0.75, 0.6 * sy, 2, 1))
+        c.paste(torso(bob, angle * 0.25))
+        c.paste(head(bob, -angle * 0.3))
+        c.paste(wing(bob, angle, False, 1.0, sy))
+        c.outline(BIRD_OUT)
+        # the outline pass would otherwise reduce the 2px beak to a dark dash
+        c.polygon([(3, 6 + bob), (0, 7 + bob), (3, 8 + bob)], BIRD_BEAK)
         frames.append(c)
-    return frames
+
+    x0 = min(f.bbox()[0] for f in frames)
+    y0 = min(f.bbox()[1] for f in frames)
+    x1 = max(f.bbox()[2] for f in frames)
+    y1 = max(f.bbox()[3] for f in frames)
+    cropped = []
+    for f in frames:
+        c = Canvas(x1 - x0 + 1, y1 - y0 + 1)
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                c.set(x - x0, y - y0, f.get(x, y))
+        cropped.append(c)
+    return cropped
 
 
 def gauge():
@@ -403,7 +449,8 @@ if __name__ == "__main__":
     write_bmp("tuft.bmp", [tuft()], 12, 10)
     write_bmp("flame.bmp", flame(), 14, 10)
     write_bmp("cloud.bmp", [cloud()], 34, 20)
-    write_bmp("bird.bmp", bird(), 50, 50)
+    frames = bird()
+    write_bmp("bird.bmp", frames, frames[0].w, frames[0].h)
     write_bmp("gauge.bmp", [gauge()], 22, 52)
     write_bmp("sky.bmp", [sky()], 320, 167)
     write_bmp("../logo.bmp", [logo()], 40, 40)

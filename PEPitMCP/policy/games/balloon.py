@@ -101,8 +101,8 @@ class BalloonSpec(GameSpec):
         fuel = min(100.0, (fill / 16.0) * 100.0 / 46.0)
 
         # obstacles, restricted to the playfield band so firmware chrome never
-        # counts: storm clouds by colour, birds by wing hue (the plane game's
-        # gull is dark green; the teal sky top and the grass tufts are outside
+        # counts: storm clouds by colour, birds by wing hue (the gull's wings
+        # are dark green; the teal sky top and the grass tufts are outside
         # the band, so the hue test never fires on the background)
         band = np.zeros(px.shape[:2], dtype=bool)
         band[33:PLAY_BOTTOM, :] = True
@@ -121,7 +121,7 @@ class BalloonSpec(GameSpec):
             obstacles.append({"x": int(cx), "y": int(cy),
                               "r": min(20, max(8, int(math.sqrt(size / 2.6) + 0.5))),
                               "kind": "cloud"})
-        for cx, cy, size in E.find_blobs(bird, min_size=40):
+        for cx, cy, size in E.find_blobs(bird, min_size=12):
             obstacles.append({"x": int(cx), "y": int(cy),
                               "r": min(20, max(8, int(math.sqrt(size * 0.74) + 0.5))),
                               "kind": "bird"})
