@@ -158,19 +158,25 @@ def balloon(can_crash, c1=RED, c2=ORANGE, c1h=RED_HI, c2h=ORANGE_HI):
 
 
 def flame():
-    """Animated 14x16 sprite, 2 frames: burner flame flickering."""
+    """Animated 14x10 sprite, 2 frames: burner flame in the neck gap.
+
+    The base is at the bottom (the burner above the basket) and the tip
+    points up into the envelope neck, so the flame fits between the
+    envelope bottom and the basket instead of covering the envelope.
+    """
+    H = 10
     def taper(c, cx, base, h, color):
         for dy in range(h):
             hw = max(1, int(base * (1 - dy / h)))
-            c.rect(cx - hw, 15 - dy, cx + hw, 15 - dy, color)
+            c.rect(cx - hw, H - 1 - dy, cx + hw, H - 1 - dy, color)
 
     frames = []
     for f in range(2):
-        c = Canvas(14, 16)
-        k = 1.0 if f == 0 else 0.75
-        taper(c, 7, int(5 * k), 14, FLAME_OUT)
-        taper(c, 7, int(3 * k), 10, FLAME_MID)
-        taper(c, 7, 1, 6, FLAME_IN)
+        c = Canvas(14, H)
+        k = 1.0 if f == 0 else 0.8
+        taper(c, 7, int(5 * k), H, FLAME_OUT)
+        taper(c, 7, int(3 * k), H - 2, FLAME_MID)
+        taper(c, 7, 1, 4, FLAME_IN)
         frames.append(c)
     return frames
 
@@ -397,7 +403,7 @@ if __name__ == "__main__":
     write_bmp("balloon_gold.bmp", [balloon(False, (244, 196, 48), (252, 228, 108),
                                            (252, 212, 72), (255, 240, 148))], 44, 52)
     write_bmp("tuft.bmp", [tuft()], 12, 10)
-    write_bmp("flame.bmp", flame(), 14, 16)
+    write_bmp("flame.bmp", flame(), 14, 10)
     write_bmp("cloud.bmp", [cloud()], 34, 20)
     write_bmp("bird.bmp", bird(), 20, 14)
     write_bmp("gauge.bmp", [gauge()], 22, 52)

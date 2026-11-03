@@ -40,7 +40,7 @@ BalloonSkin = {
   LoadSprite("gfx/balloon_gold.bmp", 0, MASK),
 }
 SBalloonDead = LoadSprite("gfx/balloon_dead.bmp", 0, MASK)
-SFlame      = LoadAnimSprite("gfx/flame.bmp", 14, 16, 0, MASK)
+SFlame      = LoadAnimSprite("gfx/flame.bmp", 14, 10, 0, MASK)
 SCloud      = LoadSprite("gfx/cloud.bmp", 0, MASK)
 SBird       = LoadAnimSprite("gfx/bird.bmp", 20, 14, 0, MASK)
 SGauge      = LoadSprite("gfx/gauge.bmp", 0, MASK)
@@ -49,6 +49,9 @@ STuft       = LoadSprite("gfx/tuft.bmp", 0, MASK)
 -- Envelope centre inside the 44x52 balloon sprite.
 ENV_CX, ENV_CY = 22, 17
 BASKET_DROP = 33  -- envelope centre -> basket floor in balloon.bmp
+-- Burner flame: 14x10 sprite anchored in the neck gap (sprite rows 33..42),
+-- 16 px below the envelope centre rather than overlapping the envelope.
+FLAME_DX, FLAME_DY = 7, 16
 GAUGE_X, GAUGE_Y = 4, PLAY_TOP + 2
 
 -- Physics / game balance (upgrade levels adjust these)
@@ -152,7 +155,7 @@ function DrawBalloon(Ms)
   DrawSprite(State == "crashing" and SBalloonDead or BalloonSkin[SKIN + 1],
              BalloonX - ENV_CX, BalloonY - ENV_CY)
   if lit then
-    DrawSprite(SFlame, BalloonX - 7, BalloonY + BALLOON_R + 2 - 16,
+    DrawSprite(SFlame, BalloonX - FLAME_DX, BalloonY + FLAME_DY,
                { frame = (Ms // 180) % 2 })
   end
 end
