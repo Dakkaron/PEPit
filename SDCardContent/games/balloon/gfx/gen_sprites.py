@@ -254,16 +254,21 @@ def sky():
         c.disc(cx, cy, r, CLOUD_SHADE)
         c.disc(cx - r, cy + 2, r - 2, CLOUD_SHADE)
         c.disc(cx + r, cy + 2, r - 2, CLOUD_SHADE)
-    # ground strip at the bottom
+    # ground strip at the bottom: flat, the moving tufts drawn by
+    # mainGame.lua are the only texture so the scroll is visible
     gy = H - 24
     c.rect(0, gy, W - 1, H - 1, (96, 132, 74))
     c.rect(0, gy, W - 1, gy + 1, (150, 186, 120))
-    for x in range(0, W, 7):
-        h = 3 + (x * 13 % 5)
-        c.line(x, H - 1, x, H - 1 - h, (70, 98, 54))
-        c.line(x + 2, H - 1, x + 2, H - 1 - (h - 1), (70, 98, 54))
-    for x in range(0, W, 4):
-        c.px[H - 1][x] = (64, 92, 50)
+    return c
+
+
+def tuft():
+    """12x10 grass clump drawn on the ground strip so its motion is visible."""
+    c = Canvas(12, 10)
+    for x in range(12):
+        h = [4, 7, 3, 6, 4, 8, 3, 7, 4, 6, 3, 5][x]
+        c.line(x, 9, x, 9 - h, (58, 84, 44))
+    c.rect(0, 8, 11, 9, (124, 160, 96))
     return c
 
 
@@ -325,6 +330,7 @@ if __name__ == "__main__":
                                             (74, 196, 100), (126, 236, 140))], 44, 52)
     write_bmp("balloon_gold.bmp", [balloon(False, (244, 196, 48), (252, 228, 108),
                                            (252, 212, 72), (255, 240, 148))], 44, 52)
+    write_bmp("tuft.bmp", [tuft()], 12, 10)
     write_bmp("flame.bmp", flame(), 14, 16)
     write_bmp("cloud.bmp", [cloud()], 34, 20)
     write_bmp("bird.bmp", bird(), 20, 14)

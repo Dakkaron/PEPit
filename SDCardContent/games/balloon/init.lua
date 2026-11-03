@@ -5,9 +5,11 @@
 -- pulses at blow END, like in soccer). Fuel drains constantly and
 -- maneuvering drains it faster. Hitting an obstacle costs fuel. When the
 -- fuel runs out the balloon falls and resets.
--- Flying distance earns coins (one per DIST_PER_COIN px). Coins and
--- upgrades are persisted in the game's Prefs namespace and bought in
--- progressionMenu.lua.
+-- The ground (and the obstacles on it) scroll leftward at DRIFT_SPEED:
+-- the balloon's world position (ground offset plus its screen offset from
+-- the start) is the flown distance, and it earns coins (one per
+-- DIST_PER_COIN px). Coins and upgrades are persisted in the game's Prefs
+-- namespace and bought in progressionMenu.lua.
 --
 -- init.lua runs once at game start (gameLua.cpp initGames_lua); mainGame.lua
 -- runs every frame in every blow phase and keeps the state below.
@@ -42,6 +44,7 @@ SFlame      = LoadAnimSprite("gfx/flame.bmp", 14, 16, 0, MASK)
 SCloud      = LoadSprite("gfx/cloud.bmp", 0, MASK)
 SBird       = LoadAnimSprite("gfx/bird.bmp", 20, 14, 0, MASK)
 SGauge      = LoadSprite("gfx/gauge.bmp", 0, MASK)
+STuft       = LoadSprite("gfx/tuft.bmp", 0, MASK)
 
 -- Envelope centre inside the 44x52 balloon sprite.
 ENV_CX, ENV_CY = 22, 17
@@ -55,37 +58,40 @@ START_Y       = 105
 FUEL_MAX      = 100
 FUEL_START    = 60
 
--- Persistent upgrades (prefs namespace: game-balloon)
-DIST_PER_COIN    = 200  -- px flown per coin earned
+-- Persistent upgrades (prefs namespace: game-balloon). Prices are sized so
+-- one upgrade is affordable roughly every 5-10 therapy sessions (a session
+-- banks ~8-15 coins at base ground speed); higher levels take longer.
+-- There is deliberately no "easier blowing" upgrade: blowing IS the therapy.
+DIST_PER_COIN    = 200  -- px of world travel per coin earned
 PX_PER_M         = 10   -- px per displayed meter
-SPEED_STEP       = 15   -- px/s per "Düse" level
-BURNER_STEP      = 10   -- fuel per blow per "Brenner" level
+SPEED_STEP       = 15   -- px/s steering speed per "Düse" level
+DRIFT_STEP       = 12   -- px/s ground speed per "Düse" level
 INSUL_IDLE_STEP  = 0.7  -- idle drain reduced per "Isolierung" level
 INSUL_STEER_STEP = 1.5  -- steer drain reduced per "Isolierung" level
-SPEED_PRICE      = { 25, 50, 75 }
-BURNER_PRICE     = { 30, 60 }
-INSUL_PRICE      = { 40, 80 }
-SKIN_PRICE       = { 0, 20, 40, 70 }  -- index = skin, 0 = default
+SPEED_PRICE      = { 80, 160, 320 }
+INSUL_PRICE      = { 120, 240 }
+SKIN_PRICE       = { 0, 80, 180, 350 }  -- index = skin, 0 = default
 
 SPEED_LEVEL      = PrefsGetInt("speedLevel")
-BURNER_LEVEL     = PrefsGetInt("burnerLevel")
 INSULATION_LEVEL = PrefsGetInt("insulationLevel")
 SKINS_UNLOCKED   = PrefsGetInt("skinsUnlocked") | 1
 SKIN             = Constrain(PrefsGetInt("skin"), 0, 3)
 if ((SKINS_UNLOCKED >> SKIN) & 1) == 0 then SKIN = 0 end
 
 MAX_SPEED     = 70 + SPEED_LEVEL * SPEED_STEP
-FUEL_PER_BLOW = 40 + BURNER_LEVEL * BURNER_STEP
+DRIFT_SPEED   = 32 + SPEED_LEVEL * DRIFT_STEP  -- ground & obstacles, px/s
 IDLE_DRAIN    = 2.0 - INSULATION_LEVEL * INSUL_IDLE_STEP
 STEER_DRAIN   = 5.0 - INSULATION_LEVEL * INSUL_STEER_STEP
 BLOW_GAIN     = 6.0  -- fuel/s while actively blowing (the flame is stoked)
+FUEL_PER_BLOW = 40   -- a completed blow always adds this much fuel
 HIT_COST      = 30   -- fuel lost per obstacle hit
 CRASH_MS      = 2200 -- how long the balloon falls before the reset
 SPAWN_MS      = 2200 -- obstacle spawn interval
-DRIFT_SPEED   = 32   -- px/s, obstacles drift leftward
+GROUND_SPACING = 48  -- px between visible grass tufts
 
 -- Mutable state (globals so it survives between scripts)
 Fuel        = FUEL_START
+GroundOffset = 0     -- px the world has scrolled this session
 Distance    = 0      -- px flown this session (coins are banked per DIST_PER_COIN)
 EarnedSaved = 0      -- coins already written to Prefs
 BalloonX    = START_X

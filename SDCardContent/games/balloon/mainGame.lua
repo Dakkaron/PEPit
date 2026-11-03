@@ -32,7 +32,9 @@ end
 
 -- ------------------------------------------------------------ distance & coins
 if State == "flying" then
-  Distance = Distance + math.sqrt(VelX * VelX + VelY * VelY) * (MsDelta / 1000)
+  GroundOffset = GroundOffset + DRIFT_SPEED * (MsDelta / 1000)
+  Distance = GroundOffset + (BalloonX - START_X)
+  if Distance < 0 then Distance = 0 end
   local earned = Distance // DIST_PER_COIN
   if earned > EarnedSaved then
     PrefsSetInt("coins", PrefsGetInt("coins") + (earned - EarnedSaved))
@@ -71,6 +73,9 @@ else
   if BalloonY > GROUND_Y - BASKET_DROP then BalloonY = GROUND_Y - BASKET_DROP end
   if Ms - CrashMs > CRASH_MS then
     Fuel = FUEL_START
+    -- fold the balloon's screen offset into the world position so the
+    -- flown distance survives the reset
+    GroundOffset = GroundOffset + (BalloonX - START_X)
     BalloonX, BalloonY = START_X, START_Y
     VelX, VelY = 0, 0
     Obstacles = {}
@@ -82,6 +87,11 @@ end
 
 -- --------------------------------------------------------------- drawing
 DrawSprite(SBackground, 0, PLAY_TOP)
+
+-- grass tufts ride the world at DRIFT_SPEED, making the ground visibly scroll
+for i = GroundOffset // GROUND_SPACING, (GroundOffset + 320) // GROUND_SPACING do
+  DrawSprite(STuft, i * GROUND_SPACING - GroundOffset, GROUND_Y + 4)
+end
 
 for _, o in ipairs(Obstacles) do
   if o.kind == 0 then

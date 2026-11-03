@@ -17,16 +17,8 @@ function buySpeed()
     spend(SPEED_PRICE[SPEED_LEVEL + 1])
     SPEED_LEVEL = SPEED_LEVEL + 1
     MAX_SPEED = MAX_SPEED + SPEED_STEP
+    DRIFT_SPEED = DRIFT_SPEED + DRIFT_STEP
     PrefsSetInt("speedLevel", SPEED_LEVEL)
-  end
-end
-
-function buyBurner()
-  if BURNER_LEVEL < 2 and PrefsGetInt("coins") >= BURNER_PRICE[BURNER_LEVEL + 1] then
-    spend(BURNER_PRICE[BURNER_LEVEL + 1])
-    BURNER_LEVEL = BURNER_LEVEL + 1
-    FUEL_PER_BLOW = FUEL_PER_BLOW + BURNER_STEP
-    PrefsSetInt("burnerLevel", BURNER_LEVEL)
   end
 end
 
@@ -82,11 +74,9 @@ DrawString("Münzen: " .. coins, 20, 32)
 DrawString("Distanz: " .. (Distance // PX_PER_M) .. " m", 170, 32)
 
 local upgrades = {
-  { name = "Düse (+Speed)",     level = SPEED_LEVEL,      max = 3,
+  { name = "Düse (+Grundtempo)", level = SPEED_LEVEL,      max = 3,
     price = SPEED_PRICE[SPEED_LEVEL + 1], action = buySpeed },
-  { name = "Brenner (+Tank)",   level = BURNER_LEVEL,     max = 2,
-    price = BURNER_PRICE[BURNER_LEVEL + 1], action = buyBurner },
-  { name = "Isolierung",        level = INSULATION_LEVEL, max = 2,
+  { name = "Isolierung",         level = INSULATION_LEVEL, max = 2,
     price = INSUL_PRICE[INSULATION_LEVEL + 1], action = buyInsulation },
 }
 for i, u in ipairs(upgrades) do
@@ -113,9 +103,8 @@ end
 DrawSprite(BalloonSkin[SKIN + 1], 10, 146)
 SetTextColor(COL_WHITE)
 SetTextSize(1)
-DrawString("Speed " .. MAX_SPEED, 64, 146)
-DrawString("Tank +", 64, 158)
-DrawString(FUEL_PER_BLOW, 100, 158)
+DrawString("Grund: " .. DRIFT_SPEED .. " px/s", 64, 146)
+DrawString("Lenken: " .. MAX_SPEED .. " px/s", 64, 158)
 
 FillRect(240, 200, 90, 40, 0x001F)
 SetTextSize(2)
