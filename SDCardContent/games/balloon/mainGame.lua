@@ -25,11 +25,18 @@ if State == "flying" then
       if math.sqrt(dx * dx + dy * dy) <= BALLOON_R + o.r - 3 then
         Fuel = Fuel - HIT_COST
         table.remove(Obstacles, i)
-      elseif not o.passed and o.x < BalloonX - o.r then
-        o.passed = true
-        Passed = Passed + 1
       end
     end
+  end
+end
+
+-- ------------------------------------------------------------ distance & coins
+if State == "flying" then
+  Distance = Distance + math.sqrt(VelX * VelX + VelY * VelY) * (MsDelta / 1000)
+  local earned = Distance // DIST_PER_COIN
+  if earned > EarnedSaved then
+    PrefsSetInt("coins", PrefsGetInt("coins") + (earned - EarnedSaved))
+    EarnedSaved = earned
   end
 end
 
@@ -89,7 +96,7 @@ DrawFuelGauge()
 
 SetTextSize(1)
 SetTextColor(COL_WHITE)
-DrawString("Passiert: " .. Passed, 232, PLAY_TOP + 2)
+DrawString("Distanz: " .. (Distance // PX_PER_M) .. " m", 232, PLAY_TOP + 2)
 
 if State == "crashing" then
   SetTextSize(3)

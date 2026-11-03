@@ -111,8 +111,11 @@ class Canvas:
         return "\n".join(out)
 
 
-def balloon(can_crash):
-    """44x52 envelope + ropes + basket. Envelope centre is (22, 17)."""
+def balloon(can_crash, c1=RED, c2=ORANGE, c1h=RED_HI, c2h=ORANGE_HI):
+    """44x52 envelope + ropes + basket. Envelope centre is (22, 17).
+
+    c1/c2 are the two envelope band colours; c1h/c2h the highlight variants.
+    """
     c = Canvas(44, 52)
     cx, cy, R = 22, 17, 17
     for y in range(cy - R, cy + R + 1):
@@ -125,9 +128,9 @@ def balloon(can_crash):
             hw = max(4.0, math.sqrt(max(0.0, R * R - (dy * 1.2) ** 2)) * (1 - dy / 26))
         for x in range(int(cx - hw), int(cx + hw) + 1):
             band = ((x - cx + R) // 5) % 2
-            col = ORANGE if band else RED
+            col = c2 if band else c1
             if y < cy - 4 and abs(x - (cx - 7)) <= 2:
-                col = ORANGE_HI if band else RED_HI
+                col = c2h if band else c1h
             c.set(x, y, col)
     # neck where the burner sits
     c.rect(cx - 3, cy + R - 1, cx + 3, cy + R + 3, DEAD_DK if can_crash else BASKET_DK)
@@ -316,6 +319,12 @@ if __name__ == "__main__":
     write_bmp("balloon.bmp", [c], 44, 52)
     c = balloon(True)
     write_bmp("balloon_dead.bmp", [c], 44, 52)
+    write_bmp("balloon_blue.bmp", [balloon(False, (52, 108, 214), (96, 160, 240),
+                                           (86, 150, 240), (130, 196, 252))], 44, 52)
+    write_bmp("balloon_green.bmp", [balloon(False, (44, 164, 72), (92, 212, 108),
+                                            (74, 196, 100), (126, 236, 140))], 44, 52)
+    write_bmp("balloon_gold.bmp", [balloon(False, (244, 196, 48), (252, 228, 108),
+                                           (252, 212, 72), (255, 240, 148))], 44, 52)
     write_bmp("flame.bmp", flame(), 14, 16)
     write_bmp("cloud.bmp", [cloud()], 34, 20)
     write_bmp("bird.bmp", bird(), 20, 14)
