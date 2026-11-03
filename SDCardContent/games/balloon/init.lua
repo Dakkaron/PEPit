@@ -42,7 +42,7 @@ BalloonSkin = {
 SBalloonDead = LoadSprite("gfx/balloon_dead.bmp", 0, MASK)
 SFlame      = LoadAnimSprite("gfx/flame.bmp", 14, 10, 0, MASK)
 SCloud      = LoadSprite("gfx/cloud.bmp", 0, MASK)
-SBird       = LoadAnimSprite("gfx/bird.bmp", 20, 14, 0, MASK)
+SBird       = LoadAnimSprite("gfx/bird.bmp", 50, 50, 0, MASK)
 SGauge      = LoadSprite("gfx/gauge.bmp", 0, MASK)
 STuft       = LoadSprite("gfx/tuft.bmp", 0, MASK)
 
@@ -142,7 +142,7 @@ function DrawCloud(x, y, r)
 end
 
 function DrawBird(x, y, r)
-  local s = r / 9
+  local s = r / 22  -- 50x50 gull from the plane game, scaled to the hit circle
   DrawSprite(SBird, x, y, {
     scaleX = s, scaleY = s,
     frame = (Ms // 250) % 2,

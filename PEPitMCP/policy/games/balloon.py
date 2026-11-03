@@ -48,9 +48,6 @@ def _deq565(c):
 STORM_REF = np.array(_deq565(_q565(92, 104, 140)), dtype=np.int16)
 STORM_LO_REF = np.array(_deq565(_q565(66, 78, 104)), dtype=np.int16)
 STORM_EDGE_REF = np.array(_deq565(_q565(46, 54, 76)), dtype=np.int16)
-BIRD_REF = np.array(_deq565(_q565(38, 42, 54)), dtype=np.int16)
-WING_REF = np.array(_deq565(_q565(120, 154, 190)), dtype=np.int16)
-OUTLINE_REF = np.array(_deq565(_q565(34, 26, 32)), dtype=np.int16)
 DEAD_REF = np.array(_deq565(_q565(128, 132, 138)), dtype=np.int16)
 DEAD_DK_REF = np.array(_deq565(_q565(96, 100, 106)), dtype=np.int16)
 FUEL_GREEN = np.array(_deq565(_q565(0, 170, 90)), dtype=np.int16)
@@ -103,17 +100,20 @@ class BalloonSpec(GameSpec):
                     | np.all(np.abs(band - FUEL_RED) <= 28, axis=2)).sum())
         fuel = min(100.0, (fill / 16.0) * 100.0 / 46.0)
 
-        # obstacles: white clouds (skip the "Passiert" text band) and dark birds,
-        # restricted to the playfield band so firmware chrome never counts
+        # obstacles, restricted to the playfield band so firmware chrome never
+        # counts: storm clouds by colour, birds by wing hue (the plane game's
+        # gull is dark green; the teal sky top and the grass tufts are outside
+        # the band, so the hue test never fires on the background)
         band = np.zeros(px.shape[:2], dtype=bool)
         band[33:PLAY_BOTTOM, :] = True
         cloud = ((np.all(np.abs(px - STORM_REF) <= 22, axis=2)
                   | np.all(np.abs(px - STORM_LO_REF) <= 22, axis=2)
                   | np.all(np.abs(px - STORM_EDGE_REF) <= 22, axis=2)) & band)
         cloud[:, :30] = False
-        bird = ((np.all(np.abs(px - BIRD_REF) <= 5, axis=2)
-                 | np.all(np.abs(px - OUTLINE_REF) <= 5, axis=2)
-                 | np.all(np.abs(px - WING_REF) <= 6, axis=2)) & band)
+        wing = (px[..., 1] > px[..., 0] + 10) & (px[..., 1] > px[..., 2] + 10) & (px[..., 1] <= 150)
+        bird_band = np.zeros(px.shape[:2], dtype=bool)
+        bird_band[33:GROUND_Y, :] = True
+        bird = wing & bird_band
         bird[:, :30] = False
 
         obstacles = []
