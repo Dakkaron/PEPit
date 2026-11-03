@@ -50,6 +50,8 @@ STORM_LO_REF = np.array(_deq565(_q565(66, 78, 104)), dtype=np.int16)
 STORM_EDGE_REF = np.array(_deq565(_q565(46, 54, 76)), dtype=np.int16)
 DEAD_REF = np.array(_deq565(_q565(128, 132, 138)), dtype=np.int16)
 DEAD_DK_REF = np.array(_deq565(_q565(96, 100, 106)), dtype=np.int16)
+WING_REF = np.array(_deq565(_q565(58, 58, 60)), dtype=np.int16)
+WING_HI_REF = np.array(_deq565(_q565(106, 108, 112)), dtype=np.int16)
 FUEL_GREEN = np.array(_deq565(_q565(0, 170, 90)), dtype=np.int16)
 FUEL_RED = np.array(_deq565(_q565(220, 40, 40)), dtype=np.int16)
 
@@ -101,16 +103,20 @@ class BalloonSpec(GameSpec):
         fuel = min(100.0, (fill / 16.0) * 100.0 / 46.0)
 
         # obstacles, restricted to the playfield band so firmware chrome never
-        # counts: storm clouds by colour, birds by wing hue (the gull's wings
-        # are dark green; the teal sky top and the grass tufts are outside
-        # the band, so the hue test never fires on the background)
+        # counts: storm clouds by colour, birds by the charcoal grey of the
+        # gull's wings; the teal sky top and the grass tufts are outside the
+        # band, so neither test ever fires on the background
         band = np.zeros(px.shape[:2], dtype=bool)
         band[33:PLAY_BOTTOM, :] = True
+        wing = (np.all(np.abs(px - WING_REF) <= 8, axis=2)
+                | np.all(np.abs(px - WING_HI_REF) <= 8, axis=2))
         cloud = ((np.all(np.abs(px - STORM_REF) <= 22, axis=2)
                   | np.all(np.abs(px - STORM_LO_REF) <= 22, axis=2)
                   | np.all(np.abs(px - STORM_EDGE_REF) <= 22, axis=2)) & band)
+        # the grey wings fall inside the storm-cloud tolerance, so keep them
+        # out of the cloud mask instead of counting a bird twice
+        cloud = cloud & ~wing
         cloud[:, :30] = False
-        wing = (px[..., 1] > px[..., 0] + 10) & (px[..., 1] > px[..., 2] + 10) & (px[..., 1] <= 150)
         bird_band = np.zeros(px.shape[:2], dtype=bool)
         bird_band[33:GROUND_Y, :] = True
         bird = wing & bird_band
