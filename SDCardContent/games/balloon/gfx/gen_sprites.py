@@ -9,7 +9,10 @@ Run:  python3 gen_sprites.py
 """
 
 import math
+import os
 import struct
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 PINK = (255, 0, 255)  # 0xF81F -> masking colour
 
@@ -30,8 +33,6 @@ DEAD_DK = (96, 100, 106)
 STORM = (92, 104, 140)
 STORM_LO = (66, 78, 104)
 STORM_EDGE = (46, 54, 76)
-BIRD = (38, 42, 54)
-BIRD_HI = (120, 154, 190)
 GLASS = (214, 224, 234)
 GLASS_DK = (140, 152, 164)
 GOLD = (232, 200, 90)
@@ -202,60 +203,57 @@ def cloud():
     return c
 
 
-def bird():
-    """Animated 20x14 sprite, 2 frames (wing up / wing down), classic gull.
+def read_bmp16(path):
+    """Read a 16-bit RGB565 BMP into top-down rows of RGB triples."""
+    with open(path, "rb") as f:
+        d = f.read()
+    w, h = struct.unpack("<II", d[18:26])
+    off = struct.unpack("<I", d[10:14])[0]
+    rows = []
+    for y in range(h):
+        line = d[off + (h - 1 - y) * w * 2: off + (h - 1 - y) * w * 2 + w * 2]
+        rows.append([((v >> 11) * 255 // 31, ((v >> 5) & 31) * 255 // 31, (v & 31) * 255 // 31)
+                     for v in struct.unpack("<" + "H" * w, line)])
+    return w, h, rows
 
-    Broad swept wings flapping up and down above/below a compact body, head
-    with a gold beak to the left. The body gets the outline first so the
-    thin wing tips are not eaten by the border.
+
+def bird():
+    """Animated gull reusing the plane game's bird art (50x50, 2 frames).
+
+    Frame 0 is the plane sprite verbatim; frame 1 folds the wing pixels toward
+    the body's principal axis, which reads as a wingbeat without redrawing the
+    bird.
     """
-    up = [
-        "....................",
-        "....................",
-        "....W.........W....",
-        "....WW.......WW....",
-        "....WWW.....WWW....",
-        ".....WWW...WWW.....",
-        "......WWWWWWW......",
-        ".......bbbbb.......",
-        "....K.bbbbbb.......",
-        "......bbbbb........",
-        ".......bbb.........",
-        "........b..........",
-        "....................",
-        "....................",
-    ]
-    down = [
-        "....................",
-        "....................",
-        ".......bbbbb.......",
-        "....K.bbbbbb.......",
-        "......bbbbb........",
-        ".......bbb.........",
-        "......WWWWWWW......",
-        ".....WWW...WWW.....",
-        "....WWW.....WWW....",
-        "....WW.......WW....",
-        "....W.........W....",
-        "....................",
-        "....................",
-        "....................",
-        "....................",
-    ]
+    w, h, src = read_bmp16(os.path.join(HERE, "..", "..", "plane", "gfx", "bird.bmp"))
+    is_wing = lambda c: c[1] > c[0] and c[1] > c[2]
+
+    body = [(x, y) for y in range(h) for x in range(w)
+            if src[y][x] != PINK and src[y][x][0] > 200 and src[y][x][1] > 140]
+    cx = sum(p[0] for p in body) / len(body)
+    cy = sum(p[1] for p in body) / len(body)
+    sxx = sum((p[0] - cx) ** 2 for p in body)
+    sxy = sum((p[0] - cx) * (p[1] - cy) for p in body)
+    syy = sum((p[1] - cy) ** 2 for p in body)
+    th = 0.5 * math.atan2(2 * sxy, sxx - syy)
+    ax, ay = math.cos(th), math.sin(th)
+    nx, ny = -ay, ax
+
     frames = []
-    for grid in (up, down):
-        c = Canvas(20, 14)
-        for y, row in enumerate(grid):
-            for x, ch in enumerate(row):
-                if ch == "b":
-                    c.set(x, y, BIRD)
-        c.outline(OUTLINE)
-        for y, row in enumerate(grid):
-            for x, ch in enumerate(row):
-                if ch == "W":
-                    c.set(x, y, BIRD_HI)
-                elif ch == "K":
-                    c.set(x, y, GOLD)
+    for fold in (1.0, 0.45):
+        c = Canvas(w, h)
+        for y in range(h):
+            for x in range(w):
+                col = src[y][x]
+                if col == PINK:
+                    continue
+                if fold == 1.0 or not is_wing(col):
+                    c.set(x, y, col)
+                    continue
+                px, py = x + 0.5 - cx, y + 0.5 - cy
+                u = px * ax + py * ay
+                v = (px * nx + py * ny) * fold
+                c.set(int(round(u * ax - v * nx + cx - 0.5)),
+                      int(round(u * ay - v * ny + cy - 0.5)), col)
         frames.append(c)
     return frames
 
@@ -405,7 +403,7 @@ if __name__ == "__main__":
     write_bmp("tuft.bmp", [tuft()], 12, 10)
     write_bmp("flame.bmp", flame(), 14, 10)
     write_bmp("cloud.bmp", [cloud()], 34, 20)
-    write_bmp("bird.bmp", bird(), 20, 14)
+    write_bmp("bird.bmp", bird(), 50, 50)
     write_bmp("gauge.bmp", [gauge()], 22, 52)
     write_bmp("sky.bmp", [sky()], 320, 167)
     write_bmp("../logo.bmp", [logo()], 40, 40)
