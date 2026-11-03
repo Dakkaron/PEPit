@@ -7,7 +7,8 @@ Mechanics (mainGame.lua / init.lua):
     the END of every successful blow (NewRepetition pulse, like soccer);
     hitting an obstacle costs 30
   * clouds and birds spawn right of the screen every 2.2 s and drift left
-    at 32 px/s; collision when centre distance <= 16 + r - 3
+    at 32 px/s (base; each "Düse" upgrade adds 12 px/s); collision when
+    centre distance <= 16 + r - 3
   * at fuel 0 the balloon falls (dead sprite, "ABGESTÜRZT!") and after 2.2 s
     the run resets to start position with 60 fuel
 
