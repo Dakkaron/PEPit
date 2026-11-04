@@ -5,8 +5,11 @@ Mechanics (mainGame.lua):
     firmware's NewRepetition pulse, i.e. at target duration), so the aim
     can move for the whole blow; shot target = the player's aim then
   * aim: joystick (both axes) or touch drag, clamped inside the goal mouth
-    (x 92..228, y 58..118) and eased with a ~120 ms time constant
-  * the keeper dives to the aim sampled 500 ms BEFORE the blow start
+    (x 62..256, y 62..124 — the goal drawn in the backdrop photo) and eased
+    with a ~120 ms time constant
+  * the keeper reads the crosshair at the INSTANT the blow starts and dives
+    there when the ball is struck; the whole blow is the window to move the
+    crosshair and beat him
   * goal iff the shot target is > 30 px from the keeper's dive target
   * ball on the penalty spot (160,152) = idle; GOAL!/SAVED! banner, then
     ball + keeper travel back over ~5.8 s
@@ -18,13 +21,13 @@ Deterministic signals:
   cross  : yellow aim crosshair, only while idle
 
 Rulebot (open-loop control, closed-loop verification): per rep,
-  touch_down in corner A (alternating by rep parity) -> hold 1.6 s ->
-  touch_move to the opposite diagonal corner B -> 0.3 s -> release the
-  touch and blow; the ball is only struck when the blow FINISHES.
-The keeper's -500 ms sample lands inside the A-hold, so the keeper dives
-to A; the released aim meanwhile eases back to goal center, so the ball
-flies center, ~50 px from the keeper -> goal. Perception (ball/keeper/
-banner) is record-only: it verifies the sequence but never steers the bot.
+  touch_down in corner A (alternating by rep parity) -> hold 1.2 s -> blow;
+  1.2 s into the blow touch_move to the opposite diagonal corner B and keep
+  the finger there until the blow ends.
+The keeper commits to A at blow start, the ball is struck at blow end where
+the finger now is (B), ~150 px from the keeper -> goal. Perception
+(ball/keeper/banner) is record-only: it verifies the sequence but never
+steers the bot.
 """
 
 import numpy as np
@@ -55,17 +58,17 @@ WHITE = np.array([255, 255, 255], dtype=np.int16)
 BANNER_ZONE = (0, 128, 320, 40)   # result text band
 PLAY_Y0, PLAY_Y1 = 52, 188        # above HUD, above firmware bars
 
-GOAL_X0, GOAL_X1 = 92, 228
-GOAL_Y0, GOAL_Y1 = 58, 118
+GOAL_X0, GOAL_X1 = 62, 256
+GOAL_Y0, GOAL_Y1 = 62, 124
 SPOT = (160, 152)
 
 # aim corners (inside the goal mouth), alternating by rep parity
 CORNERS = {
-    0: {"A": (112, 70), "B": (208, 104)},   # top-left -> bottom-right
-    1: {"A": (208, 70), "B": (112, 104)},   # top-right -> bottom-left
+    0: {"A": (90, 72), "B": (228, 112)},    # top-left -> bottom-right
+    1: {"A": (228, 72), "B": (90, 112)},    # top-right -> bottom-left
 }
-HOLD_A_S = 1.6     # keeper's -500 ms sample must land inside this hold
-FLICK_TO_BLOW_S = 0.3
+HOLD_A_S = 1.2         # hold corner A, then start blowing (keeper commits there)
+FLICK_TO_BLOW_S = 1.2  # into the blow: drag to corner B, where the ball is struck
 
 JOY_ON = 0.85      # stick deflection for the LLM's corner aim
 
@@ -157,21 +160,23 @@ class SoccerSpec(GameSpec):
                 actions.append(a_touch_down(*a_corner))
                 self._touch_downed = True
             if now - self._phase_t >= HOLD_A_S:
-                actions.append(a_touch_move(*b_corner))
-                self._phase = "flick"
-                self._phase_t = now
-        elif self._phase == "flick":
-            if now - self._phase_t >= FLICK_TO_BLOW_S:
-                actions.append(a_touch_up())
                 actions.append(a_pressure(100.0))
-                self._touch_downed = False
                 ctx["blowing"] = True
                 ctx["blow_start"] = now
                 self._phase = "blow"
                 self._phase_t = now
         elif self._phase == "blow":
-            if (now - self._phase_t) > target_s + 1.2:
+            # the keeper has read the crosshair at corner A by now: drag the
+            # finger to corner B so the ball is struck there at blow end
+            if now - self._phase_t >= FLICK_TO_BLOW_S:
+                actions.append(a_touch_move(*b_corner))
+                self._phase = "flick"
+                self._phase_t = now
+        elif self._phase == "flick":
+            if (now - ctx.get("blow_start", now)) > target_s + 1.2:
                 actions.append(a_pressure(0))
+                actions.append(a_touch_up())
+                self._touch_downed = False
                 ctx["blowing"] = False
                 ctx["blow_end"] = now
                 self._phase = "idle"
@@ -204,8 +209,8 @@ class SoccerSpec(GameSpec):
             "shoot": {
                 "type": "noul",
                 "instructions": (
-                    "Should you blow now? The keeper dives to where you were "
-                    "aiming half a second BEFORE you blow, and the ball is "
+                    "Should you blow now? The keeper commits to where you are "
+                    "aiming the INSTANT you start blowing, and the ball is "
                     "struck at the END of the blow, where you are aiming THEN "
                     "- so after starting to blow, move the aim to the "
                     "opposite side of the keeper."

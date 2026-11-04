@@ -2,7 +2,7 @@
  * PEPitCompat — Joystick Shim (keyboard-mocked)
  * 
  * Maps keyboard input to M5UnitJoystick2 API:
- * - Arrow keys / WASD → X/Y axis (16-bit ADC values, center=32768)
+ * - Arrow keys (W also acts as up) → X/Y axis (16-bit ADC values, center=32768)
  * - Space / Enter → button press (returns 0 = pressed)
  */
 
@@ -63,10 +63,12 @@ void M5UnitJoystick2::get_joy_adc_16bits_value_xy(uint16_t* x, uint16_t* y) {
     //   joystickY = -(adc_x - 32768) * factor
     // We compensate by mapping arrow keys to the opposite ADC axis.
 
-    bool left = keystate[SDL_SCANCODE_LEFT] || keystate[SDL_SCANCODE_A];
-    bool right = keystate[SDL_SCANCODE_RIGHT] || keystate[SDL_SCANCODE_D];
+    // 'A' and 'S' are the pressure keys (sensor.cpp), so they must not also
+    // deflect the joystick: aiming would jump the moment a blow starts.
+    bool left = keystate[SDL_SCANCODE_LEFT];
+    bool right = keystate[SDL_SCANCODE_RIGHT];
     bool up = keystate[SDL_SCANCODE_UP] || keystate[SDL_SCANCODE_W];
-    bool down = keystate[SDL_SCANCODE_DOWN] || keystate[SDL_SCANCODE_S];
+    bool down = keystate[SDL_SCANCODE_DOWN];
 
     // Left/Right → adcY (which joystickHandler maps to joystickX)
     if (left && !right) {
