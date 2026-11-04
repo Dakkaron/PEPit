@@ -4,10 +4,11 @@
 -- The ball is struck on NewRepetition: the firmware's one-frame pulse on
 -- every blow that reaches its target duration (blow END, not blow start).
 --
--- Keeper rule (the whole game): the keeper reads the crosshair the INSTANT a
--- blow begins and commits to diving there when the ball is struck. The blow
--- itself is therefore the only window in which the player can move the
--- crosshair and beat him — aim, start blowing, then move the crosshair.
+-- Keeper rule (the whole game): the keeper dives to where the crosshair was
+-- KEEPER_SAMPLE_MS (500 ms) before the ball is struck (blow END). So the
+-- player must keep the crosshair on one spot for most of the blow and whip
+-- it to a new spot in the last half second — the keeper follows the old
+-- spot, the ball goes to the new one.
 
 -- ---------------------------------------------------------------- state
 -- Scoreboard log: detect a new task (the firmware resets blowCount per task,
@@ -31,8 +32,13 @@ end
 -- blown again). The kick may interrupt any animation in flight: short
 -- tasks allow a new blow before the previous kick has finished, and every
 -- blow gets its own shot (the flight always restarts from the spot).
+-- The keeper dives to where the crosshair was KEEPER_SAMPLE_MS before the
+-- kick: the aim ring is keyed on the game clock, so the sample time here
+-- is the exact current frame (the firmware's BlowStartMs global can carry
+-- a stale timestamp and must not be used for lookups).
 if NewRepetition then
   ShotTX, ShotTY = AimX, AimY
+  CommitKeeperTarget(Ms)
   KeeperTX = Constrain(KeeperCommitX, GOAL_X0 + 12, GOAL_X1 - 12)
   KeeperTY = Constrain(KeeperCommitY, KEEPER_DIVE_MIN_Y, KEEPER_DIVE_MAX_Y)
   KeeperStartX, KeeperStartY = KeeperX, KeeperY
@@ -45,16 +51,6 @@ end
 -- (NewRepetition), so re-aiming at any point — including mid-blow and
 -- mid-flight — moves where the next ball goes.
 UpdateAim(Ms, MsDelta)
-
--- The keeper reads the crosshair the instant the blow begins and dives when
--- the ball is struck (blow END), so the blow itself is the window in which the
--- player can move the crosshair and beat him. mainGame.lua tracks the blow
--- start itself: the firmware's BlowStartMs global is only refreshed when the
--- firmware detects a blow, so it can carry an older timestamp.
-if CurrentlyBlowing and not WasBlowing then
-  KeeperCommitX, KeeperCommitY = AimX, AimY
-end
-WasBlowing = CurrentlyBlowing
 
 -- ------------------------------------------------------------ animation
 if State == "idle" then
@@ -103,8 +99,11 @@ elseif State == "reset" then
   BallX = lerp(ShotTX, SPOT_X, t)
   BallY = lerp(ShotTY, SPOT_Y, t)
   BallR = lerp(4, BALL_R, t)
-  KeeperX = lerp(KeeperTX, KEEPER_HOME_X, t)
-  KeeperY = lerp(KeeperTY, KEEPER_HOME_Y, t)
+  local rt = (Ms - ResetMs) / KEEPER_RETURN_MS
+  if rt > 1 then rt = 1 end
+  local re = rt * rt * (3 - 2 * rt)  -- same smoothstep as the dive
+  KeeperX = lerp(KeeperTX, KEEPER_HOME_X, re)
+  KeeperY = lerp(KeeperTY, KEEPER_HOME_Y, re)
 end
 
 -- --------------------------------------------------------------- drawing
@@ -125,9 +124,9 @@ if State == "shooting" then
 elseif State == "result" then
   ke, dir = 1, DiveDir(KeeperTX - KEEPER_HOME_X)
 elseif State == "reset" then
-  local t = (Ms - ResetMs) / RESET_MS
-  if t > 1 then t = 1 end
-  ke, dir = 1 - t, DiveDir(KeeperTX - KEEPER_HOME_X)
+  local rt = (Ms - ResetMs) / KEEPER_RETURN_MS
+  if rt > 1 then rt = 1 end
+  ke, dir = 1 - rt * rt * (3 - 2 * rt), DiveDir(KeeperTX - KEEPER_HOME_X)
 else
   ke, dir = 0, 0
 end

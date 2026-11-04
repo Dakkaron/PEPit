@@ -10,12 +10,14 @@ copilot_image_1785244428162.jpeg; the game's goal geometry below is
 measured from that image so the drawn goal and the aiming area agree.
 
 The keeper is reassembled as a skeleton from the reference drawing
-(1793739452570.jpg), which ships with separated bones: head+torso+legs
-as one piece, upper arms, forearms and gloves separate. Each arm part is
-rotated in Python so its joint-to-tip axis is straight DOWN, then padded
-so the joint pixel is the exact sprite centre — the pivot DrawSprite
-rotates around. Angles passed to DrawSprite therefore directly give the
-bone direction in screen space (y grows downward, positive = clockwise).
+(1793739452570.jpg), which ships with separated bones: torso+legs as one
+piece, head, upper arms, forearms, gloves and shoes separate. The legs are
+split at the crotch line into thigh and shin+shoe bones. Every bone is
+rotated in Python so its joint-to-tip axis is straight DOWN, then padded so
+the joint pixel is the exact sprite centre — the pivot DrawSprite rotates
+around. The torso sprite is pivoted at its crotch point. Angles passed to
+DrawSprite therefore directly give the bone direction in screen space (y
+grows downward, positive = clockwise).
 
 Run:  python3 gen_sprites.py
 """
@@ -154,6 +156,20 @@ def mirror(canvas):
     return c
 
 
+def row_runs(mask_row):
+    out, x = [], 0
+    n = len(mask_row)
+    while x < n:
+        if mask_row[x]:
+            s = x
+            while x < n and mask_row[x]:
+                x += 1
+            out.append((s, x - 1))
+        else:
+            x += 1
+    return out
+
+
 def recolor(canvas, test, color):
     for y in range(canvas.h):
         for x in range(canvas.w):
@@ -161,10 +177,37 @@ def recolor(canvas, test, color):
                 canvas.px[y][x] = color
 
 
+def leg_bone(pixels, rows, joint, tip, s, overrides=None):
+    """Build a bone from mask `rows` (bool, full-image coords), rotating it
+    about `joint` so joint->tip points straight down, and padding so the
+    joint pixel is the canvas centre. Returns (canvas, length)."""
+    ys, xs = np.nonzero(rows)
+    ang = math.pi / 2 - math.atan2(tip[1] - joint[1], tip[0] - joint[0])
+    ca, sa = math.cos(ang), math.sin(ang)
+    pts = []
+    r = 0.0
+    for y, x in zip(ys, xs):
+        dx, dy = s * (x - joint[0]), s * (y - joint[1])
+        nx, ny = ca * dx - sa * dy, sa * dx + ca * dy
+        col = overrides.get((y, x)) if overrides else None
+        pts.append((nx, ny, col if col else tuple(int(v) for v in pixels[y, x])))
+        r = max(r, abs(nx), abs(ny))
+    r = int(math.ceil(r)) + 1
+    c = Canvas(2 * r + 1, 2 * r + 1)
+    cx = cy = float(r)
+    for nx, ny, col in pts:
+        ix, iy = int(round(cx + nx)), int(round(cy + ny))
+        if c.px[iy][ix] == PINK:
+            c.px[iy][ix] = col
+    length = int(round(s * math.hypot(tip[0] - joint[0], tip[1] - joint[1])))
+    return c, length
+
+
 def load_keeper(scale_target):
     img = Image.open(os.path.join(HERE, "1793739452570.jpg")).convert("RGB")
     a = np.array(img)
     h, w = a.shape[:2]
+    idx = np.arange(h)[:, None]
 
     # Flood-fill the connected near-white background starting from the border.
     bg = np.all(a > 235, axis=2)
@@ -207,14 +250,21 @@ def load_keeper(scale_target):
                             dq.append((ny, nx))
                 comps[cur] = int((lab == cur).sum())
 
-    order = [k for k in sorted(comps, key=lambda k: -comps[k]) if comps[k] > 5000]
+    order = [k for k in sorted(comps, key=lambda k: -comps[k]) if comps[k] > 1500]
     body_lbl, head_lbl = order[0], order[1]
-    bys, bxs = np.nonzero(lab == body_lbl)
-    body_cx = (int(bxs.min()) + int(bxs.max())) / 2
-    arms = {}
-    for lbl in order[2:]:
+
+    def ext(lbl):
         ys, xs = np.nonzero(lab == lbl)
-        arms[lbl] = (int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max()))
+        return int(xs.min()), int(xs.max()), int(ys.min()), int(ys.max())
+
+    body_x0, body_x1, body_y0, body_y1 = ext(body_lbl)
+    body_cx = (body_x0 + body_x1) / 2
+
+    # The drawing ships arms as separate components; the shoes are separate
+    # components BELOW the body (the socks end a few rows above them).
+    arms = {lbl: ext(lbl) for lbl in order[2:] if ext(lbl)[3] < body_y1}
+    shoe_lbls = [lbl for lbl in order[2:] if ext(lbl)[2] > body_y1 - 10]
+
     side_parts = {}
     for lbl, (x0, x1, y0, y1) in arms.items():
         cx = (x0 + x1) / 2
@@ -226,35 +276,109 @@ def load_keeper(scale_target):
         parts[side + "_fore"] = lst[1][0]
         parts[side + "_glove"] = lst[2][0]
 
-    y_top = min(arms[l][2] for l in parts.values())
-    y_bot = int(bys.max())
+    head_x0, head_x1, head_y0, head_y1 = ext(head_lbl)
+    shoe_exts = {lbl: ext(lbl) for lbl in shoe_lbls}
+    y_top = min([head_y0] + [e[2] for e in arms.values()])
+    y_bot = max([body_y1] + [e[3] for e in shoe_exts.values()])
     s = scale_target / (y_bot - y_top + 1)
-    # Body = torso + head, neck bridged; anchor is the torso's vertical
-    # middle (roughly the pelvis/chest centre).
-    body_mask = (lab == body_lbl) | (lab == head_lbl)
-    body = part_canvas(a, body_mask)
-    b_ys, b_xs = np.nonzero(body_mask)
-    by0, bx0 = int(b_ys.min()), int(b_xs.min())
+
+    def is_skin(p):
+        r, g, b = (int(v) for v in p)
+        return r > 120 and r - b > 25
+
+    def is_blue(p):
+        r, b = int(p[0]), int(p[2])
+        return b > r + 25
+
+    body_rows = lab == body_lbl
+    # Hip line: first row (scanning down) where the body silhouette splits
+    # into two separated leg runs; the gap midpoint is the crotch.
+    hip_row, crotch_x = None, body_cx
+    for y in range((body_y0 + body_y1) // 2, body_y1):
+        r = row_runs(body_rows[y])
+        if len(r) == 2 and r[1][0] - r[0][1] >= 6:
+            hip_row = y
+            crotch_x = (r[0][1] + r[1][0]) / 2
+            break
+    assert hip_row is not None, "no leg split found"
+
+    # Knee line: where both legs switch to solid blue (the long socks) and
+    # no skin pixels are left in the leg band.
+    counts = {}
+    for y in range(hip_row + 1, body_y1 + 1):
+        pix = [a[y, x] for x in range(w) if body_rows[y, x]]
+        counts[y] = (sum(1 for p in pix if is_blue(p)), sum(1 for p in pix if is_skin(p)))
+    knee_row = next(y for y in range(hip_row + 40, body_y1 + 1)
+                    if counts[y][0] >= 60 and counts[y][1] == 0
+                    and counts.get(y + 4, (0, 1))[0] >= 60)
+
+    legs = {}
+    for side in ("L", "R"):
+        leg_mask = body_rows & (idx >= hip_row)
+        leg_mask &= (np.arange(w)[None, :] < crotch_x) if side == "L" \
+            else (np.arange(w)[None, :] >= crotch_x)
+        hr = row_runs(leg_mask[hip_row])
+        hip_joint = (hr[0][0] + hr[-1][1]) / 2.0
+
+        runs = row_runs(leg_mask[knee_row])
+        knee = ((runs[0][0] + runs[-1][1]) / 2.0, float(knee_row))
+        bottom = max(y for y in range(body_y1, knee_row, -1) if leg_mask[y].any())
+        bruns = row_runs(leg_mask[bottom])
+
+        thigh_mask = leg_mask & (idx < knee_row)
+        th, len_thigh = leg_bone(a, thigh_mask, (hip_joint, float(hip_row)), knee, s)
+        th_idle = math.atan2(hip_joint - knee[0], knee[1] - hip_row)
+
+        shin_mask = leg_mask & (idx >= knee_row)
+
+        def shoe_side_ok(lbl):
+            cx = (shoe_exts[lbl][0] + shoe_exts[lbl][1]) / 2
+            return cx < crotch_x if side == "L" else cx >= crotch_x
+
+        shoe_lbl = next(lbl for lbl in shoe_lbls if shoe_side_ok(lbl))
+        sx0, sx1, sy0, sy1 = shoe_exts[shoe_lbl]
+        overrides = {}
+        for y in range(bottom + 1, sy0):  # bridge the sock-sole / shoe-top gap
+            for x in range(max(sx0, bruns[0][0]), min(sx1, bruns[-1][1]) + 1):
+                shin_mask[y, x] = True
+                overrides[(y, x)] = tuple(int(v) for v in a[sy0, x])
+        shin_mask |= (lab == shoe_lbl)
+        sruns = row_runs((lab == shoe_lbl)[sy1])
+        tip = ((sruns[0][0] + sruns[-1][1]) / 2.0, float(sy1))
+        sh, len_shin = leg_bone(a, shin_mask, knee, tip, s, overrides)
+        sh_idle = math.atan2(knee[0] - tip[0], tip[1] - knee[1])
+        legs[side] = dict(thigh=th, shin=sh, hip_joint=hip_joint,
+                          len_thigh=len_thigh, len_shin=len_shin,
+                          th_idle=th_idle, sh_idle=sh_idle)
+
+    # Torso sprite: head + shirt + shorts top (the legs, including the
+    # dangling shorts legs and socks, belong to the thigh/shin bones), neck
+    # bridged; the pivot is the crotch point (hip line).
+    torso_mask = (body_rows & (idx < hip_row)) | (lab == head_lbl)
+    t_ys, t_xs = np.nonzero(torso_mask)
+    my0, mx0 = int(t_ys.min()), int(t_xs.min())
+    body = Canvas(int(t_xs.max()) - mx0 + 1, int(t_ys.max()) - my0 + 1)
+    for y, x in zip(t_ys, t_xs):
+        body.px[y - my0][x - mx0] = tuple(int(v) for v in a[y, x])
     head_ys = np.nonzero(lab == head_lbl)[0]
     head_xs = np.nonzero(lab == head_lbl)[1]
-    torso_ys = np.nonzero(lab == body_lbl)[0]
-    torso_xs = np.nonzero(lab == body_lbl)[1]
+    torso_ys = np.nonzero(body_rows)[0]
+    torso_xs = np.nonzero(body_rows)[1]
     hb, tt = int(head_ys.max()), int(torso_ys.min())
     hx0, hx1 = int(head_xs[head_ys == hb].min()), int(head_xs[head_ys == hb].max())
     tx0, tx1 = int(torso_xs[torso_ys == tt].min()), int(torso_xs[torso_ys == tt].max())
     for y in range(hb + 1, tt):
         t = (y - hb) / (tt - hb)
         for x in range(int(round(hx0 + (tx0 - hx0) * t)), int(round(hx1 + (tx1 - hx1) * t)) + 1):
-            body.px[y - by0][x - bx0] = COL_NECK
+            body.px[y - my0][x - mx0] = COL_NECK
     body = rescale(body, s)
-    bx0, by0, bx1, by1 = body.bbox()
-    ax, ay = (bx0 + bx1) // 2, (by0 + by1) // 2
-    m = max(ax - bx0, bx1 - ax, ay - by0, by1 - ay)
+    px, py = (crotch_x - mx0) * s, (hip_row - my0) * s
+    pts = [(x, y) for y in range(body.h) for x in range(body.w) if body.px[y][x] != PINK]
+    m = max(max(abs(x - px) for x, y in pts), max(abs(y - py) for x, y in pts))
+    m = int(round(m))
     bodyc = Canvas(2 * m + 1, 2 * m + 1)
-    for y in range(body.h):
-        for x in range(body.w):
-            if body.px[y][x] != PINK:
-                bodyc.px[y - ay + m][x - ax + m] = body.px[y][x]
+    for x, y in pts:
+        bodyc.px[int(round(y - py + m))][int(round(x - px + m))] = body.px[y][x]
 
     def arm_part(lbl, glove=False, max_len=None):
         c = part_canvas(a, lab == lbl)
@@ -268,23 +392,46 @@ def load_keeper(scale_target):
             recolor(c, lambda p: 150 < min(p) <= 190, COL_GLOVE_DK)
         return c, length
 
-    up_l, len_up = arm_part(parts["L_up"], max_len=11)
-    fore_l, len_fore = arm_part(parts["L_fore"], max_len=6)
+    up_l, len_up = arm_part(parts["L_up"], max_len=9)
+    fore_l, len_fore = arm_part(parts["L_fore"], max_len=5)
     glove_l, len_glove = arm_part(parts["L_glove"], glove=True, max_len=7)
     up_r = mirror(up_l)
     fore_r = mirror(fore_l)
     glove_r = mirror(glove_l)
 
-    # Shoulder joints: outer edge of the first full-width torso row.
-    torso_top = next(y for y in range(bodyc.h)
-                     if sum(1 for x in range(bodyc.w) if bodyc.opaque(x, y)) >= 18)
-    xs = [x for x in range(bodyc.w) if bodyc.opaque(x, torso_top)]
-    sh_dx = xs[-1] - m - 1
-    sh_dy = torso_top - m
-    foot_drop = bodyc.h - 1 - m
+    # Shoulder joints: the closest approach between each upper-arm component
+    # and the torso silhouette (the drawing keeps a thin gap at the seam).
+    def arm_torso_joint(lbl):
+        a0, a1 = arms[lbl][2], arms[lbl][3]
+        pa = np.stack(np.nonzero((lab == lbl) & (idx >= a1 - 30))[::-1], axis=1).astype(float)
+        pb = np.stack(np.nonzero(body_rows & (idx >= a0 - 10) & (idx <= a1 + 40))[::-1], axis=1).astype(float)
+        best, jp = None, None
+        for x, y in pa:
+            d2 = (pb[:, 0] - x) ** 2 + (pb[:, 1] - y) ** 2
+            i = int(np.argmin(d2))
+            if best is None or d2[i] < best:
+                best, jp = d2[i], (pb[i, 0], pb[i, 1])
+        return jp
 
-    return bodyc, (up_l, up_r), (fore_l, fore_r), (glove_l, glove_r), \
-        sh_dx, sh_dy, len_up, len_fore, len_glove, foot_drop
+    jL = arm_torso_joint(parts["L_up"])
+    jR = arm_torso_joint(parts["R_up"])
+    # +1 px outward: exactly on the seam the arms read as tucked into the shirt
+    sh_dx = int(round((jR[0] - crotch_x) * s)) + 1
+    sh_dy = int(round(((jL[1] + jR[1]) / 2 - hip_row) * s))
+    hip_dx = {side: int(round((legs[side]["hip_joint"] - crotch_x) * s))
+              for side in ("L", "R")}
+    sole_drop = int(round((y_bot - hip_row) * s))
+
+    return dict(body=bodyc, up=(up_l, up_r), fore=(fore_l, fore_r),
+                glove=(glove_l, glove_r),
+                thigh=(legs["L"]["thigh"], legs["R"]["thigh"]),
+                shin=(legs["L"]["shin"], legs["R"]["shin"]),
+                sh_dx=sh_dx, sh_dy=sh_dy, hip_dx=hip_dx,
+                len_up=len_up, len_fore=len_fore, len_glove=len_glove,
+                len_thigh=legs["L"]["len_thigh"], len_shin=legs["L"]["len_shin"],
+                idle=dict(L=(legs["L"]["th_idle"], legs["L"]["sh_idle"]),
+                          R=(legs["R"]["th_idle"], legs["R"]["sh_idle"])),
+                sole_drop=sole_drop)
 
 
 def background():
@@ -402,14 +549,14 @@ def dominant_shirt(body):
 
 
 if __name__ == "__main__":
-    body, ups, fores, gloves, sh_dx, sh_dy, l_up, l_fore, l_glove, foot = load_keeper(50)
+    K = load_keeper(50)
+    body = K["body"]
     write_bmp("keeper_body.bmp", [body], body.w, body.h)
-    write_bmp("arm_up.bmp", [ups[0]], ups[0].w, ups[0].h)
-    write_bmp("arm_up_r.bmp", [ups[1]], ups[1].w, ups[1].h)
-    write_bmp("arm_fore.bmp", [fores[0]], fores[0].w, fores[0].h)
-    write_bmp("arm_fore_r.bmp", [fores[1]], fores[1].w, fores[1].h)
-    write_bmp("glove.bmp", [gloves[0]], gloves[0].w, gloves[0].h)
-    write_bmp("glove_r.bmp", [gloves[1]], gloves[1].w, gloves[1].h)
+    for name, key in (("arm_up", "up"), ("arm_fore", "fore"), ("glove", "glove"),
+                      ("leg_thigh", "thigh"), ("leg_shin", "shin")):
+        cL, cR = K[key]
+        write_bmp(f"{name}.bmp", [cL], cL.w, cL.h)
+        write_bmp(f"{name}_r.bmp", [cR], cR.w, cR.h)
     bg, geom = background()
     write_bmp("bg.bmp", [bg], 320, 240)
     ball = ball_sprite()
@@ -417,8 +564,15 @@ if __name__ == "__main__":
 
     shirt = dominant_shirt(body)
     q = lambda c: ((c[0] >> 3) << 11) | ((c[1] >> 2) << 5) | (c[2] >> 3)
-    print(f"body {body.w}x{body.h}  arms {ups[0].w}x{ups[0].h} {fores[0].w}x{fores[0].h} {gloves[0].w}x{gloves[0].h}")
-    print(f"shoulder dx={sh_dx} dy={sh_dy}  L_up={l_up} L_fore={l_fore} L_glove={l_glove} foot_drop={foot}")
+    print(f"body {body.w}x{body.h}  arms {K['up'][0].w}x{K['up'][0].h} "
+          f"{K['fore'][0].w}x{K['fore'][0].h} {K['glove'][0].w}x{K['glove'][0].h}  "
+          f"legs {K['thigh'][0].w}x{K['thigh'][0].h} {K['shin'][0].w}x{K['shin'][0].h}")
+    print(f"shoulder dx={K['sh_dx']} dy={K['sh_dy']}  L_up={K['len_up']} "
+          f"L_fore={K['len_fore']} L_glove={K['len_glove']} sole_drop={K['sole_drop']}")
+    print(f"hip dx L={K['hip_dx']['L']} R={K['hip_dx']['R']}  thigh={K['len_thigh']} "
+          f"shin={K['len_shin']}")
+    print(f"idle angles L thigh={K['idle']['L'][0]:.3f} shin={K['idle']['L'][1]:.3f}  "
+          f"R thigh={K['idle']['R'][0]:.3f} shin={K['idle']['R'][1]:.3f}")
     print(f"shirt colour rgb{shirt} 565=0x{q(shirt):04x}")
     print(f"lua: GOAL_X0={geom[0]} GOAL_X1={geom[1]} GOAL_TOP={geom[2]} GOAL_BOTTOM={geom[3]}")
 
