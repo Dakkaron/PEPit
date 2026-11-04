@@ -31,19 +31,30 @@ SArmForeL   = LoadSprite("gfx/arm_fore.bmp", 0, MASK)
 SArmForeR   = LoadSprite("gfx/arm_fore_r.bmp", 0, MASK)
 SGloveL     = LoadSprite("gfx/glove.bmp", 0, MASK)
 SGloveR     = LoadSprite("gfx/glove_r.bmp", 0, MASK)
+SThighL     = LoadSprite("gfx/leg_thigh.bmp", 0, MASK)
+SThighR     = LoadSprite("gfx/leg_thigh_r.bmp", 0, MASK)
+SShinL      = LoadSprite("gfx/leg_shin.bmp", 0, MASK)
+SShinR      = LoadSprite("gfx/leg_shin_r.bmp", 0, MASK)
 
--- Keeper skeleton geometry (from gen_sprites.py): every arm part is
--- padded so its joint pixel is the exact sprite centre, which is the
--- pivot DrawSprite rotates around. Bone sprites are authored hanging
--- DOWN, so at angle a a bone points along (-sin a, cos a); angles are
--- radians, positive = clockwise on screen.
-SHOULDER_DX  = 8
-SHOULDER_DY  = -10
-ARM_UP_LEN   = 11
-ARM_FORE_LEN = 6
+-- Keeper skeleton geometry (from gen_sprites.py): every bone sprite is
+-- padded so its joint pixel is the exact sprite centre, which is the pivot
+-- DrawSprite rotates around, and the body sprite is pivoted at its crotch.
+-- Bone sprites are authored hanging DOWN, so at angle a a bone points along
+-- (-sin a, cos a); angles are radians, positive = clockwise on screen.
+SHOULDER_DX  = 9
+SHOULDER_DY  = -17
+ARM_UP_LEN   = 9
+ARM_FORE_LEN = 5
 DIVE_PHI     = 1.0   -- body tilt at full dive
 DIVE_UP      = 0.6   -- arm raise past horizontal at full dive
 ARM_FOLD     = 0.35  -- elbow bend past the upper arm at full dive
+
+HIP_DX       = 6     -- crotch -> hip joint
+LEG_UP_LEN   = 7     -- hip -> knee
+LEG_SHIN_LEN = 14    -- knee -> shoe sole (the shoe is part of the shin)
+LEG_IDLE_UP_L, LEG_IDLE_UP_R = 0.767, -0.758     -- resting stance angles
+LEG_IDLE_SHIN_L, LEG_IDLE_SHIN_R = 0.377, -0.379
+LEG_FOLD     = 0.45  -- trailing shin bend at full dive
 
 -- Dive side: 0 for a purely vertical stretch (the keeper jumps without
 -- leaning), otherwise the sign of the horizontal travel.
@@ -53,30 +64,48 @@ function DiveDir(dx)
   return 0
 end
 
--- Draw the keeper at pelvis (x, y), dove by ke (0..1) toward sign dir.
+-- Draw the keeper at pelvis (x, y), dived by ke (0..1) toward sign dir.
+-- Draw order is body first, then legs, then arms, so the limbs sit on top
+-- of the torso. Both arms spread OUTWARD with a fixed side mapping: the
+-- screen-left arm swings to the left, the screen-right arm to the right (a
+-- bone at angle -a is the mirror of angle a), whatever the dive direction.
+-- The spread grows from 0 (arms hanging down) to pi/2 + DIVE_UP (out and
+-- up). The legs keep the reference stance at rest and align with the tilted
+-- body in the dive, the shin trailing further back.
 function DrawKeeper(x, y, ke, dir)
   local phi = dir * DIVE_PHI * ke
   local cs, ss = math.cos(phi), math.sin(phi)
-  local tgt = dir == 0 and math.pi or -dir * (math.pi / 2 + DIVE_UP)
-  local up = lerp(0, tgt, ke)
-  local fo = up - dir * ARM_FOLD * ke
+  local up = ke * (math.pi / 2 + DIVE_UP)
+  local fo = up + ARM_FOLD * ke
   local dxL, dyL = -SHOULDER_DX, SHOULDER_DY
   local dxR, dyR = SHOULDER_DX, SHOULDER_DY
   local shLx = x + cs * dxL - ss * dyL
   local shLy = y + ss * dxL + cs * dyL
   local shRx = x + cs * dxR - ss * dyR
   local shRy = y + ss * dxR + cs * dyR
-  DrawSprite(SArmUpL, shLx, shLy, {angle = up, flags = CENTER})
-  DrawSprite(SArmUpR, shRx, shRy, {angle = up, flags = CENTER})
+  local thL = lerp(LEG_IDLE_UP_L, phi, ke)
+  local thR = lerp(LEG_IDLE_UP_R, phi, ke)
+  local snL = lerp(LEG_IDLE_SHIN_L, phi + dir * LEG_FOLD, ke)
+  local snR = lerp(LEG_IDLE_SHIN_R, phi + dir * LEG_FOLD, ke)
+  local hipLx, hipLy = x - cs * HIP_DX, y - ss * HIP_DX
+  local hipRx, hipRy = x + cs * HIP_DX, y + ss * HIP_DX
   DrawSprite(SKeeperBody, x, y, {angle = phi, flags = CENTER})
+  DrawSprite(SThighL, hipLx, hipLy, {angle = thL, flags = CENTER})
+  DrawSprite(SThighR, hipRx, hipRy, {angle = thR, flags = CENTER})
+  DrawSprite(SShinL, hipLx - LEG_UP_LEN * math.sin(thL), hipLy + LEG_UP_LEN * math.cos(thL),
+            {angle = snL, flags = CENTER})
+  DrawSprite(SShinR, hipRx - LEG_UP_LEN * math.sin(thR), hipRy + LEG_UP_LEN * math.cos(thR),
+            {angle = snR, flags = CENTER})
+  DrawSprite(SArmUpL, shLx, shLy, {angle = up, flags = CENTER})
+  DrawSprite(SArmUpR, shRx, shRy, {angle = -up, flags = CENTER})
   DrawSprite(SArmForeL, shLx - ARM_UP_LEN * math.sin(up), shLy + ARM_UP_LEN * math.cos(up),
             {angle = fo, flags = CENTER})
-  DrawSprite(SArmForeR, shRx - ARM_UP_LEN * math.sin(up), shRy + ARM_UP_LEN * math.cos(up),
-            {angle = fo, flags = CENTER})
+  DrawSprite(SArmForeR, shRx + ARM_UP_LEN * math.sin(up), shRy + ARM_UP_LEN * math.cos(up),
+            {angle = -fo, flags = CENTER})
   DrawSprite(SGloveL, shLx - (ARM_UP_LEN + ARM_FORE_LEN) * math.sin(fo),
             shLy + (ARM_UP_LEN + ARM_FORE_LEN) * math.cos(fo), {angle = fo, flags = CENTER})
-  DrawSprite(SGloveR, shRx - (ARM_UP_LEN + ARM_FORE_LEN) * math.sin(fo),
-            shRy + (ARM_UP_LEN + ARM_FORE_LEN) * math.cos(fo), {angle = fo, flags = CENTER})
+  DrawSprite(SGloveR, shRx + (ARM_UP_LEN + ARM_FORE_LEN) * math.sin(fo),
+            shRy + (ARM_UP_LEN + ARM_FORE_LEN) * math.cos(fo), {angle = -fo, flags = CENTER})
 end
 
 -- TV-style scoreboard (the broadcast penalty-shootout overlay): a dark bar
@@ -106,7 +135,7 @@ GOAL_MID_Y = (GOAL_TOP + GOAL_BOTTOM) / 2
 SPOT_X = 160         -- penalty spot
 SPOT_Y = 152
 
-KEEPER_FOOT_DROP = 26   -- pelvis -> shoe sole in keeper_body.bmp
+KEEPER_FOOT_DROP = 18   -- pelvis -> shoe sole with the legs straight down
 KEEPER_HOME_X = GOAL_MID_X
 KEEPER_HOME_Y = GOAL_BOTTOM - KEEPER_FOOT_DROP
 KEEPER_DIVE_MIN_Y = GOAL_TOP + 18
@@ -117,8 +146,12 @@ SAVE_RADIUS = 30     -- keeper covers a 30 px radius around the dive target
 FLIGHT_MS = 350      -- ball flight spot -> target
 DIVE_MS = 300        -- keeper dive center -> sampled aim
 RESULT_MS = 2500     -- "GOAL!"/"SAVED!" display
-RESET_MS = 3000      -- ball + keeper travel back
+RESET_MS = 3000      -- ball travel back
+KEEPER_RETURN_MS = 900  -- keeper dive -> home (snappier than the ball reset)
 AIM_DEADBAND = 0.12       -- smaller joystick deflection: no aim at all
+AIM_SAMPLE_MS = 100       -- crosshair position recorded every 100 ms
+RING_KEEP = 8             -- 800 ms of aim history
+KEEPER_SAMPLE_MS = 500    -- keeper reads the crosshair this long before the kick
 
 -- Per-kick state
 State = "idle"       -- idle | shooting | result | reset
@@ -143,7 +176,8 @@ Saves = 0
 SavedLast = false
 KeeperCommitX = GOAL_MID_X
 KeeperCommitY = GOAL_MID_Y
-WasBlowing = false
+AimRing = {}
+AimRingN = 0
 
 -- Scoreboard: outcome of each kick of the CURRENT task, appended as kicks
 -- resolve. 1 = goal, 2 = save, 3 = rep that produced no shot (miss).
@@ -154,9 +188,10 @@ KickLog = {}
 PrevRep = 1
 PrevTotal = 1
 
--- Read joystick/touch and ease the crosshair toward it. Both inputs only ever
--- move the crosshair — nothing else reads them — so the keeper's reaction is
--- always defined by where the crosshair is.
+-- Read joystick/touch and ease the crosshair toward it, recording its
+-- history in a small ring. Both inputs only ever move the crosshair —
+-- nothing else reads them — so the keeper's reaction is always defined by
+-- where the crosshair is.
 function UpdateAim(Ms, MsDelta)
   local jx, jy = GetJoystickXY()
   local tx, ty
@@ -174,6 +209,34 @@ function UpdateAim(Ms, MsDelta)
   local k = 1 - math.exp(-MsDelta / 120)  -- ~120 ms time constant
   AimX = AimX + (tx - AimX) * k
   AimY = AimY + (ty - AimY) * k
+
+  if AimRingN == 0 or Ms - AimRing[AimRingN].ms >= AIM_SAMPLE_MS then
+    table.insert(AimRing, {ms = Ms, x = AimX, y = AimY})
+    AimRingN = AimRingN + 1
+    if AimRingN > RING_KEEP then
+      table.remove(AimRing, 1)
+      AimRingN = AimRingN - 1
+    end
+  end
+end
+
+-- Snapshot where the crosshair was KEEPER_SAMPLE_MS before `Ms` (the kick
+-- instant, i.e. blow END). Called from NewRepetition, where Ms is the live
+-- game clock — unlike the firmware's BlowStartMs, which can be stale.
+function CommitKeeperTarget(Ms)
+  local want = Ms - KEEPER_SAMPLE_MS
+  local best = nil
+  for i = 1, #AimRing do
+    local s = AimRing[i]
+    if best == nil or math.abs(s.ms - want) < math.abs(best.ms - want) then
+      best = s
+    end
+  end
+  if best == nil then
+    KeeperCommitX, KeeperCommitY = AimX, AimY
+  else
+    KeeperCommitX, KeeperCommitY = best.x, best.y
+  end
 end
 
 function lerp(a, b, t)
