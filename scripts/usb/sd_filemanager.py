@@ -1,0 +1,662 @@
+#!/usr/bin/env python3
+"""
+PEPit file manager over the USB-CDC TCP bridge - proot side.
+
+Port of ../filemanager.py (the PC version, which talks to /dev/ttyACMx) to a
+TCP socket transport: pyserial's `socket://` URL handler provides the same
+serial API (readline / read_until / read / flush) on top of a TCP connection
+to cdc_bridge.py, which does the actual USB CDC work.
+
+  python3 sd_filemanager.py [--host 127.0.0.1] [--port 2323] [command ...]
+
+Without a command this starts the interactive shell, exactly like the PC
+filemanager. With a command (or --batch) it runs those and exits:
+
+  python3 sd_filemanager.py --batch "ls /" "ulb /path/to/firmware.bin /firmware.bin"
+
+Typical update flow (device booted normally, app running):
+  python3 sd_filemanager.py --batch \
+      "ulb /root/repos/PEPit/T-HMI-PEPmonitor/.pio/build/lilygo-t-hmi/firmware.bin /firmware.bin" \
+      "ulb /tmp/pepit_empty_sdcontent.tar /SDCardContent.tar" \
+      "reset"
+  -> the device picks the files up from SD at boot and self-flashes.
+"""
+import argparse
+import binascii
+import os
+import re
+import serial
+import struct
+import sys
+import time
+
+try:
+    import readline
+except ImportError:
+    readline = None
+
+MAX_RETRIES = 5
+MAX_READ_RETRIES = 1
+
+FILE_BUFFER_BLOCK_SIZE = 4096
+
+host = "127.0.0.1"
+port = 2323
+ser = None
+
+
+def connectSerial():
+    """Connect to the bridge and wait until the device actually answers.
+
+    pyserial's socket:// transport provides the same serial API
+    (readline / read_until / read / flush / in_waiting) on top of TCP.
+    """
+    global ser, host, port
+    for attempt in range(30):
+        try:
+            s = serial.serial_for_url(f"socket://{host}:{port}", 115200, timeout=2)
+        except (serial.SerialException, OSError) as e:
+            print(f"Attempt {attempt + 1}: {host}:{port} not reachable ({e.__class__.__name__}) - "
+                  f"is cdc_bridge.py running?")
+            time.sleep(1)
+            continue
+        # handshake: the device must answer 'ver'. It may still be booting
+        # (after a reset) or the USB device may be gone, in which case the
+        # bridge will tear the connection down and we retry.
+        try:
+            s.timeout = 2
+            s.write(b"ver ")
+            time.sleep(0.5)
+            s.timeout = 0.2
+            resp = s.read(200)
+            s.timeout = 2
+            if b"PEPit Version" in resp:
+                ser = s
+                print(f"Connected to PEPit at {host}:{port}")
+                return ser
+            print(f"Attempt {attempt + 1}: bridge up, device not answering yet ({resp[:40]!r})")
+        except (serial.SerialException, OSError) as e:
+            print(f"Attempt {attempt + 1}: handshake failed ({e.__class__.__name__})")
+        try:
+            s.close()
+        except Exception:
+            pass
+        time.sleep(1)
+    print("Could not connect - is cdc_bridge.py running and the device in app mode?")
+    raise SystemExit(1)
+
+
+# --- transport-adapted versions of filemanager.py --------------------------
+
+def reset():
+    """Reboot the device over the serial 'reset' command and reconnect.
+
+    (The PC filemanager uses esptool usb_reset here; over a TCP socket we
+    just use the device's own deepSleepReset and reconnect after boot.)
+    """
+    global ser
+    print("Resetting (serial 'reset' -> deepSleepReset)...")
+    try:
+        ser.write(b" reset \n")
+        ser.flush()
+    except Exception:
+        pass
+    time.sleep(8)  # deep sleep + boot + USB re-enumeration + bridge re-accept
+    connectSerial()
+    time.sleep(2)
+
+
+def writeFile(path, data):
+    st = time.time()
+    if isinstance(path, str):
+        path = path.encode("utf-8")
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    ser.flush()
+    ser.reset_input_buffer()
+    print(" ul " + path.decode("utf-8"))
+    print(len(data))
+    ser.write(b" ul " + path + b"\n")
+    ser.write(str(len(data)).encode("utf-8") + b"\n")
+    while not (l := ser.readline().strip()) == b"Starting transmission":
+        print(l)
+    lastDot = 0
+    for i in range(0, 1 + len(data), 1024):
+        ser.write(data[i:i + 1024])
+        ser.flush()
+        r = ser.read_until(data[i:i + 1024])
+        if (i / 100) > lastDot:
+            lastDot = i / 100
+            print(".", end="")
+            sys.stdout.flush()
+    print()
+    print("Done uploading")
+    print(time.time() - st)
+
+
+def writeFileBlocked(path, data):
+    print("Starting writeFileBlocked()")
+    st = time.time()
+    if isinstance(path, str):
+        path = path.encode("utf-8")
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    ser.flush()
+    ser.reset_input_buffer()
+    print(" ")
+    print(" ulb " + path.decode("utf-8"))
+    print(len(data))
+    ser.write(b" ulb " + path + b"\n")
+    ser.write(str(len(data)).encode("utf-8") + b"\n")
+    print("Waiting for 'Starting transmission'")
+    while b"Starting transmission" not in (l := ser.readline().strip()):
+        print(l)
+        if b"REQUEST_RESEND_CRC_CHECK" in l:
+            break
+    print("Found 'Starting transmission'")
+
+    blockCount = 1 + len(data)
+    fileStartTime = time.time()
+    blockId = 0
+    for i in range(0, 1 + len(data), FILE_BUFFER_BLOCK_SIZE):
+        cycleStart = time.time()
+        chunk = data[i:i + FILE_BUFFER_BLOCK_SIZE]
+        crc32 = binascii.crc32(chunk)
+        while True:
+            ser.write(struct.pack("<II", blockId, crc32))
+            ser.write(chunk)
+            ser.flush()
+
+            r = ser.read_until(b"_CRC_CHECK")
+            if b"SUCCESSFUL_CRC_CHECK" in r:
+                cycleTime = time.time() - cycleStart
+                kbs = (FILE_BUFFER_BLOCK_SIZE / 1024) / cycleTime
+                if (i // 10000 % 10 == 0):
+                    print(f"Block {i}/{blockCount}, {kbs} kB/s")
+                sys.stdout.flush()
+                blockId += 1
+                break
+            elif b"REQUEST_RESEND_CRC_CHECK" in r:
+                print("Resending block")
+                sys.stdout.flush()
+            elif b"Done writing tmp file" in r:
+                print("Finished after drop")
+                break
+            else:
+                print("Did not receive ACK/NACK")
+                print(r)
+                sys.stdout.flush()
+
+    print()
+    ser.write(b" " * 20)
+    fileTime = time.time() - fileStartTime
+    kbs = (len(data) / 1024.0) / fileTime
+    ser.read_until(b"Renamed tmp file to final file")
+    print(f"Done uploading, took {fileTime}s, average speed: {kbs} kB/s")
+    print(time.time() - st)
+    print("Finished writeFileBlocked()")
+
+
+def readFile(path, retry=0):
+    if retry >= MAX_RETRIES:
+        print(f"Giving up downloading {path}")
+        raise RuntimeError(f"Giving up downloading {path}")
+    if isinstance(path, str):
+        path = path.encode("utf-8")
+    ser.flush()
+    ser.reset_input_buffer()
+    ser.write(b" catl " + path + b"\n")
+    res = b""
+    readRetry = 0
+    while not res.endswith(b"Read from file: \r\n"):
+        read = ser.read(1)
+        if len(read) <= 0:
+            readRetry += 1
+            print("Nothing here, retrying")
+        else:
+            readRetry = 0
+        if readRetry > MAX_READ_RETRIES:
+            print(f"Failed to download {path} due to nothing to read. Retrying.")
+            return readFile(path, retry + 1)
+        res += read
+    lines = res.strip().splitlines()
+    try:
+        fileLen = int(lines[-2])
+    except Exception:
+        print(f"Failed to download {path} due to wrong fileLen. Retrying.")
+        reset()
+        time.sleep(20)
+        return readFile(path, retry + 1)
+    print(f"File len: {fileLen}")
+    out = ser.read(fileLen)
+    readRetry = 0
+    for i in range(3):
+        if len(out) < fileLen:
+            read = ser.read(fileLen - len(out))
+            out += read
+            if len(read) <= 0:
+                readRetry += 1
+                print("Nothing here, retrying")
+            else:
+                readRetry = 0
+            if readRetry > MAX_READ_RETRIES:
+                print(f"Failed to download {path} due to nothing to read. Retrying.")
+                reset()
+                return readFile(path, retry + 1)
+    print(f"Bytes read: {len(out)}")
+    if len(out) != fileLen:
+        print(f"Failed to download {path}, retrying.")
+        reset()
+        return readFile(path, retry + 1)
+    return out
+
+
+def ls(path, absolute=False):
+    if isinstance(path, str):
+        path = path.encode("utf-8")
+    if len(path) > 1 and path[-1:] == b"/":
+        path = path[:-1]
+    ser.flush()
+    ser.reset_input_buffer()
+    ser.write(b" ls " + path + b"\n")
+    res = b""
+    while not res.endswith(b"\r\n$ "):
+        res += ser.read(1)
+    prefix = path if absolute else b""
+    dirs = [os.path.join(prefix, x.strip()[6:]) for x in res.splitlines() if x.strip().startswith(b"DIR : ")]
+    files = [tuple(x.strip()[6:].split(b" SIZE: ")) for x in res.splitlines() if x.strip().startswith(b"FILE: ")]
+    files = [(os.path.join(prefix, x[0]), int(x[1])) for x in files]
+    return {"dirs": dirs, "files": files}
+
+
+def leftPad(s, lm):
+    l = lm - len(s)
+    if (l <= 0):
+        return s
+    return " " * l + s
+
+
+def rightPad(s, lm):
+    l = lm - len(s)
+    if (l <= 0):
+        return s
+    return s + " " * l
+
+
+def lsl(path):
+    entries = list(os.scandir(path))
+    print("\n#### ON PC")
+    printLs({
+        "dirs": [x.name.encode("utf-8") for x in entries if x.is_dir()],
+        "files": [(x.name.encode("utf-8"), x.stat().st_size) for x in entries if x.is_file()],
+    })
+
+
+def printLs(lsData):
+    print("DIRs:")
+    print("\n".join(["          " + x.decode("utf-8") for x in lsData["dirs"]]))
+
+    print("Files:")
+    print("\n".join([leftPad(str(x[1]), 8) + "  " + x[0].decode("utf-8") for x in lsData["files"]]))
+
+
+def ul(src, target):
+    with open(src.strip(), "rb") as f:
+        data = f.read()
+    writeFile(target.strip(), data)
+
+
+def ulb(src, target):
+    with open(src.strip(), "rb") as f:
+        data = f.read()
+    writeFileBlocked(target.strip(), data)
+
+
+def dl(src, target):
+    data = readFile(src.strip())
+    with open(target.strip(), "wb") as f:
+        f.write(data)
+
+
+def issueCommand(command, param):
+    if isinstance(command, str):
+        command = command.encode("utf-8")
+    if isinstance(param, str):
+        param = param.encode("utf-8")
+    ser.flush()
+    ser.reset_input_buffer()
+    ser.write(b" " + command + b" " + param + b"\n")
+    res = b""
+    # Drain the response. The socket transport's in_waiting is a readiness
+    # flag, not a byte count, so: wait for the first byte (the device always
+    # answers something, even an error), then switch to non-blocking and
+    # read until the stream goes quiet.
+    old_timeout = ser.timeout
+    try:
+        ser.timeout = 10
+        st = time.time()
+        while time.time() - st < 15:
+            if ser.read(1):
+                break
+        ser.timeout = 0
+        for _ in range(2):
+            while True:
+                chunk = ser.read(65536)
+                if not chunk:
+                    break
+                res += chunk
+            if _ == 0:
+                time.sleep(0.3)  # let trailing bytes arrive
+    except (serial.SerialException, OSError):
+        pass
+    finally:
+        ser.timeout = old_timeout
+    return res
+
+
+def mkdir(path):
+    res = issueCommand("mkdir", path)
+    if res:
+        print(res.decode("utf-8"))
+
+
+def rmdir(path):
+    res = issueCommand("rmdir", path)
+    if res:
+        print(res.decode("utf-8"))
+
+
+def rm(path):
+    res = issueCommand("rm", path)
+    if res:
+        print(res.decode("utf-8"))
+
+
+def rmdirr(path):
+    lsres = ls(path)
+    if isinstance(path, str):
+        path = path.encode("utf-8")
+    for file in lsres["files"]:
+        rm(os.path.join(path, file[0]))
+    for dir in lsres["dirs"]:
+        rmdirr(os.path.join(path, dir[0]))
+        rmdir(os.path.join(path, dir[0]))
+    rmdir(path)
+
+
+def ulm(paths):
+    st = time.time()
+    for path in paths:
+        ul(path[1:], path)
+    print("Done uploading multiple")
+    print(time.time() - st)
+
+
+def ulbm(paths):
+    st = time.time()
+    for path in paths:
+        ulb(path[1:], path)
+    print("Done uploading multiple")
+    print(time.time() - st)
+
+
+def ulr(src, target):
+    st = time.time()
+    print(f"ULR {src} {target}")
+    paths = os.listdir(src)
+    mkdir(target)
+    for path in paths:
+        srcPath = os.path.join(src, path)
+        targetPath = os.path.join(target, path)
+        if os.path.isdir(srcPath):
+            ulr(srcPath, targetPath)
+        elif os.path.isfile(srcPath):
+            print(f"UL {srcPath} {targetPath}")
+            ul(srcPath, targetPath)
+    print("Done uploading recursively")
+    print(time.time() - st)
+
+
+def ulbr(src, target):
+    st = time.time()
+    print(f"ULBR {src} {target}")
+    paths = os.listdir(src)
+    mkdir(target)
+    for path in paths:
+        srcPath = os.path.join(src, path)
+        targetPath = os.path.join(target, path)
+        if os.path.isdir(srcPath):
+            ulbr(srcPath, targetPath)
+        elif os.path.isfile(srcPath):
+            print(f"ULB {srcPath} {targetPath}")
+            ulb(srcPath, targetPath)
+    print("Done uploading recursively")
+    print(time.time() - st)
+
+
+def dlr(src, target):
+    start = time.time()
+    os.makedirs(target, exist_ok=True)
+    print(f"DLR {src} {target}")
+    lsres = ls(src)
+    for file in lsres["files"]:
+        filePath = file[0].decode("utf-8")
+        print(f"DL {os.path.join(src, filePath)} {os.path.join(target, filePath)}")
+        dl(os.path.join(src, filePath), os.path.join(target, filePath))
+    for dir in lsres["dirs"]:
+        dirPath = dir.decode("utf-8")
+        print(f"DL {os.path.join(src, dirPath)} {os.path.join(target, dirPath)}")
+        dlr(os.path.join(src, dirPath), os.path.join(target, dirPath))
+    print(f"Took {time.time() - start}s")
+
+
+def monitor():
+    import sys as _sys
+    while True:
+        line = ser.readline()
+        if len(line.strip()) > 0:
+            line = line.strip(b"\r\n")
+            print(repr(line)[2:-1])
+        _sys.stdout.flush()
+
+
+def checkDoublePath(param):
+    path = param.split(" ")
+    # The original strips the leading char of src (paths are relative to the
+    # local SDCardContent root). For absolute paths (e.g. the built firmware
+    # in .pio/), fall back to the unstripped form when the stripped one
+    # doesn't exist.
+    src = path[0][1:]
+    if not os.path.isfile(src) and os.path.isfile(path[0]):
+        src = path[0]
+    if len(path) == 1:
+        return [src, path[0]]
+    else:
+        return [src, path[1]]
+
+
+def checkDoublePathDl(param):
+    path = param.split(" ")
+    if len(path) == 1:
+        return [path[0], path[0][1:]]
+    else:
+        return [path[0], path[1][1:]]
+
+
+def printHelp():
+    print("ls [path]                   Lists directory content on PEPit. Path is optional")
+    print("lsa [path]                  Like ls, but lists paths with absolute names")
+    print("lsl [path]                  Like ls but lists directory content on the local PC instead")
+    print("cd [path]                   Changes the current working directory. Path is mandatory")
+    print("mkdir [path]                Creates a new directory on PEPit. Path is mandatory")
+    print("rmdir [path]                Deletes the given empty directory on PEPit. Path is mandatory")
+    print("rmdirr [path]               Deletes the given directory and all files and directories in it")
+    print("rm [path]                   Deletes the given file on PEPit")
+    print("cat [path]                  Reads the given file from PEPit and displays it in command line")
+    print("ul [srcpath] [targetpath]   Uploads the given file to PEPit (block mode). Targetpath is optional")
+    print("ulm [path1] [path2] [...]   Uploads the given files to PEPit.")
+    print("ulr [srcpath] [targetpath]  Uploads the given directory and all files in it. Targetpath is optional")
+    print("uls [srcpath] [targetpath]  Like ul, but slow compatibility mode for PEPit versions <9.0.")
+    print("dl [srcpath] [targetpath]   Downloads the given file from PEPit. Targetpath is optional")
+    print("dlr [srcpath] [targetpath]  Downloads the given directory from PEPit")
+    print("clearprefs                  Permanently deletes the prefs on PEPit.")
+    print("backupprefs                 Backs up prefs to /prefsBackup.bin on SD card.")
+    print("restoreprefs                Restores prefs backup from /prefsBackup.bin on SD card.")
+    print("printprefs                  Prints the content of the prefs to the terminal.")
+    print("delay <seconds>             Pauses the execution.")
+    print("monitor                     Shows serial output passively.")
+    print("reset                       Reboots the PEPit and reconnects after boot")
+    print("exit                        Exits the file manager")
+
+
+def parseInput(inp, localRoot, pwd):
+    inp = re.sub(" +", " ", inp).strip()
+    if not inp:
+        return pwd
+    cmd = inp.split(" ")[0]
+    param = inp[len(cmd):].strip()
+    param = " ".join([os.path.join(pwd, x) for x in param.split(" ")])
+    if cmd == "delay":
+        time.sleep(float(param[1:]) / 1000)
+    elif cmd == "lsa":
+        print("\n#### ON PEPit")
+        printLs(ls(param if param else pwd, True))
+    elif cmd == "ls":
+        print("\n#### ON PEPit")
+        printLs(ls(param if param else pwd, False))
+    elif cmd == "lsl":
+        if (param):
+            lsl(os.path.join(localRoot, param[1:]))
+        else:
+            lsl(os.path.join(localRoot, pwd[1:]))
+    elif cmd == "mkdir":
+        mkdir(param)
+    elif cmd == "rmdir":
+        rmdir(param)
+    elif cmd == "rmdirr":
+        rmdirr(param)
+    elif cmd == "rm":
+        rm(param)
+    elif cmd == "cat":
+        print("cat: '" + param + "'")
+        res = readFile(param)
+        res = res.decode("utf-8")
+        print("File content:")
+        print(res)
+    elif cmd == "uls":
+        path = checkDoublePath(param)
+        ul(path[0], path[1])
+    elif cmd in ("ul", "ulb"):
+        path = checkDoublePath(param)
+        ulb(path[0], path[1])
+    elif cmd == "ulsm":
+        paths = param.split(" ")
+        ulm(paths)
+    elif cmd == "ulm":
+        paths = param.split(" ")
+        ulbm(paths)
+    elif cmd == "ulsr":
+        path = checkDoublePath(param)
+        print(path)
+        ulr(path[0], path[1])
+    elif cmd == "ulr":
+        path = checkDoublePath(param)
+        print(path)
+        ulbr(path[0], path[1])
+    elif cmd == "dl":
+        path = checkDoublePathDl(param)
+        dl(path[0], path[1])
+    elif cmd == "dlr":
+        path = checkDoublePathDl(param)
+        dlr(path[0], path[1])
+    elif cmd == "cd":
+        if (param.startswith("/")):
+            newPwd = os.path.abspath(param)
+        else:
+            newPwd = os.path.abspath(os.path.join(pwd, param))
+        if os.path.isdir(os.path.join(localRoot, newPwd[1:])):
+            pwd = newPwd
+            print(pwd)
+        else:
+            print(f"Path not found: {param}")
+    elif cmd == "printprefs":
+        res = issueCommand("dumpnamespaces", b"")
+        if res:
+            print(res.decode("utf-8", "ignore"))
+    elif inp == "clearprefs":
+        res = issueCommand("clearprefs", b"")
+        if res:
+            print(res.decode("utf-8", "ignore"))
+    elif inp == "backupprefs":
+        res = issueCommand("backupprefs", b"")
+        if res:
+            print(res.decode("utf-8", "ignore"))
+    elif inp == "restoreprefs":
+        res = issueCommand("restoreprefs", b"")
+        if res:
+            print(res.decode("utf-8", "ignore"))
+    elif inp == "monitor":
+        monitor()
+    elif inp == "exit":
+        exit()
+    elif inp in ("reset", "hard-reset"):
+        res = issueCommand("reset", b"")
+        if res:
+            print(res.decode("utf-8"))
+        reset()
+    else:
+        print(f"Unknown command: {inp}")
+        printHelp()
+    return pwd
+
+
+def main():
+    global host, port
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--host", default="127.0.0.1", help="cdc_bridge.py host (default 127.0.0.1)")
+    ap.add_argument("--port", type=int, default=2323, help="cdc_bridge.py port (default 2323)")
+    ap.add_argument("--batch", action="store_true", help="run the given commands and exit")
+    ap.add_argument("commands", nargs="*", help="commands to run (with --batch) or ignored otherwise")
+    args = ap.parse_args()
+    host, port = args.host, args.port
+
+    connectSerial()
+
+    if "WIPSDCardContent" in os.getcwd():
+        localRoot = os.path.abspath(os.path.join(os.path.join(os.path.join(__file__, os.pardir), os.pardir), "WIPSDCardContent"))
+    else:
+        localRoot = os.path.abspath(os.path.join(os.path.join(os.path.join(__file__, os.pardir), os.pardir), "SDCardContent"))
+    try:
+        os.chdir(localRoot)
+        print(f"Using root folder {localRoot}")
+    except OSError:
+        localRoot = os.getcwd()
+        print(f"SDCardContent folder not found, using {localRoot} as local root")
+
+    if readline:
+        try:
+            histfile = os.path.join(os.path.expanduser("~"), ".pepit_fm_history")
+            readline.read_history_file(histfile)
+            readline.set_history_length(1000)
+        except FileNotFoundError:
+            pass
+        import atexit
+        atexit.register(readline.write_history_file, histfile)
+
+    if args.batch:
+        for inp in args.commands:
+            parseInput(inp, localRoot, "/")
+        return
+
+    pwd = "/"
+    while True:
+        try:
+            inp = input(f"{pwd} $ ")
+        except EOFError:
+            break
+        for segment in inp.split(";"):
+            pwd = parseInput(segment, localRoot, pwd)
+
+
+if __name__ == "__main__":
+    main()
