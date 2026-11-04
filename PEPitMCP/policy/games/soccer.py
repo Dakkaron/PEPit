@@ -7,9 +7,10 @@ Mechanics (mainGame.lua):
   * aim: joystick (both axes) or touch drag, clamped inside the goal mouth
     (x 62..256, y 62..124 — the goal drawn in the backdrop photo) and eased
     with a ~120 ms time constant
-  * the keeper reads the crosshair at the INSTANT the blow starts and dives
-    there when the ball is struck; the whole blow is the window to move the
-    crosshair and beat him
+  * the keeper reads the crosshair KEEPER_SAMPLE_MS (500 ms) before the
+    kick (blow END): hold one spot until ~0.4 s before pressure release,
+    then whip the crosshair to a new spot — the keeper dives to the old
+    spot, the ball goes to the new one
   * goal iff the shot target is > 30 px from the keeper's dive target
   * ball on the penalty spot (160,152) = idle; GOAL!/SAVED! banner, then
     ball + keeper travel back over ~5.8 s
@@ -22,12 +23,14 @@ Deterministic signals:
 
 Rulebot (open-loop control, closed-loop verification): per rep,
   touch_down in corner A (alternating by rep parity) -> hold 1.2 s -> blow;
-  1.2 s into the blow touch_move to the opposite diagonal corner B and keep
-  the finger there until the blow ends.
-The keeper commits to A at blow start, the ball is struck at blow end where
-the finger now is (B), ~150 px from the keeper -> goal. Perception
-(ball/keeper/banner) is record-only: it verifies the sequence but never
-steers the bot.
+  hold the finger at A through the blow until 0.45 s before the scheduled
+  pressure release, then touch_move to the opposite diagonal corner B and
+  release while keeping the finger there. The keeper samples the crosshair
+  at kick-500 ms (the kick follows the release almost immediately, so the
+  sample lands just after the whip and stays near A); the ball is struck
+  ~0.5 s later at B, ~144 px from the keeper -> goal. Perception
+  (ball/keeper/banner) is record-only: it verifies the sequence but never
+  steers the bot.
 """
 
 import numpy as np
@@ -67,8 +70,10 @@ CORNERS = {
     0: {"A": (90, 72), "B": (228, 112)},    # top-left -> bottom-right
     1: {"A": (228, 72), "B": (90, 112)},    # top-right -> bottom-left
 }
-HOLD_A_S = 1.2         # hold corner A, then start blowing (keeper commits there)
-FLICK_TO_BLOW_S = 1.2  # into the blow: drag to corner B, where the ball is struck
+HOLD_A_S = 1.2          # hold corner A, then start blowing
+RELEASE_MARGIN_S = 1.2  # pressure released this long after target duration
+WHIP_BEFORE_RELEASE_S = 0.45  # drag to corner B this long before release
+                                  # (the kick lands just after the release)
 
 JOY_ON = 0.85      # stick deflection for the LLM's corner aim
 
@@ -166,14 +171,17 @@ class SoccerSpec(GameSpec):
                 self._phase = "blow"
                 self._phase_t = now
         elif self._phase == "blow":
-            # the keeper has read the crosshair at corner A by now: drag the
-            # finger to corner B so the ball is struck there at blow end
-            if now - self._phase_t >= FLICK_TO_BLOW_S:
+            # the keeper will sample the crosshair 500 ms before the kick
+            # (the kick follows the pressure release almost immediately):
+            # stay at A until just before the release, then whip to B so the
+            # sample stays near A while the ball is struck at B
+            if now - ctx.get("blow_start", now) >= \
+                    target_s + RELEASE_MARGIN_S - WHIP_BEFORE_RELEASE_S:
                 actions.append(a_touch_move(*b_corner))
                 self._phase = "flick"
                 self._phase_t = now
         elif self._phase == "flick":
-            if (now - ctx.get("blow_start", now)) > target_s + 1.2:
+            if (now - ctx.get("blow_start", now)) > target_s + RELEASE_MARGIN_S:
                 actions.append(a_pressure(0))
                 actions.append(a_touch_up())
                 self._touch_downed = False
@@ -209,11 +217,12 @@ class SoccerSpec(GameSpec):
             "shoot": {
                 "type": "noul",
                 "instructions": (
-                    "Should you blow now? The keeper commits to where you are "
-                    "aiming the INSTANT you start blowing, and the ball is "
-                    "struck at the END of the blow, where you are aiming THEN "
-                    "- so after starting to blow, move the aim to the "
-                    "opposite side of the keeper."
+                    "Should you blow now? The keeper dives to where you were "
+                    "aiming 500 ms BEFORE the end of the blow, and the ball "
+                    "is struck at the END of the blow, where you aim THEN - "
+                    "so aim somewhere, start blowing, keep the aim still for "
+                    "most of the blow, then whip the aim to the opposite side "
+                    "in the last half second of the blow."
                 ),
             },
         }
@@ -232,13 +241,17 @@ class SoccerSpec(GameSpec):
             joy = (-JOY_ON, -JOY_ON)
         else:
             joy = (0.0, -JOY_ON * 0.5)   # center -> up
-        if joy != self._joy:
+        # aim at the corner opposite the keeper (joystick is 2-D in the game);
+        # frozen while blowing so the keeper's 500 ms sample reads this aim
+        if not ctx.get("blowing") and joy != self._joy:
             actions.append(a_joystick_xy(joy[0], joy[1]))
             self._joy = joy
 
         # blow cycle: start blowing when the model says so, but never stall
-        # a task. The ball is struck at blow end, so the joystick (aim) can
-        # keep moving mid-blow to steer where the ball goes.
+        # a task. The keeper samples the crosshair 500 ms before the kick,
+        # so the aim must hold the initial corner until just before the
+        # pressure release, then whip to the opposite corner: the keeper
+        # dives to the initial corner, the ball goes to the whipped one.
         want = a.get("shoot", {}).get("noul", 0.5) > 0.5
         reps_left = self._reps_left(ctx.get("task", {}))
         now = ctx["now"]
@@ -246,13 +259,22 @@ class SoccerSpec(GameSpec):
         if reps_left is not None and reps_left > 0 and on_spot:
             want = want or (now - (ctx.get("blow_end") or 0.0)) > 2.0
         if ctx.get("blowing"):
-            if (now - (ctx.get("blow_start") or 0.0)) > target_s + 1.2:
+            blow_start = ctx.get("blow_start") or 0.0
+            if not ctx.get("whipped") and now - blow_start >= \
+                    target_s + RELEASE_MARGIN_S - WHIP_BEFORE_RELEASE_S:
+                whip = (-self._joy[0] if self._joy[0] != 0.0 else JOY_ON,
+                        self._joy[1])
+                actions.append(a_joystick_xy(whip[0], whip[1]))
+                self._joy = whip
+                ctx["whipped"] = True
+            if now - blow_start > target_s + RELEASE_MARGIN_S:
                 ctx["blowing"] = False
                 ctx["blow_end"] = now
                 actions.append(a_pressure(0))
         elif want and (now - (ctx.get("blow_end") or 0.0)) >= 1.0:
             ctx["blowing"] = True
             ctx["blow_start"] = now
+            ctx["whipped"] = False
             actions.append(a_pressure(100.0))
         return actions
 
