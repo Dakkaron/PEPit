@@ -3,6 +3,11 @@
 -- CurrentRepetition, NewRepetition, Repetitions, ... (gameLua.cpp).
 -- The ball is struck on NewRepetition: the firmware's one-frame pulse on
 -- every blow that reaches its target duration (blow END, not blow start).
+--
+-- Keeper rule (the whole game): the keeper reads the crosshair the INSTANT a
+-- blow begins and commits to diving there when the ball is struck. The blow
+-- itself is therefore the only window in which the player can move the
+-- crosshair and beat him — aim, start blowing, then move the crosshair.
 
 -- ---------------------------------------------------------------- state
 -- Scoreboard log: detect a new task (the firmware resets blowCount per task,
@@ -28,7 +33,8 @@ end
 -- blow gets its own shot (the flight always restarts from the spot).
 if NewRepetition then
   ShotTX, ShotTY = AimX, AimY
-  KeeperTX, KeeperTY = SampleKeeperTarget(Ms)
+  KeeperTX = Constrain(KeeperCommitX, GOAL_X0 + 12, GOAL_X1 - 12)
+  KeeperTY = Constrain(KeeperCommitY, KEEPER_DIVE_MIN_Y, KEEPER_DIVE_MAX_Y)
   KeeperStartX, KeeperStartY = KeeperX, KeeperY
   ShotStartMs = Ms
   SavedLast = false
@@ -39,6 +45,16 @@ end
 -- (NewRepetition), so re-aiming at any point — including mid-blow and
 -- mid-flight — moves where the next ball goes.
 UpdateAim(Ms, MsDelta)
+
+-- The keeper reads the crosshair the instant the blow begins and dives when
+-- the ball is struck (blow END), so the blow itself is the window in which the
+-- player can move the crosshair and beat him. mainGame.lua tracks the blow
+-- start itself: the firmware's BlowStartMs global is only refreshed when the
+-- firmware detects a blow, so it can carry an older timestamp.
+if CurrentlyBlowing and not WasBlowing then
+  KeeperCommitX, KeeperCommitY = AimX, AimY
+end
+WasBlowing = CurrentlyBlowing
 
 -- ------------------------------------------------------------ animation
 if State == "idle" then
@@ -92,13 +108,12 @@ elseif State == "reset" then
 end
 
 -- --------------------------------------------------------------- drawing
--- backdrop: stands behind the goal, grass in front (the scoreboard bar
--- drawn last covers its top strip)
-DrawSprite(SBackground, 0, SBAR_H)
+-- backdrop: the whole scene (stands, goal, grass) is the photo sprite; the
+-- scoreboard bar drawn last covers its top strip
+DrawSprite(SBackground, 0, 0)
 
--- goal: posts and net from the sprite, aligned with the game geometry
-DrawSprite(SGoal, GOAL_X0 - POST_W, GOAL_TOP - POST_W)
-DrawFastHLine(30, GOAL_BOTTOM, 260, COL_FRAME)  -- goal line
+-- the goal line, so the aim area has a visible base
+DrawFastHLine(GOAL_X0 - 10, GOAL_BOTTOM, GOAL_X1 - GOAL_X0 + 20, COL_FRAME)
 
 -- keeper: bone-animated dive (ke = dive progress, dir = dive side)
 local ke, dir
@@ -106,15 +121,15 @@ if State == "shooting" then
   local kt = (Ms - ShotStartMs) / DIVE_MS
   if kt > 1 then kt = 1 end
   ke = kt * kt * (3 - 2 * kt)
-  dir = KeeperTX >= KeeperStartX and 1 or -1
+  dir = DiveDir(KeeperTX - KeeperStartX)
 elseif State == "result" then
-  ke, dir = 1, KeeperTX >= KEEPER_HOME_X and 1 or -1
+  ke, dir = 1, DiveDir(KeeperTX - KEEPER_HOME_X)
 elseif State == "reset" then
   local t = (Ms - ResetMs) / RESET_MS
   if t > 1 then t = 1 end
-  ke, dir = 1 - t, KeeperTX >= KEEPER_HOME_X and 1 or -1
+  ke, dir = 1 - t, DiveDir(KeeperTX - KEEPER_HOME_X)
 else
-  ke, dir = 0, 1
+  ke, dir = 0, 0
 end
 DrawKeeper(KeeperX, KeeperY, ke, dir)
 
