@@ -30,6 +30,12 @@ uint8_t  sdl_track_cmd = 0;               // Pending command (0x2A=CASET, 0x2B=P
 uint8_t  sdl_track_idx = 0;               // Data byte index (0 or 1 for 16-bit coord)
 uint16_t  sdl_track_acc = 0;              // Accumulator for 16-bit value (bytes come separately)
 
+// Panel inversion state (INVON/INVOFF)
+bool     sdl_invert = false;
+
+// Staging buffer used to render an inverted frame without mutating the pixel buffer
+static uint16_t* sdl_invert_staging = nullptr;
+
 // SDL handles (set from display.cpp via setSDLWindow)
 static SDL_Window*    g_sdl_window   = nullptr;
 static SDL_Renderer*  g_sdl_renderer = nullptr;
@@ -42,6 +48,9 @@ static SDL_Texture*   g_sdl_texture  = nullptr;
 void initSDLBuffer(void) {
     if (!sdl_tft_buffer) {
         sdl_tft_buffer = new uint16_t[320 * 240]();
+    }
+    if (!sdl_invert_staging) {
+        sdl_invert_staging = new uint16_t[320 * 240]();
     }
     if (g_sdl_renderer && !g_sdl_texture) {
         g_sdl_texture = SDL_CreateTexture(
@@ -68,7 +77,20 @@ void setSDLWindow(SDL_Window* window, SDL_Renderer* renderer) {
 void flushSDL(void) {
     if (!g_sdl_texture || !sdl_tft_buffer) return;
 
-    SDL_UpdateTexture(g_sdl_texture, nullptr, sdl_tft_buffer, 320 * sizeof(uint16_t));
+    const uint16_t* pixels = sdl_tft_buffer;
+    if (sdl_invert && sdl_invert_staging) {
+        // Emulate panel inversion: invert each RGB565 channel, like INVON on the real display
+        for (int32_t i = 0; i < 320 * 240; i++) {
+            uint16_t v = sdl_tft_buffer[i];
+            uint16_t r = 0x1F - (v >> 11);
+            uint16_t g = 0x3F - ((v >> 5) & 0x3F);
+            uint16_t b = 0x1F - (v & 0x1F);
+            sdl_invert_staging[i] = (r << 11) | (g << 5) | b;
+        }
+        pixels = sdl_invert_staging;
+    }
+
+    SDL_UpdateTexture(g_sdl_texture, nullptr, pixels, 320 * sizeof(uint16_t));
     SDL_RenderClear(g_sdl_renderer);
     SDL_RenderCopy(g_sdl_renderer, g_sdl_texture, nullptr, nullptr);
     SDL_RenderPresent(g_sdl_renderer);
