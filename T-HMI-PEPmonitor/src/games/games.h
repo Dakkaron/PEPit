@@ -17,6 +17,5 @@ bool displayExecutionList(DISPLAY_T *display, char* executionLog, String* errorM
 void endGame(String* errorMessage);
 bool displayWinScreen(DISPLAY_T* display, String* errorMessage);
 String getRandomWinScreenPathForCurrentGame(String* errorMessage);
-bool luaGameTaskHeld();
 
 #endif /* __GAMES_H__ */
