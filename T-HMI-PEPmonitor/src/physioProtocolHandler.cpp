@@ -641,6 +641,7 @@ void handlePhysioTask() {
       drawFinished();
       return;
     }
+    if (!luaGameTaskHeld()) {
     int64_t sensorT0 = esp_timer_get_time();
     readPressure(&blowData);
     addWorld3DSensorUs3D((int32_t)(esp_timer_get_time() - sensorT0));
@@ -731,6 +732,9 @@ void handlePhysioTask() {
       if (currentCycle < blowData.totalCycleNumber) {
         displayPhysioRotateScreen();
       }
+    }
+    } else if (taskFinishedTimeout != 0) {
+      taskFinishedTimeout = blowData.ms + 2000;
     }
   }
 
