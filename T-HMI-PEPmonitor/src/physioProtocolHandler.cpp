@@ -628,7 +628,6 @@ void handlePhysioTask() {
       drawFinished();
       return;
     }
-    if (!luaGameTaskHeld()) {
     readPressure(&blowData);
     if (blowData.pressure>blowData.minPressure && !blowData.currentlyBlowing) {
       Serial.print(F("Blowing... "));
@@ -717,9 +716,6 @@ void handlePhysioTask() {
       if (currentCycle < blowData.totalCycleNumber) {
         displayPhysioRotateScreen();
       }
-    }
-    } else if (taskFinishedTimeout != 0) {
-      taskFinishedTimeout = blowData.ms + 2000;
     }
   }
 
