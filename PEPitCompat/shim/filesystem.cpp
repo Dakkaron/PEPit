@@ -449,10 +449,11 @@ File::~File() {
 
 File::File(File&& other) noexcept 
     : fp_(other.fp_), dir_(other.dir_), virtualPath_(std::move(other.virtualPath_)), 
-      resolvedPath_(std::move(other.resolvedPath_)), isDir_(other.isDir_) {
+      resolvedPath_(std::move(other.resolvedPath_)), isDir_(other.isDir_), cachedSize_(other.cachedSize_) {
     other.fp_ = nullptr;
     other.dir_ = nullptr;
     other.isDir_ = false;
+    other.cachedSize_ = -1;
 }
 
 File& File::operator=(File&& other) noexcept {
@@ -507,11 +508,13 @@ size_t File::readBytesUntil(char term, char* buffer, size_t len) {
 
 size_t File::write(uint8_t data) {
     if (!fp_) return 0;
+    cachedSize_ = -1;
     return fwrite(&data, 1, 1, fp_);
 }
 
 size_t File::write(const uint8_t* buffer, size_t len) {
     if (!fp_) return 0;
+    cachedSize_ = -1;
     return fwrite(buffer, 1, len, fp_);
 }
 
@@ -569,13 +572,17 @@ bool File::available() {
     if (ferror(fp_)) return false;
     // The arduino-esp32 core reports the exact byte count; feof() only trips
     // after a failed read, which would let while(available()) loops read one
-    // phantom 0 byte past EOF.
+    // phantom 0 byte past EOF. The size probe is cached because an fseek per
+    // available() call flushes the stdio buffer and makes every byte read a
+    // syscall — ini parsing took minutes that way.
     long pos = ftell(fp_);
     if (pos < 0) return false;
-    fseek(fp_, 0, SEEK_END);
-    long size = ftell(fp_);
-    fseek(fp_, pos, SEEK_SET);
-    return size > pos;
+    if (cachedSize_ < 0) {
+        fseek(fp_, 0, SEEK_END);
+        cachedSize_ = ftell(fp_);
+        fseek(fp_, pos, SEEK_SET);
+    }
+    return cachedSize_ > pos;
 }
 
 void File::seek(uint32_t pos) {
@@ -585,11 +592,13 @@ void File::seek(uint32_t pos) {
 
 uint32_t File::size() {
     if (!fp_) return 0;
-    long current = ftell(fp_);
-    fseek(fp_, 0, SEEK_END);
-    long size = ftell(fp_);
-    fseek(fp_, current, SEEK_SET);  // Restore position
-    return static_cast<uint32_t>(size);
+    if (cachedSize_ < 0) {
+        long current = ftell(fp_);
+        fseek(fp_, 0, SEEK_END);
+        cachedSize_ = ftell(fp_);
+        fseek(fp_, current, SEEK_SET);
+    }
+    return static_cast<uint32_t>(cachedSize_);
 }
 
 const char* File::name() const {
