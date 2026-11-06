@@ -44,6 +44,13 @@ void readPressure(BlowData* blowData) {
     uint32_t blowDuration = blowData->ms - blowData->blowStartMs;
     uint8_t isBlowing = (blowDuration) < (blowData->targetDurationMs+100) ||
                         (blowDuration) > (blowData->targetDurationMs+100+SIMULATE_BLOWS_PAUSE_DURATION);
+    // A blow left open across a Lua SetTaskHold freeze has already passed its
+    // one-shot pause window, so the fabricator above would restart blowing at
+    // once and the blow-end detection could never close it. Force such a stale
+    // blow low, like a real sensor dropping to zero while the game blocks.
+    if (blowData->currentlyBlowing && blowDuration > blowData->targetDurationMs+100+SIMULATE_BLOWS_PAUSE_DURATION) {
+      isBlowing = 0;
+    }
     blowData->pressure = isBlowing ? 98 : 1; 
   } else {
     if (hx711.isBusy()) {

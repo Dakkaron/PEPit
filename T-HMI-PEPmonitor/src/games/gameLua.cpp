@@ -14,6 +14,14 @@ bool luaProgressionMenuRunning;
 bool luaWinScreenRunning;
 bool luaStrictMode = false;
 bool luaCacheGameCode = false;
+// Lua games cannot block the game loop with while loops like native games do;
+// SetTaskHold lets a Lua game freeze the physio task timeline (blows, reps,
+// task rotation) while it waits for a player decision, like a native blocking loop.
+static bool luaTaskHold = false;
+
+bool luaGameTaskHeld() {
+  return luaTaskHold;
+}
 static GameConfig gameConfig;
 
 RoadColors roadColors;
@@ -159,6 +167,11 @@ String lua_dostring(const char* script, String marker) {
 }
 
 
+static int lua_wrapper_setTaskHold(lua_State* luaState) {
+  luaTaskHold = lua_toboolean(luaState, 1) != 0;
+  return 0;
+}
+
 static int lua_wrapper_disableCaching(lua_State* luaState) {
   luaCacheGameCode = false;
   return 0;
@@ -294,6 +307,53 @@ static int lua_wrapper_loadAnimSprite(lua_State* luaState) {
         lua_pushinteger(luaState, -1);
         return 1;
       }
+      spriteMetadata[i].maskingColor = maskingColor;
+      lua_pushinteger(luaState, i);
+      return 1;
+    }
+  }
+  Serial.println("Failed to find sprite slot");
+  lua_pushinteger(luaState, -1);
+  return 1;
+}
+
+static int lua_wrapper_loadStackedSprite(lua_State* luaState) {
+  Serial.print("Load stacked BMP sprite ");
+  String path = luaGamePath + luaL_checkstring(luaState, 1);
+  Serial.println(path);
+  int32_t animFrames = luaL_checkinteger(luaState, 2);
+  if (animFrames < 1) animFrames = 1;
+  int32_t options = luaL_optinteger(luaState, 4, 0);
+  int32_t maskingColor = luaL_optinteger(luaState, 5, -1);
+
+  lua_gc(luaState, LUA_GCCOLLECT, 0);
+
+  for (int32_t i=0;i<SPRITE_COUNT_LIMIT;i++) {
+    if (!sprites[i].created()) {
+      bool loadSpriteResult;
+      if (maskingColor != -1) {
+        loadSpriteResult = loadBmp(&sprites[i], path, options, maskingColor);
+      } else {
+        loadSpriteResult = loadBmp(&sprites[i], path, options);
+      }
+      if (!loadSpriteResult) {
+        Serial.println("Failed to load sprite "+path);
+        if (luaStrictMode) {
+          checkFailWithMessage("Failed to load sprite "+path);
+        }
+        lua_pushinteger(luaState, -1);
+        return 1;
+      }
+      int32_t frameW = sprites[i].width();
+      int32_t frameH = sprites[i].height() / animFrames;
+      if (frameH < 1) {
+        Serial.printf("ERROR: stacked sprite %s too short for %d frames!", path.c_str(), animFrames);
+        sprites[i].deleteSprite();
+        lua_pushinteger(luaState, -1);
+        return 1;
+      }
+      spriteMetadata[i].frameW = frameW;
+      spriteMetadata[i].frameH = frameH;
       spriteMetadata[i].maskingColor = maskingColor;
       lua_pushinteger(luaState, i);
       return 1;
@@ -641,6 +701,107 @@ static int lua_wrapper_prefsGetNumber(lua_State* luaState) {
   return 1;
 }
 
+static int lua_wrapper_prefsGetBytes(lua_State* luaState) {
+  String key = luaL_checkstring(luaState, 1);
+  if (!prefs.isKey(key.c_str())) {
+    lua_pushnil(luaState);
+    return 1;
+  }
+  size_t len = prefs.getBytesLength(key.c_str());
+  if (len > 8192) len = 8192; // Cap to keep large blobs out of the Lua stack
+  uint8_t* buf = (uint8_t*)malloc(len ? len : 1);
+  size_t readLen = prefs.getBytes(key.c_str(), buf, len);
+  lua_pushlstring(luaState, (const char*)buf, readLen);
+  free(buf);
+  return 1;
+}
+
+static int lua_wrapper_prefsSetBytes(lua_State* luaState) {
+  String key = luaL_checkstring(luaState, 1);
+  size_t len = 0;
+  const char* data = luaL_checklstring(luaState, 2, &len);
+  prefs.putBytes(key.c_str(), data, len);
+  prefs.end();
+  applyGamePrefsNamespace();
+  return 0;
+}
+
+// The file stays open between chunk calls so sequential readers scan the file
+// once instead of re-reading the prefix of every previous chunk.
+static File readLinesFile;
+static String readLinesPath;
+static int32_t readLinesNextLine = 1;
+static char readLinesRawBuf[1024];
+static int32_t readLinesRawLen = 0, readLinesRawPos = 0;
+
+static void closeReadLinesCache() {
+  if (readLinesFile) readLinesFile.close();
+  readLinesPath = "";
+  readLinesNextLine = 1;
+  readLinesRawLen = 0;
+  readLinesRawPos = 0;
+}
+
+static bool readLinesReadLine(char* lineBuf, uint16_t maxLen, uint16_t* outLen, bool* eofReached) {
+  uint16_t len = 0;
+  bool gotData = false;
+  while (true) {
+    if (readLinesRawPos >= readLinesRawLen) {
+      readLinesRawLen = (int32_t)readLinesFile.read((uint8_t*)readLinesRawBuf, sizeof(readLinesRawBuf));
+      readLinesRawPos = 0;
+      if (readLinesRawLen <= 0) {
+        *eofReached = true;
+        *outLen = len;
+        return gotData;
+      }
+    }
+    char c = readLinesRawBuf[readLinesRawPos++];
+    gotData = true;
+    if (c == '\n') { *eofReached = false; *outLen = len; return true; }
+    if (c == '\r') continue;
+    if (len < maxLen) lineBuf[len++] = c;
+  }
+}
+
+static int lua_wrapper_readLines(lua_State* luaState) {
+  String path = luaL_checkstring(luaState, 1);
+  if (path[0] != '/') path = luaGamePath + path;
+  int32_t firstLine = luaL_checkinteger(luaState, 2);
+  int32_t maxLines = luaL_checkinteger(luaState, 3);
+  if (readLinesPath != path || firstLine < readLinesNextLine) closeReadLinesCache();
+  if (!readLinesFile) {
+    readLinesFile = SD_MMC.open(path, FILE_READ);
+    readLinesPath = path;
+    readLinesNextLine = 1;
+  }
+  if (!readLinesFile) {
+    Serial.println("Failed to open file " + path);
+    lua_pushnil(luaState);
+    return 1;
+  }
+  lua_createtable(luaState, maxLines, 0);
+  int32_t emitted = 0;
+  char lineBuf[256];
+  while (emitted < maxLines) {
+    bool eof = false;
+    uint16_t len = 0;
+    if (!readLinesReadLine(lineBuf, sizeof(lineBuf) - 1, &len, &eof)) break;
+    if (readLinesNextLine >= firstLine) {
+      lua_pushlstring(luaState, lineBuf, len);
+      lua_seti(luaState, -2, ++emitted);
+    }
+    readLinesNextLine++;
+    if (eof) break;
+  }
+  return 1;
+}
+
+static int lua_wrapper_invertDisplay(lua_State* luaState) {
+  int32_t on = luaL_checkinteger(luaState, 1);
+  tft.invertDisplay(on);
+  return 0;
+}
+
 static int lua_wrapper_constrain(lua_State* luaState) {
   float val = luaL_checknumber(luaState, 1);
   float min = luaL_checknumber(luaState, 2);
@@ -934,6 +1095,7 @@ void initLua() {
   lua_register(luaState, "RunScript", (lua_CFunction) &lua_wrapper_runScript);
   lua_register(luaState, "LoadSprite", (lua_CFunction) &lua_wrapper_loadSprite);
   lua_register(luaState, "LoadAnimSprite", (lua_CFunction) &lua_wrapper_loadAnimSprite);
+  lua_register(luaState, "LoadStackedSprite", (lua_CFunction) &lua_wrapper_loadStackedSprite);
   lua_register(luaState, "FreeSprite", (lua_CFunction) &lua_wrapper_freeSprite);
   lua_register(luaState, "DrawSprite", (lua_CFunction) &lua_wrapper_drawSprite);
   lua_register(luaState, "SetDrawTargetSprite", (lua_CFunction) &lua_wrapper_setDrawTargetSprite);
@@ -963,6 +1125,10 @@ void initLua() {
   lua_register(luaState, "PrefsGetInt", (lua_CFunction) &lua_wrapper_prefsGetInt);
   lua_register(luaState, "PrefsSetNumber", (lua_CFunction) &lua_wrapper_prefsSetNumber);
   lua_register(luaState, "PrefsGetNumber", (lua_CFunction) &lua_wrapper_prefsGetNumber);
+  lua_register(luaState, "PrefsGetBytes", (lua_CFunction) &lua_wrapper_prefsGetBytes);
+  lua_register(luaState, "PrefsSetBytes", (lua_CFunction) &lua_wrapper_prefsSetBytes);
+  lua_register(luaState, "ReadLines", (lua_CFunction) &lua_wrapper_readLines);
+  lua_register(luaState, "InvertDisplay", (lua_CFunction) &lua_wrapper_invertDisplay);
   lua_register(luaState, "CloseProgressionMenu", (lua_CFunction) &lua_wrapper_closeProgressionMenu);
   lua_register(luaState, "CloseWinScreen", (lua_CFunction) &lua_wrapper_closeWinScreen);
   lua_register(luaState, "Constrain", (lua_CFunction) &lua_wrapper_constrain);
@@ -974,6 +1140,7 @@ void initLua() {
   lua_register(luaState, "GetFreePSRAM", (lua_CFunction) &lua_wrapper_getFreePSRAM);
   lua_register(luaState, "GetFreeSpriteSlots", (lua_CFunction) &lua_wrapper_getFreeSpriteSlots);
   lua_register(luaState, "DisableCaching", (lua_CFunction) &lua_wrapper_disableCaching);
+  lua_register(luaState, "SetTaskHold", (lua_CFunction) &lua_wrapper_setTaskHold);
   lua_register(luaState, "SetRoadColors", (lua_CFunction) &lua_wrapper_setRoadColors);
   lua_register(luaState, "SetRoadDrawFlags", (lua_CFunction) &lua_wrapper_setRoadDrawFlags);
   lua_register(luaState, "SetRoadDimensions", (lua_CFunction) &lua_wrapper_setRoadDimensions);
@@ -1003,9 +1170,11 @@ void initLua() {
 }
 
 void initGames_lua(String gamePath, GameConfig* pGameConfig, String* errorMessage) {
+  closeReadLinesCache();
   String ignoreErrorMessage;
   readGameConfig(gamePath, &gameConfig, errorMessage);
   initLua();
+  luaTaskHold = false;
   String variablesString = "Ms="+String(millis())+"\n"+\
                     "LeftHandedMode="+String(systemConfig.leftHandMode ? "true\n" : "false\n");
   lua_dostring(variablesString.c_str(), "initGames_lua()");
@@ -1020,7 +1189,9 @@ void initGames_lua(String gamePath, GameConfig* pGameConfig, String* errorMessag
 
   setGamePrefsNamespace(gameConfig.prefsNamespace.c_str());
 
+  Serial.printf("##### initGames_lua init start: %u\n", millis());
   lua_dofile(luaGamePath + "init.lua");
+  Serial.printf("##### initGames_lua init done: %u\n", millis());
 }
 
 void updateBlowData(BlowData* blowData) {
