@@ -14,11 +14,18 @@
 #include <cstring>
 #include <csignal>
 #include <cstdint>
+#include <pthread.h>
 #include <sys/select.h>
 #include <sys/time.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
 #include <unistd.h>
+
+// Screenshot keybinding edge check (shim/display.cpp)
+extern void checkScreenshotKey();
+extern void updateRecording();
+extern void stopRecordingIfActive();
+extern void notifyKeyDown(SDL_Event* evt);
 
 // Global quit flag — set by signal handler or event polling when ESC/quit is detected
 volatile int32_t g_requestQuit = 0;
@@ -27,29 +34,50 @@ volatile int32_t g_requestQuit = 0;
 static sigjmp_buf g_quitJumpBuf;
 static volatile int32_t g_jumpActive = 0;
 
+// siglongjmp() into main()'s sigsetjmp frame only works from the main thread:
+// jumping from a game-task thread hijacks main's frame, so two threads end up
+// running the main loop/cleanup concurrently (crash-prone, and it interrupted
+// the recording transcode mid-system()). Only main may jump; other threads
+// retire in pause() until the process exits.
+static pthread_t g_mainPthread;
+
+static bool mainThreadMayJump() {
+    return g_jumpActive && pthread_equal(pthread_self(), g_mainPthread);
+}
+
+static void retireCurrentThread() {
+    for (;;) pause();
+}
+
 // Signal handler for Ctrl+C (SIGINT) and kill (SIGTERM).
 // Uses siglongjmp to escape from tight loops in original code that never call delay().
 static void quitSignalHandler(int) {
     g_requestQuit = 1;
-    if (g_jumpActive) {
+    if (!g_jumpActive) return;
+    if (mainThreadMayJump()) {
         siglongjmp(g_quitJumpBuf, 1);
     }
+    retireCurrentThread();
 }
 
 // SIGALRM handler: periodic interrupt for tight loops that never call delay().
 // Just sets the quit flag and jumps — the actual event checking happens in
 // pollEventsAndCheckQuit (called from delay/vTaskDelay/yield during normal operation).
+// ITIMER_REAL signals target an arbitrary thread, so the same main-only jump
+// rule applies here.
 static void periodicCheckHandler(int) {
     // Check for quit conditions that may have been set by the main loop or other handlers
     if (g_requestQuit) {
-        if (g_jumpActive) {
+        if (mainThreadMayJump()) {
             siglongjmp(g_quitJumpBuf, 4); // Periodic check caught a pending quit
         }
+        retireCurrentThread();
     }
 }
 
 // Install signal handlers and set up the jump buffer — call from main()
 void initSignalHandlers(sigjmp_buf* jumpBuf) {
+    g_mainPthread = pthread_self();
     if (jumpBuf) {
         memcpy(&g_quitJumpBuf, jumpBuf, sizeof(sigjmp_buf));
         g_jumpActive = 1;
@@ -115,6 +143,7 @@ static void pollEventsAndCheckQuit(uint32_t timeoutMs) {
     // Poll SDL events and check for quit conditions
     SDL_Event evt;
     while (SDL_PollEvent(&evt)) {
+        notifyKeyDown(&evt);  // hotkey edges (shim/display.cpp)
         if (evt.type == SDL_QUIT) {
             g_requestQuit = 1;
             return;
@@ -130,6 +159,9 @@ static void pollEventsAndCheckQuit(uint32_t timeoutMs) {
     if (keystate[SDL_SCANCODE_ESCAPE]) {
         g_requestQuit = 1;
     }
+
+    checkScreenshotKey();  // --shot-key edge latch (shim/display.cpp)
+    updateRecording();     // --rec-key edge latch + video frame pump (shim/display.cpp)
 }
 
 void delay(uint32_t ms) {
@@ -484,11 +516,13 @@ void vTaskDelay(uint32_t ticks) {
 
 void esp_deep_sleep_start() {
     // On Linux, deep sleep = exit the program
+    stopRecordingIfActive();  // finalize an active MP4 before the abrupt exit
     Serial.println("[PEPitCompat] esp_deep_sleep_start() — exiting");
     std::exit(0);
 }
 
 void esp_restart() {
+    stopRecordingIfActive();
     Serial.println("[PEPitCompat] esp_restart() — exiting");
     std::exit(0);
 }

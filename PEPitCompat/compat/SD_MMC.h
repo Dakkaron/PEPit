@@ -100,8 +100,21 @@ public:
      */
     const std::string& getRootDir();
 
+    /**
+     * Redirect the /games subtree to another directory (--wip-games), so the
+     * emulator can run games from the WIP staging directory while prefs,
+     * profiles and system files stay in the normal data dir.
+     */
+    void setGamesOverrideDir(const std::string& path);
+
+    /**
+     * Map a virtual SD path to its location on disk, honoring the games override.
+     */
+    std::string mapToDisk(const char* path) const;
+
     // Internal state
     std::string rootDir_;             // Root directory path (from --data-dir)
+    std::string gamesOverrideDir_;    // Empty = no override; else absolute dir with trailing slash
     bool initialized_ = false;        // True if begin() was called successfully
 };
 

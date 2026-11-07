@@ -49,3 +49,6 @@ PepItEmulator/
 T-HMI-PEPmonitor/src/initModeConfig.h
 # Local work plans — never commit
 TASK_INFO/
+
+# Monster game save data is game content — never commit (licensing)
+PEPitCompat/data/prefs_game-monsters.dat
