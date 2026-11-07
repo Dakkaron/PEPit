@@ -329,7 +329,7 @@ void SD_MMC_Class::setPins(uint8_t sclk, uint8_t mosi, uint8_t miso) {
 File SD_MMC_Class::open(const char* path, uint8_t mode, bool create) {
     // Virtual (app-facing) path: ensure leading / for app-facing path() method
     std::string virtualPath = (path[0] == '/' ? path : std::string("/") + path);
-    std::string fullPath = rootDir_ + (path[0] == '/' ? path + 1 : path);
+    std::string fullPath = mapToDisk(path);
 
     // Resolve any symlinks in the path so stat/opendir/fopen work correctly
     std::string resolved = resolvePath(fullPath);
@@ -376,7 +376,7 @@ File SD_MMC_Class::open(const char* path, uint8_t mode, bool create) {
 }
 
 bool SD_MMC_Class::exists(const char* path) {
-    std::string fullPath = rootDir_ + (path[0] == '/' ? path + 1 : path);
+    std::string fullPath = mapToDisk(path);
     // Resolve symlinks before checking existence
     std::string resolved = resolvePath(fullPath);
     if (!resolved.empty()) {
@@ -386,7 +386,7 @@ bool SD_MMC_Class::exists(const char* path) {
 }
 
 bool SD_MMC_Class::remove(const char* path) {
-    std::string fullPath = rootDir_ + (path[0] == '/' ? path + 1 : path);
+    std::string fullPath = mapToDisk(path);
     std::string resolved = resolvePath(fullPath);
     if (!resolved.empty()) {
         fullPath = resolved;
@@ -395,8 +395,8 @@ bool SD_MMC_Class::remove(const char* path) {
 }
 
 bool SD_MMC_Class::rename(const char* oldPath, const char* newPath) {
-    std::string oldFull = rootDir_ + (oldPath[0] == '/' ? oldPath + 1 : oldPath);
-    std::string newFull = rootDir_ + (newPath[0] == '/' ? newPath + 1 : newPath);
+    std::string oldFull = mapToDisk(oldPath);
+    std::string newFull = mapToDisk(newPath);
     std::string oldResolved = resolvePath(oldFull);
     if (!oldResolved.empty()) oldFull = oldResolved;
     std::string newResolved = resolvePath(newFull);
@@ -405,7 +405,7 @@ bool SD_MMC_Class::rename(const char* oldPath, const char* newPath) {
 }
 
 bool SD_MMC_Class::mkdir(const char* path) {
-    std::string fullPath = rootDir_ + (path[0] == '/' ? path + 1 : path);
+    std::string fullPath = mapToDisk(path);
     // Recursively create parent directories, then the target directory
     mkdirs(fullPath, 0755);
     struct stat st;
@@ -413,7 +413,7 @@ bool SD_MMC_Class::mkdir(const char* path) {
 }
 
 bool SD_MMC_Class::rmdir(const char* path) {
-    std::string fullPath = rootDir_ + (path[0] == '/' ? path + 1 : path);
+    std::string fullPath = mapToDisk(path);
     std::string resolved = resolvePath(fullPath);
     if (!resolved.empty()) {
         fullPath = resolved;
@@ -435,6 +435,21 @@ void SD_MMC_Class::setRootDir(const std::string& path) {
 
 const std::string& SD_MMC_Class::getRootDir() {
     return rootDir_;
+}
+
+void SD_MMC_Class::setGamesOverrideDir(const std::string& path) {
+    gamesOverrideDir_ = path;
+    if (!gamesOverrideDir_.empty() && gamesOverrideDir_.back() != '/') {
+        gamesOverrideDir_ += '/';
+    }
+}
+
+std::string SD_MMC_Class::mapToDisk(const char* path) const {
+    std::string rel = (path[0] == '/' ? path + 1 : path);
+    if (!gamesOverrideDir_.empty() && (rel == "games" || rel.rfind("games/", 0) == 0)) {
+        return gamesOverrideDir_ + (rel == "games" ? "" : rel.substr(6));
+    }
+    return rootDir_ + rel;
 }
 
 // ============================================================

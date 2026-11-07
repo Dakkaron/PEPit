@@ -77,6 +77,8 @@ extern void clearJoystickOverride();
 extern void setPressureOverride(bool active, float value);
 extern void clearPressureOverride();
 extern bool captureScreenshot();
+extern void toggleRecording();
+extern void notifyKeyDown(SDL_Event* evt);
 
 // Check for simulated / MCP control input (file-based IPC)
 //
@@ -92,6 +94,7 @@ extern bool captureScreenshot();
 //                             so 195000 = 100% of a 30 target, 0 = idle). The MCP tool
 //                             pepit_set_pressure still takes the 0-65 percent scale and converts.
 //        SHOT                  Capture screenshot framebuffer
+//        REC                   Toggle gameplay video recording (framebuffer-fed, headless-safe)
 //        QUIT                  Request graceful quit (g_requestQuit = 1)
 //   2. Legacy headless test file: /tmp/pepit_touch — "CLICK <x> <y>" (single click)
 //
@@ -142,6 +145,8 @@ static void dispatchControlLine(const char* buf) {
         }
     } else if (strcmp(cmd, "SHOT") == 0) {
         captureScreenshot();
+    } else if (strcmp(cmd, "REC") == 0) {
+        toggleRecording();
     } else if (strcmp(cmd, "QUIT") == 0) {
         g_requestQuit = 1;
     } else if (strcmp(cmd, "CLICK") == 0) {
@@ -210,6 +215,7 @@ static void updateMouseState() {
     // Drain ALL pending events so mouse state is current.
     SDL_Event evt;
     while (SDL_PollEvent(&evt)) {
+        notifyKeyDown(&evt);  // hotkey edges (shim/display.cpp)
         if (evt.type == SDL_MOUSEBUTTONDOWN && evt.button.button == SDL_BUTTON_LEFT) {
             g_latchedClick = true;
         } else if (evt.type == SDL_MOUSEBUTTONUP && evt.button.button == SDL_BUTTON_LEFT) {

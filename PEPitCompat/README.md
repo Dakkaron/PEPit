@@ -42,11 +42,26 @@ cmake --build build -j$(nproc)
 | `-f, --fullscreen` | off | Start in fullscreen mode |
 | `-l, --low-pressure-key <key>` | `A` | Key simulating low pressure (~50% target) |
 | `-g, --good-pressure-key <key>` | `S` | Key simulating target pressure (~100%) |
+| `-k, --shot-key <key>` | `P` | Key that captures a screenshot to `<media-dir>/pepit_shot.raw` (+ `.json` metadata) |
+| `-r, --rec-key <key>` | `R` | Key that starts/stops a gameplay video recording (`<media-dir>/pepit_rec_<timestamp>.mp4`); while recording, the window title shows "(recording)" |
+| `-m, --media-dir <path>` | `/tmp` | Output directory for screenshots and video recordings (created if missing) |
+| `-W, --wip` | off | Use the repo's `WIPSDCardContent/` (git-ignored staging dir for games in progress) as the whole SD content root; found by searching cwd and up to 4 parents. `profiles.ini` and `prefs_*.dat` are seeded from the data dir when missing |
+| `-w, --wip-games` | off | Read `/games` from `WIPSDCardContent/games`; prefs, profiles and system files stay in the normal data dir |
 | `-h, --help` | — | Show help message |
 
 Keyboard keys use SDL scancode names: `A`, `S`, `LEFT`, `RIGHT`, `UP`, `DOWN`, `SPACE`, `RETURN`, etc.
 
-Press **Escape** or **Ctrl+C** to exit at any time.
+Press **Escape** or **Ctrl+C** to exit at any time. Press **P** (configurable
+via `--shot-key`) to save the current screen to `pepit_shot.raw` in the media
+directory (`--media-dir`, default `/tmp`).
+
+Gameplay video recording captures the TFT framebuffer (not the window), so it
+also works headless — send `REC` to the control file (see the MCP section in
+`shim/touch.cpp`) instead of pressing a key. Frames are piped to `ffmpeg`
+(required on `PATH`) and saved as 30 fps H.264 MP4 files in the media
+directory. Press the
+rec key once to start, once more to stop and save; the window title gets
+"(recording)" appended while a recording is active.
 
 ## Unit Tests
 

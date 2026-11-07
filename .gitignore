@@ -52,3 +52,5 @@ __pycache__/
 
 # task briefs: working notes, never commit
 TASK_INFO/
+# Monster game save data is game content — never commit (licensing)
+PEPitCompat/data/prefs_game-monsters.dat

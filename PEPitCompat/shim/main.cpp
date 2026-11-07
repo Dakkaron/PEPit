@@ -7,7 +7,8 @@
  * Usage:
  *   pepit [--data-dir <path>] [--scale <N>] [--fullscreen]
  *         [--low-pressure-key <key>] [--good-pressure-key <key>]
- *         [--help]
+ *         [--shot-key <key>] [--rec-key <key>] [--media-dir <path>]
+ *         [--wip | --wip-games] [--help]
  * 
  * Keyboard keys use SDL scancode names (e.g. A, S, LEFT, RIGHT, SPACE).
  * Defaults: low-pressure=A, good-pressure=S.
@@ -23,6 +24,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <limits.h>
 
 // Auto-nav (menu fast-path): --profile/--game direct start, see shim/autonav.h
 #include "autonav.h"
@@ -47,6 +52,13 @@ extern void setPressureOverride(bool active, float value);
 extern void clearPressureOverride();
 extern bool captureScreenshot();
 extern void writeShotMeta();
+extern void setScreenshotKey(int scancode);
+extern void checkScreenshotKey();
+extern void setRecordingKey(int scancode);
+extern void setMediaDir(const char* dir);
+extern void updateRecording();
+extern void stopRecordingIfActive();
+extern void notifyKeyDown(SDL_Event* evt);
 
 // SD_MMC root directory setter (declared in compat/SD_MMC.h)
 #include "SD_MMC.h"
@@ -69,8 +81,13 @@ static const struct option cliOptions[] = {
     {"fullscreen",        no_argument,       0, 'f'},
     {"low-pressure-key",  required_argument, 0, 'l'},
     {"good-pressure-key", required_argument, 0, 'g'},
+    {"shot-key",          required_argument, 0, 'k'},
+    {"rec-key",           required_argument, 0, 'r'},
+    {"media-dir",         required_argument, 0, 'm'},
     {"profile",           required_argument, 0, 'p'},
     {"game",              required_argument, 0, 'G'},
+    {"wip",               no_argument,       0, 'W'},
+    {"wip-games",         no_argument,       0, 'w'},
     {"help",              no_argument,       0, 'h'},
     {0, 0, 0, 0}
 };
@@ -86,6 +103,14 @@ static void printUsage(const char* progName) {
     fprintf(stderr, "  -f, --fullscreen              Start in fullscreen mode\n");
     fprintf(stderr, "  -l, --low-pressure-key <key>  Keyboard key for low pressure (default: A)\n");
     fprintf(stderr, "  -g, --good-pressure-key <key> Keyboard key for good pressure (default: S)\n");
+    fprintf(stderr, "  -k, --shot-key <key>          Keyboard key that captures a screenshot to\n");
+    fprintf(stderr, "                                <media-dir>/pepit_shot.raw (default: P)\n");
+    fprintf(stderr, "  -r, --rec-key <key>           Keyboard key that starts/stops a gameplay\n");
+    fprintf(stderr, "                                video recording (<media-dir>/pepit_rec_*.mp4).\n");
+    fprintf(stderr, "                                While recording, the window title shows\n");
+    fprintf(stderr, "                                \"(recording)\" (default: R)\n");
+    fprintf(stderr, "  -m, --media-dir <path>        Output directory for screenshots and video\n");
+    fprintf(stderr, "                                recordings (default: /tmp)\n");
     fprintf(stderr, "  -p, --profile <name|id>       Drop straight in: select this profile on the\n");
     fprintf(stderr, "                                profile page (by profiles.ini `name`, or 0-based\n");
     fprintf(stderr, "                                slot index; index must be < 8) instead of waiting\n");
@@ -94,6 +119,13 @@ static void printUsage(const char* progName) {
     fprintf(stderr, "                                page (by gameconfig.ini `name`, or 0-based slot\n");
     fprintf(stderr, "                                index; index must be < 8) instead of waiting for\n");
     fprintf(stderr, "                                menu input\n");
+    fprintf(stderr, "  -W, --wip                     Use the WIPSDCardContent/ staging directory as the\n");
+    fprintf(stderr, "                                whole SD content root instead of --data-dir. Found\n");
+    fprintf(stderr, "                                by searching the current directory and up to 4\n");
+    fprintf(stderr, "                                parents. profiles.ini and prefs_*.dat are seeded\n");
+    fprintf(stderr, "                                from the data dir when missing there.\n");
+    fprintf(stderr, "  -w, --wip-games               Read /games from WIPSDCardContent/games while prefs,\n");
+    fprintf(stderr, "                                profiles and system files stay in the data dir.\n");
     fprintf(stderr, "  -h, --help                    Show this help message\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Keyboard keys use SDL scancode names:\n");
@@ -120,6 +152,67 @@ static int parseScancode(const char* name) {
 }
 
 // ============================================================
+// WIP staging directory (--wip / --wip-games)
+// ============================================================
+
+static bool isDirectory(const std::string& path) {
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+/** Search cwd and up to 4 parent directories for a WIPSDCardContent directory. */
+static std::string findWipContentDir() {
+    char cwdBuf[PATH_MAX];
+    if (!getcwd(cwdBuf, sizeof(cwdBuf))) return "";
+    std::string dir = cwdBuf;
+    for (int level = 0; level <= 4; ++level) {
+        std::string candidate = dir + "/WIPSDCardContent";
+        if (isDirectory(candidate)) return candidate + "/";
+        size_t slash = dir.find_last_of('/');
+        if (slash == std::string::npos || slash == 0) break;
+        dir = dir.substr(0, slash);
+    }
+    return "";
+}
+
+static bool copyFileIfMissing(const std::string& src, const std::string& dst) {
+    struct stat dstSt;
+    if (stat(dst.c_str(), &dstSt) == 0) return false;  // existing WIP state always wins
+    FILE* in = fopen(src.c_str(), "rb");
+    if (!in) return false;
+    FILE* out = fopen(dst.c_str(), "wb");
+    if (!out) { fclose(in); return false; }
+    char buf[8192];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) fwrite(buf, 1, n, out);
+    fclose(in);
+    fclose(out);
+    return true;
+}
+
+/** Copy profiles.ini and prefs_*.dat into the WIP root so a --wip run starts
+ * from the same runtime state as the normal data dir. Never overwrites. */
+static void seedWipState(const std::string& dataDir, const std::string& wipDir) {
+    int copied = 0;
+    if (copyFileIfMissing(dataDir + "profiles.ini", wipDir + "profiles.ini")) copied++;
+    DIR* d = opendir(dataDir.c_str());
+    if (d) {
+        struct dirent* entry;
+        while ((entry = readdir(d)) != nullptr) {
+            std::string name = entry->d_name;
+            if (name.rfind("prefs_", 0) == 0 && name.size() > 4 && name.compare(name.size() - 4, 4, ".dat") == 0) {
+                if (copyFileIfMissing(dataDir + name, wipDir + name)) copied++;
+            }
+        }
+        closedir(d);
+    }
+    if (copied > 0) {
+        printf("[PEPitCompat] Seeded %d runtime state file(s) from %s into %s\n",
+               copied, dataDir.c_str(), wipDir.c_str());
+    }
+}
+
+// ============================================================
 // SDL2 Initialization — see shim/appinit.cpp (shared with tests)
 // ============================================================
 
@@ -143,12 +236,17 @@ int main(int argc, char* argv[]) {
     bool fullscreen = false;
     int lowPressureKey = SDL_SCANCODE_A;
     int goodPressureKey = SDL_SCANCODE_S;
+    int shotKey = SDL_SCANCODE_P;      // --shot-key: screenshot hotkey
+    int recKey  = SDL_SCANCODE_R;      // --rec-key: start/stop gameplay video recording
+    std::string mediaDir = "/tmp";     // --media-dir: screenshots + video recordings output dir
     const char* autoProfile = nullptr;  // --profile <name|id>
     const char* autoGame = nullptr;     // --game <name|id>
+    bool wip = false;                   // --wip: whole SD root from WIPSDCardContent
+    bool wipGames = false;              // --wip-games: only /games from WIPSDCardContent
 
     // Parse CLI arguments
     int opt;
-    while ((opt = getopt_long(argc, argv, "d:s:fl:g:p:G:h", cliOptions, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "d:s:fl:g:k:r:m:p:G:hwW", cliOptions, nullptr)) != -1) {
         switch (opt) {
             case 'd':
                 dataDir = optarg;
@@ -170,11 +268,31 @@ int main(int argc, char* argv[]) {
                 if (key >= 0) goodPressureKey = key;
                 break;
             }
+            case 'k': {
+                int key = parseScancode(optarg);
+                if (key >= 0) shotKey = key;
+                break;
+            }
+            case 'r': {
+                int key = parseScancode(optarg);
+                if (key >= 0) recKey = key;
+                break;
+            }
+            case 'm': {
+                mediaDir = optarg;
+                break;
+            }
             case 'p':
                 autoProfile = optarg;
                 break;
             case 'G':
                 autoGame = optarg;
+                break;
+            case 'w':
+                wipGames = true;
+                break;
+            case 'W':
+                wip = true;
                 break;
             case 'h':
                 printUsage(argv[0]);
@@ -188,6 +306,28 @@ int main(int argc, char* argv[]) {
     // Ensure trailing slash on data directory
     if (!dataDir.empty() && dataDir.back() != '/') {
         dataDir += '/';
+    }
+
+    if (wip || wipGames) {
+        std::string wipDir = findWipContentDir();
+        if (wipDir.empty()) {
+            fprintf(stderr, "Error: --wip/--wip-games need a WIPSDCardContent directory "
+                            "(searched the current directory and up to 4 parents)\n");
+            return 1;
+        }
+        if (wip) {
+            seedWipState(dataDir, wipDir);
+            dataDir = wipDir;
+        }
+        if (wipGames) {
+            std::string gamesDir = wipDir + "games";
+            if (!isDirectory(gamesDir)) {
+                fprintf(stderr, "Error: --wip-games: %s does not exist\n", gamesDir.c_str());
+                return 1;
+            }
+            SD_MMC.setGamesOverrideDir(gamesDir);
+            printf("[PEPitCompat] WIP games override: %s\n", gamesDir.c_str());
+        }
     }
 
     // Register auto-nav targets (menu fast-path). Names are resolved lazily
@@ -211,6 +351,15 @@ int main(int argc, char* argv[]) {
     // Configure pressure sensor keyboard keys
     setPressureSensorKeys(lowPressureKey, goodPressureKey);
     
+    // Configure screenshot hotkey
+    setScreenshotKey(shotKey);
+
+    // Configure gameplay recording hotkey
+    setRecordingKey(recKey);
+
+    // Configure screenshot/video output directory
+    setMediaDir(mediaDir.c_str());
+    
     // Configure filesystem root directory and create it if missing
     SD_MMC.setRootDir(dataDir);
     SD_MMC.begin(nullptr, false);
@@ -219,6 +368,7 @@ int main(int argc, char* argv[]) {
     Preferences::preloadTouchCalibration();
 
     printf("[PEPitCompat] Data directory: %s\n", dataDir.c_str());
+    printf("[PEPitCompat] Media directory (screenshots/videos): %s\n", mediaDir.c_str());
     printf("[PEPitCompat] Window scale: %dx\n", windowScale);
     printf("[PEPitCompat] Pressure keys: low=%s, good=%s\n",
            SDL_GetScancodeName(static_cast<SDL_Scancode>(lowPressureKey)),
@@ -261,6 +411,7 @@ int main(int argc, char* argv[]) {
             // Pump SDL events each iteration (keeps joystick/sensor keyboard input responsive)
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
+                notifyKeyDown(&event);  // hotkey edges (shim/display.cpp)
                 if (event.type == SDL_QUIT) {
                     running = false;
                     break;
@@ -286,6 +437,12 @@ int main(int argc, char* argv[]) {
             // Process MCP / control input commands once per frame (/tmp/pepit_control, /tmp/pepit_touch)
             checkSimulatedInput();
 
+            // Screenshot hotkey (edge-latched, see shim/display.cpp)
+            checkScreenshotKey();
+
+            // Recording hotkey + video frame pump (edge-latched, see shim/display.cpp)
+            updateRecording();
+
             // Check for quit request coming from the control file (QUIT command) or signal handler
             if (g_requestQuit) {
                 running = false;
@@ -295,8 +452,15 @@ int main(int argc, char* argv[]) {
     }
 
 cleanup:
+    // Disable jump-based signal escapes before teardown: a late SIGINT/SIGTERM
+    // must not longjmp out of the blocking recording transcode below and run
+    // this cleanup twice.
+    deinitSignalHandlers();
+
+    // Finalize an in-progress gameplay recording before tearing down SDL
+    stopRecordingIfActive();
+
     // Cleanup SDL2
-    deinitSignalHandlers(); // Disable jump buffer before cleanup
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     TTF_Quit();
