@@ -105,10 +105,14 @@ bool SD_MMC_Class::begin(const char* mountPath, bool readOnly) {
     }
 
     initialized_ = (stat(rootDir_.c_str(), &st) == 0 && S_ISDIR(st.st_mode));
-    if (initialized_) {
+    if (initialized_ && factorySeeding_) {
         seedFactoryData();
     }
     return initialized_;
+}
+
+void SD_MMC_Class::setFactorySeeding(bool enabled) {
+    factorySeeding_ = enabled;
 }
 
 void SD_MMC_Class::end() {

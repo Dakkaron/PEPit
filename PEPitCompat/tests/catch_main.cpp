@@ -52,6 +52,7 @@ int main(int argc, char* argv[]) {
     if (!root.empty() && root.back() != '/') root += '/';
     std::filesystem::create_directories(root);
     SD_MMC.setRootDir(root);
+    SD_MMC.setFactorySeeding(false);  // tests provide their own fixtures
     SD_MMC.begin(nullptr, false);
     // NOTE: no Preferences::preloadTouchCalibration() here — that would write
     // into whatever directory the root points at (kept app-specific).

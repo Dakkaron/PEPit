@@ -38,6 +38,13 @@ public:
     void seedFactoryData();
 
     /**
+     * Enable/disable automatic factory seeding in begin() (default: enabled).
+     * Unit tests disable it so their SD roots contain only the fixtures they
+     * write themselves.
+     */
+    void setFactorySeeding(bool enabled);
+
+    /**
      * Set SD card pins (no-op on Linux, kept for compatibility)
      */
     void setPins(uint8_t sclk, uint8_t mosi, uint8_t miso);
@@ -115,6 +122,7 @@ public:
     // Internal state
     std::string rootDir_;             // Root directory path (from --data-dir)
     std::string gamesOverrideDir_;    // Empty = no override; else absolute dir with trailing slash
+    bool factorySeeding_ = true;      // begin() seeds factory data unless tests disable it
     bool initialized_ = false;        // True if begin() was called successfully
 };
 
