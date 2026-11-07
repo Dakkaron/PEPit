@@ -13,12 +13,14 @@ from .miner import MinerSpec
 from .plane import PlaneSpec
 from .farm import FarmSpec
 from .soccer import SoccerSpec
+from .balloon import BalloonSpec
 
 GAMES = {
     "miner": MinerSpec,
     "plane": PlaneSpec,
     "farm": FarmSpec,
     "soccer": SoccerSpec,
+    "balloon": BalloonSpec,
 }
 
 

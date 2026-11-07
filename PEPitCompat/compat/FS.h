@@ -87,6 +87,7 @@ private:
     std::string virtualPath_;                           // App-facing path (e.g. "/games") for path() method
     std::string resolvedPath_;                          // Real filesystem path (symlinks resolved) for I/O
     bool isDir_ = false;                                // True if this is a directory
+    long cachedSize_ = -1;                              // Cached file size; fseeks discard stdio buffers, so avoid per-read size probes
     
     // Helper to get basename from path (renamed to avoid POSIX basename() collision)
     static std::string getBasename(const std::string& path);

@@ -641,6 +641,31 @@ static int lua_wrapper_prefsGetNumber(lua_State* luaState) {
   return 1;
 }
 
+static int lua_wrapper_prefsGetBytes(lua_State* luaState) {
+  String key = luaL_checkstring(luaState, 1);
+  if (!prefs.isKey(key.c_str())) {
+    lua_pushnil(luaState);
+    return 1;
+  }
+  size_t len = prefs.getBytesLength(key.c_str());
+  if (len > 8192) len = 8192; // Cap to keep large blobs out of the Lua stack
+  uint8_t* buf = (uint8_t*)malloc(len ? len : 1);
+  size_t readLen = prefs.getBytes(key.c_str(), buf, len);
+  lua_pushlstring(luaState, (const char*)buf, readLen);
+  free(buf);
+  return 1;
+}
+
+static int lua_wrapper_prefsSetBytes(lua_State* luaState) {
+  String key = luaL_checkstring(luaState, 1);
+  size_t len = 0;
+  const char* data = luaL_checklstring(luaState, 2, &len);
+  prefs.putBytes(key.c_str(), data, len);
+  prefs.end();
+  applyGamePrefsNamespace();
+  return 0;
+}
+
 static int lua_wrapper_constrain(lua_State* luaState) {
   float val = luaL_checknumber(luaState, 1);
   float min = luaL_checknumber(luaState, 2);
@@ -676,11 +701,6 @@ static int lua_wrapper_getTouchX(lua_State* luaState) {
 
 static int lua_wrapper_getTouchY(lua_State* luaState) {
   lua_pushinteger(luaState, touch.Y());
-  return 1;
-}
-
-static int lua_wrapper_getTouchPressure(lua_State* luaState) {
-  lua_pushinteger(luaState, touch.RawZ());
   return 1;
 }
 
@@ -963,13 +983,14 @@ void initLua() {
   lua_register(luaState, "PrefsGetInt", (lua_CFunction) &lua_wrapper_prefsGetInt);
   lua_register(luaState, "PrefsSetNumber", (lua_CFunction) &lua_wrapper_prefsSetNumber);
   lua_register(luaState, "PrefsGetNumber", (lua_CFunction) &lua_wrapper_prefsGetNumber);
+  lua_register(luaState, "PrefsGetBytes", (lua_CFunction) &lua_wrapper_prefsGetBytes);
+  lua_register(luaState, "PrefsSetBytes", (lua_CFunction) &lua_wrapper_prefsSetBytes);
   lua_register(luaState, "CloseProgressionMenu", (lua_CFunction) &lua_wrapper_closeProgressionMenu);
   lua_register(luaState, "CloseWinScreen", (lua_CFunction) &lua_wrapper_closeWinScreen);
   lua_register(luaState, "Constrain", (lua_CFunction) &lua_wrapper_constrain);
   lua_register(luaState, "IsTouchInZone", (lua_CFunction) &lua_wrapper_isTouchInZone);
   lua_register(luaState, "GetTouchX", (lua_CFunction) &lua_wrapper_getTouchX);
   lua_register(luaState, "GetTouchY", (lua_CFunction) &lua_wrapper_getTouchY);
-  lua_register(luaState, "GetTouchPressure", (lua_CFunction) &lua_wrapper_getTouchPressure);
   lua_register(luaState, "GetFreeRAM", (lua_CFunction) &lua_wrapper_getFreeRAM);
   lua_register(luaState, "GetFreePSRAM", (lua_CFunction) &lua_wrapper_getFreePSRAM);
   lua_register(luaState, "GetFreeSpriteSlots", (lua_CFunction) &lua_wrapper_getFreeSpriteSlots);

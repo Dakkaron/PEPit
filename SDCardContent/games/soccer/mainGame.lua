@@ -3,6 +3,12 @@
 -- CurrentRepetition, NewRepetition, Repetitions, ... (gameLua.cpp).
 -- The ball is struck on NewRepetition: the firmware's one-frame pulse on
 -- every blow that reaches its target duration (blow END, not blow start).
+--
+-- Keeper rule (the whole game): the keeper dives to where the crosshair was
+-- KEEPER_SAMPLE_MS (500 ms) before the ball is struck (blow END). So the
+-- player must keep the crosshair on one spot for most of the blow and whip
+-- it to a new spot in the last half second — the keeper follows the old
+-- spot, the ball goes to the new one.
 
 -- ---------------------------------------------------------------- state
 -- Scoreboard log: detect a new task (the firmware resets blowCount per task,
@@ -26,9 +32,15 @@ end
 -- blown again). The kick may interrupt any animation in flight: short
 -- tasks allow a new blow before the previous kick has finished, and every
 -- blow gets its own shot (the flight always restarts from the spot).
+-- The keeper dives to where the crosshair was KEEPER_SAMPLE_MS before the
+-- kick: the aim ring is keyed on the game clock, so the sample time here
+-- is the exact current frame (the firmware's BlowStartMs global can carry
+-- a stale timestamp and must not be used for lookups).
 if NewRepetition then
   ShotTX, ShotTY = AimX, AimY
-  KeeperTX, KeeperTY = SampleKeeperTarget(Ms)
+  CommitKeeperTarget(Ms)
+  KeeperTX = Constrain(KeeperCommitX, GOAL_X0 + 12, GOAL_X1 - 12)
+  KeeperTY = Constrain(KeeperCommitY, KEEPER_DIVE_MIN_Y, KEEPER_DIVE_MAX_Y)
   KeeperStartX, KeeperStartY = KeeperX, KeeperY
   ShotStartMs = Ms
   SavedLast = false
@@ -87,44 +99,43 @@ elseif State == "reset" then
   BallX = lerp(ShotTX, SPOT_X, t)
   BallY = lerp(ShotTY, SPOT_Y, t)
   BallR = lerp(4, BALL_R, t)
-  KeeperX = lerp(KeeperTX, KEEPER_HOME_X, t)
-  KeeperY = lerp(KeeperTY, KEEPER_HOME_Y, t)
+  local rt = (Ms - ResetMs) / KEEPER_RETURN_MS
+  if rt > 1 then rt = 1 end
+  local re = rt * rt * (3 - 2 * rt)  -- same smoothstep as the dive
+  KeeperX = lerp(KeeperTX, KEEPER_HOME_X, re)
+  KeeperY = lerp(KeeperTY, KEEPER_HOME_Y, re)
 end
 
 -- --------------------------------------------------------------- drawing
--- pitch (the stands strip behind the goal is the scoreboard bar, drawn last)
-FillRect(0, GOAL_TOP - 8, 320, 240 - GOAL_TOP + 8, COL_PITCH)
-DrawFastHLine(0, GOAL_BOTTOM, 320, COL_PITCH2)
+-- backdrop: the whole scene (stands, goal, grass) is the photo sprite; the
+-- scoreboard bar drawn last covers its top strip
+DrawSprite(SBackground, 0, 0)
 
--- goal mouth: pale net grid (deliberately not pure white)
-for x = GOAL_X0 + 10, GOAL_X1 - 10, 10 do
-  DrawLine(x, GOAL_TOP, x, GOAL_BOTTOM, COL_FRAME)
-end
-for y = GOAL_TOP + 10, GOAL_BOTTOM, 10 do
-  DrawLine(GOAL_X0, y, GOAL_X1, y, COL_FRAME)
-end
--- frame on top of the net
-FillRect(GOAL_X0 - POST_W, GOAL_TOP - POST_W, GOAL_X1 - GOAL_X0 + 2 * POST_W, POST_W, COL_FRAME)
-FillRect(GOAL_X0 - POST_W, GOAL_TOP, POST_W, GOAL_BOTTOM - GOAL_TOP + POST_W, COL_FRAME)
-FillRect(GOAL_X1, GOAL_TOP, POST_W, GOAL_BOTTOM - GOAL_TOP + POST_W, COL_FRAME)
-DrawFastHLine(30, GOAL_BOTTOM, 260, COL_FRAME)  -- goal line
+-- the goal line, so the aim area has a visible base
+DrawFastHLine(GOAL_X0 - 10, GOAL_BOTTOM, GOAL_X1 - GOAL_X0 + 20, COL_FRAME)
 
--- keeper: head + body, arms out while diving
-if State == "shooting" or (State == "result" and SavedLast) then
-  FillCircle(KeeperX, KeeperY - 13, 4, COL_KHEAD)
-  FillRect(KeeperX - 7, KeeperY - 9, 14, 17, COL_KEEPER)
-  DrawLine(KeeperX - 7, KeeperY - 6, KeeperX - 13, KeeperY - 12, COL_KEEPER)
-  DrawLine(KeeperX + 7, KeeperY - 6, KeeperX + 13, KeeperY - 12, COL_KEEPER)
+-- keeper: bone-animated dive (ke = dive progress, dir = dive side)
+local ke, dir
+if State == "shooting" then
+  local kt = (Ms - ShotStartMs) / DIVE_MS
+  if kt > 1 then kt = 1 end
+  ke = kt * kt * (3 - 2 * kt)
+  dir = DiveDir(KeeperTX - KeeperStartX)
+elseif State == "result" then
+  ke, dir = 1, DiveDir(KeeperTX - KEEPER_HOME_X)
+elseif State == "reset" then
+  local rt = (Ms - ResetMs) / KEEPER_RETURN_MS
+  if rt > 1 then rt = 1 end
+  ke, dir = 1 - rt * rt * (3 - 2 * rt), DiveDir(KeeperTX - KEEPER_HOME_X)
 else
-  FillCircle(KeeperX, KeeperY - 13, 4, COL_KHEAD)
-  FillRect(KeeperX - 6, KeeperY - 9, 12, 17, COL_KEEPER)
+  ke, dir = 0, 0
 end
+DrawKeeper(KeeperX, KeeperY, ke, dir)
 
--- ball: white with a dark pentagon-ish dot pattern
-FillCircle(BallX, BallY, BallR, COL_BALL)
-FillCircle(BallX, BallY, 2, COL_BLACK)
-FillCircle(BallX - BallR + 2, BallY, 1, COL_BLACK)
-FillCircle(BallX + BallR - 2, BallY, 1, COL_BLACK)
+-- ball: rolling spin frames, shrinking into the goal
+local spin = State == "idle" and 0 or ((Ms - ShotStartMs) // 150) % 4
+DrawSprite(SBall, BallX, BallY, {scaleX = BallR / 8, scaleY = BallR / 8,
+                                 frame = spin, flags = CENTER})
 
 -- aim crosshair (idle only)
 if State == "idle" then
