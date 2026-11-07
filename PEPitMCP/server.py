@@ -141,6 +141,13 @@ def _get_system_state() -> int:
 
 def _capture_image() -> Image:
     """Write SHOT to the control file, wait for the C++ shim to capture, return PNG image."""
+    # Drop any previous frame first, otherwise the wait below would accept a
+    # stale file from an earlier capture as the new one.
+    for p in (SHOT_RAW_PATH, SHOT_JSON_PATH):
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
     _write_control("SHOT")
     # Wait for the shim to capture the frame (polled once per frame)
     deadline = time.time() + 10.0
