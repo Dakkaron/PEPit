@@ -1,47 +1,21 @@
-# PEPit Lua game API
+# PEPit Lua API (from `T-HMI-PEPmonitor/src/games/gameLua.cpp`; re-verify after firmware changes)
 
-Extracted from `T-HMI-PEPmonitor/src/games/gameLua.cpp`. Re-verify against the source when the firmware API changes.
+init (`init.lua`): `Ms`, `LeftHandedMode`
 
-## Globals injected at init (`initGames_lua`, before `init.lua` runs)
+`updateBlowData` (per frame, pep short/long/equal + inhalation):
+`CurrentlyBlowing` `Ms` `MsDelta` (=1 on new task) `BlowStartMs` `BlowEndMs` `TargetDurationMs` `TaskStartMs` `CurrentRepetition` (blows in task) `NewRepetition` (one-frame true at blow END) `Repetitions` (blows per task) `CycleNumber` `TotalCycleNumber` `TaskNumber` `CumulatedTaskNumber` (=taskNumber+cycleNumber*totalTaskNumber) `TotalTaskNumber` `IsNewTask` `TaskType` `Pressure` `PeakPressure` `MinPressure` `CumulativeError` `Fails` `LastBlowStatus` (1 ok, 2 failed, 4 new blow) `TotalTimeSpentBreathing` `BreathingScore` `LeftHandedMode`
 
-`Ms`, `LeftHandedMode`
+`updateJumpData` (trampoline):
+`Ms` `MsDelta` `CycleNumber` `TotalCycleNumber` `CumulatedTaskNumber` `TaskNumber` `TotalTaskNumber` `CurrentRepetition` (jumps) `CurrentBonusRepetition` `CurrentlyJumping` `NewRepetition` `NewBonusRepetition` `MsLeft` `LastJumpMs` `LeftHandedMode`
 
-## Globals injected every frame during pep short/long/equal and inhalation phases (`updateBlowData`)
+Functions:
 
-| Global | Meaning |
-| --- | --- |
-| `CurrentlyBlowing` | a blow is in progress |
-| `Ms` | millis |
-| `MsDelta` | ms since previous frame (1 on new task) |
-| `BlowStartMs`, `BlowEndMs`, `TargetDurationMs` | current blow timing |
-| `TaskStartMs` | start of current task |
-| `CurrentRepetition` | blow count in current task |
-| `NewRepetition` | one-frame `true` pulse at blow END |
-| `Repetitions` | total blows per task |
-| `CycleNumber`, `TotalCycleNumber` | cycle position |
-| `TaskNumber`, `CumulatedTaskNumber`, `TotalTaskNumber`, `IsNewTask` | task identity; Cumulated = taskNumber + cycleNumber * totalTaskNumber |
-| `TaskType` | task type code |
-| `Pressure`, `PeakPressure`, `MinPressure`, `CumulativeError` | breath metrics |
-| `Fails`, `LastBlowStatus` | blow outcomes (`LastBlowStatus`: 1 succeeded, 2 failed, 4 new blow) |
-| `TotalTimeSpentBreathing`, `BreathingScore` | session stats |
-| `LeftHandedMode` | system setting |
+- Draw: `DrawString` `DrawRect` `FillRect` `DrawLine` `DrawFastHLine` `DrawFastVLine` `DrawCircle` `FillCircle` `DrawSprite` `FillSprite` `DrawMode7` `DrawRaceOutdoor` `DrawRaceTunnel`
+- Sprites: `LoadSprite` `LoadAnimSprite` `FreeSprite` `SpriteWidth` `SpriteHeight` `SetDrawTargetFramebuffer` `SetDrawTargetSprite`
+- Text: `SetTextColor` `SetTextDatum` `SetTextSize` `SetCursor` `Print` `Println` `SerialPrint` `SerialPrintln`
+- Road/Mode7: `Mode7WorldToScreen` `CalculateRoadProperties` `ProjectRoadPointToScreen` `SetRoadColors` `SetRoadDimensions` `SetRoadDrawFlags`
+- Input: `GetJoystickX` `GetJoystickY` `GetJoystickXY` `GetJoystickButton` `IsJoystickPresent` `GetTouchX` `GetTouchY` `IsTouchInZone`
+- Prefs (scoped to `prefsNamespace`): `PrefsGetInt` `PrefsSetInt` `PrefsGetNumber` `PrefsSetNumber` `PrefsGetString` `PrefsSetString` `PrefsGetBytes` `PrefsSetBytes`
+- System: `GetFreeRAM` `GetFreePSRAM` `GetFreeSpriteSlots` `Constrain` `RunScript` `DisableCaching` `CloseProgressionMenu` `CloseWinScreen`
 
-## Globals injected during trampoline/jump tasks (`updateJumpData`)
-
-`Ms`, `MsDelta`, `CycleNumber`, `TotalCycleNumber`, `CumulatedTaskNumber`, `TaskNumber`, `TotalTaskNumber`, `CurrentRepetition` (jump count), `CurrentBonusRepetition`, `CurrentlyJumping`, `NewRepetition`, `NewBonusRepetition`, `MsLeft`, `LastJumpMs`, `LeftHandedMode`
-
-## Registered Lua functions
-
-- Drawing: `DrawString`, `DrawRect`, `FillRect`, `DrawLine`, `DrawFastHLine`, `DrawFastVLine`, `DrawCircle`, `FillCircle`, `DrawSprite`, `FillSprite`, `DrawMode7`, `DrawRaceOutdoor`, `DrawRaceTunnel`
-- Sprites: `LoadSprite`, `LoadAnimSprite`, `FreeSprite`, `SpriteWidth`, `SpriteHeight`, `SetDrawTargetFramebuffer`, `SetDrawTargetSprite`
-- Text: `SetTextColor`, `SetTextDatum`, `SetTextSize`, `SetCursor`, `Print`, `Println`, `SerialPrint`, `SerialPrintln`
-- Mode7/road: `Mode7WorldToScreen`, `CalculateRoadProperties`, `ProjectRoadPointToScreen`, `SetRoadColors`, `SetRoadDimensions`, `SetRoadDrawFlags`
-- Input: `GetJoystickX`, `GetJoystickY`, `GetJoystickXY`, `GetJoystickButton`, `IsJoystickPresent`, `GetTouchX`, `GetTouchY`, `IsTouchInZone`
-- Prefs: `PrefsGetInt`, `PrefsSetInt`, `PrefsGetNumber`, `PrefsSetNumber`, `PrefsGetString`, `PrefsSetString`, `PrefsGetBytes`, `PrefsSetBytes` (scoped to the game's `prefsNamespace`)
-- System: `GetFreeRAM`, `GetFreePSRAM`, `GetFreeSpriteSlots`, `Constrain`, `RunScript`, `DisableCaching`, `CloseProgressionMenu`, `CloseWinScreen`
-
-## Notes
-
-- `PrefsSetInt`/`PrefsSetNumber` use `luaL_checknumber`: passing `nil` raises a Lua error. Persist only globals guaranteed to exist.
-- `luaCacheGameCode = true`: game code is cached after first parse; `DisableCaching` exists for games that must reload scripts. `end.lua` is loaded uncached.
-- Standard Lua libraries available: `table`, `string`, `math` (Lua 5.4 on device).
+Notes: `PrefsSetInt`/`PrefsSetNumber` error on nil (`luaL_checknumber`). Game code is cached after first parse (`DisableCaching` exists; `end.lua` is uncached). Lua 5.4: `table` `string` `math` available.
