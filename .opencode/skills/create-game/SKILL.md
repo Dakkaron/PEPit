@@ -8,7 +8,7 @@ description: Create or modify a PEPit Lua game in SDCardContent/games or WIPSDCa
 - Ship `.lua` comment-free (parsed on-device; see AGENTS.md).
 - Never set `isHidden` in `gameconfig.ini` (defaults false; only joysticktest sets it - a self-test, not a game).
 - `luac -p` every touched file; before declaring done, test in the PEPitCompat emulator.
-- Canonical patterns: soccer (blow timing), balloon (steering + shop), monster2 (multi-file, data scripts, dex menu).
+- Canonical patterns: soccer (blow timing), balloon (steering + shop), monster2 (multi-file, data scripts, dex menu); design history in `TASK_INFO/`. Do not edit this skill unless asked.
 
 ## Layout
 
