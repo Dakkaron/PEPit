@@ -1,9 +1,1 @@
-# PEPit
-
-## Game .lua comment policy
-
-`SDCardContent/games/**/*.lua` and `WIPSDCardContent/games/**/*.lua` are cached on the device and parsed by the Lua interpreter at runtime: comments cost flash, cache and parse time. No comments unless absolutely essential; then the shortest possible. Never re-add stripped comments. Dev knowledge goes to `TASK_INFO/` notes, never to shipped Lua and never by editing the `create-game` skill (curated; edit only when asked). Bulk-strip with `scripts/strip_lua_comments.py` (token-verified).
-
-## Games
-
-Before creating or modifying a game, load the `create-game` skill.
+Game `.lua` under `SDCardContent/games/` and `WIPSDCardContent/games/` is parsed on-device: comments cost runtime resources. No comments unless essential, then minimal. Dev knowledge → `TASK_INFO/` notes. Strip only with `scripts/strip_lua_comments.py`, never by hand. Load the `create-game` skill before game work; never edit it unless asked.
