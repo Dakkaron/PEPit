@@ -222,12 +222,12 @@ bool gameSupportsTaskTypesAndIsNotHidden(String gamePath, uint32_t requiredTaskT
       gameTaskTypes |= REQUIRED_TASK_TYPE_PROGRESSION_MENU;
     }
   }
-  Serial.print("Game task types: ");
+  /*Serial.print("Game task types: ");
   Serial.print(gameTaskTypes, BIN);
   Serial.print(", required task types: ");
   Serial.print(requiredTaskTypes, BIN);
   Serial.print(", result: ");
-  Serial.println((requiredTaskTypes & ~gameTaskTypes) == 0);
+  Serial.println((requiredTaskTypes & ~gameTaskTypes) == 0);*/
   return (requiredTaskTypes & ~gameTaskTypes) == 0;
 }
 
@@ -258,7 +258,6 @@ uint16_t getNumberOfGames(String* errorMessage, uint32_t requiredTaskTypes) {
         String gameConfigPath = String(String(GAMES_ROOT_DIR) + "/" + file.name());
         if (gameSupportsTaskTypesAndIsNotHidden(gameConfigPath, requiredTaskTypes, errorMessage)) {
           gameCount++;
-          Serial.println("CONFIRMED!");
         } else if (gameIsHidden(gameConfigPath, errorMessage) && errorMessage->isEmpty()) {
           Serial.println("Game " + String(file.name()) + " is hidden.");
           hiddenGamePresent = true;
@@ -337,10 +336,6 @@ void readGameConfig(String gamePath, GameConfig* gameConfig, String* errorMessag
   getIniValueFromSection(resBuffer, "trampolineScriptPath",      &(gameConfig->trampolineScriptPath), &ignoreErrors);
   getIniValueFromSection(resBuffer, "progressionMenuScriptPath", &(gameConfig->progressionMenuScriptPath), &ignoreErrors);
   getIniValueFromSection(resBuffer, "winScreenScriptPath",       &(gameConfig->winScreenScriptPath), &ignoreErrors);
-  String debug;
-  getIniValueFromSection(resBuffer, "isHidden",       &(debug), &ignoreErrors);
-  Serial.print("DEBUG: ");
-  Serial.print(debug);
   gameConfig->isHidden = getBoolIniValueFromSection(resBuffer, "isHidden", &ignoreErrors, false);
   Serial.print(" -> ");
   Serial.println(gameConfig->isHidden);
