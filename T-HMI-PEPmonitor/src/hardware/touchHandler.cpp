@@ -167,5 +167,5 @@ bool isTouchInZone(int32_t x, int32_t y, int32_t w, int32_t h) {
   Serial.print(ty);
   Serial.print("/");
   Serial.println(tz);*/
-  return (tx>=x && tx<=x+w && ty>=y && ty<=y+h);
+  return (tx>=x && tx<x+w && ty>=y && ty<y+h);
 }
