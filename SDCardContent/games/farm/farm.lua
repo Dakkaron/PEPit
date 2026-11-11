@@ -28,9 +28,18 @@ if GameMode == GAME_MODE_OVERVIEW then
         DrawSprite(SFishSelection, 174, 127, {alpha=0.7})
     end
 
-    local joystickX = GetJoystickX()
+    if JoystickSelection == 0 then
+        DrawRect(-2, 94, 115, 42, 0xFFFF)
+    elseif JoystickSelection == 1 then
+        DrawRect(173, 143, 150, 39, 0xFFFF)
+    else
+        DrawRect(-2, 77, 174, 21, 0xFFFF)
+    end
+
+    local joystickX, joystickY = GetJoystickXY()
+    local overviewJoyBtn = GetJoystickButton()
     if not Touched then
-        if (IsTouchInZone(0, 96, 111, 38) or (JoystickSelection==0 and GetJoystickButton())) and Energy >= 0.2 then --Berrypicking
+        if (IsTouchInZone(0, 96, 111, 38) or (JoystickSelection==0 and overviewJoyBtn and not FieldJoyWas)) and Energy >= 0.2 then --Berrypicking
             Energy = Energy - 0.2
             ShowEarningSpriteUntil = Ms + 2000
             ShowEarningSprite = SBerry
@@ -41,7 +50,7 @@ if GameMode == GAME_MODE_OVERVIEW then
             ShowEarningSpriteFrame = -1
             ShowEarningsText = "+€10"
             Money = Money + 10
-        elseif (IsTouchInZone(175, 145, 146, 35) or (JoystickSelection==1 and GetJoystickButton())) and Energy >= 0.2 then --Fishing
+        elseif (IsTouchInZone(175, 145, 146, 35) or (JoystickSelection==1 and overviewJoyBtn and not FieldJoyWas)) and Energy >= 0.2 then --Fishing
             Energy = Energy - 0.2
             ShowEarningSpriteUntil = Ms + 2000
             ShowEarningSpriteX = 175
@@ -70,19 +79,30 @@ if GameMode == GAME_MODE_OVERVIEW then
                 ShowEarningsText = "+€30"
                 Money = Money + 30
             end
-        elseif IsTouchInZone(0, 79, 170, 17) or IsTouchInZone(110, 79, 60, 34) or (JoystickSelection==2 and GetJoystickButton()) then --Field
+        elseif IsTouchInZone(0, 79, 170, 17) or IsTouchInZone(110, 79, 60, 34) or (JoystickSelection==2 and overviewJoyBtn and not FieldJoyWas) then --Field
             GameMode = GAME_MODE_FIELD
             fieldItemSelection = 0
         end
 
-        if joystickX < -0.5 then
-            JoystickSelection = JoystickSelection - 1
-        elseif joystickX > 0.5 then
-            JoystickSelection = JoystickSelection + 1
+        if not FieldNavMoved then
+            local dir = 0
+            if math.abs(joystickX) > 0.2 then
+                dir = joystickX > 0 and 1 or -1
+            elseif math.abs(joystickY) > 0.2 then
+                dir = joystickY > 0 and 1 or -1
+            end
+            if dir ~= 0 then
+                JoystickSelection = (JoystickSelection + dir) % JOYSTICK_SELECTION_OVERVIEW_LIMIT
+                FieldNavMoved = true
+            end
+        elseif math.abs(joystickX) <= 0.2 and math.abs(joystickY) <= 0.2 then
+            FieldNavMoved = false
         end
     end
 
-    Touched = IsTouchInZone(0,0,320,240) or GetJoystickButton() or math.abs(joystickX) > 0.5
+    FieldJoyWas = overviewJoyBtn
+
+    Touched = IsTouchInZone(0,0,320,240)
 elseif GameMode == GAME_MODE_FIELD then
     DrawSprite(SField_watered, 0, 0)
     DrawSprite(SField_tilled, 11, 20)
@@ -114,6 +134,70 @@ elseif GameMode == GAME_MODE_FIELD then
     DrawString("-€10", 295, 125)
     DrawSprite(SIconBackArrow, 278, 190, {scaleX=2, scaleY=2})
     DrawString("Zurück", 288, 217)
+
+    if FieldSel < 0 or FieldSel > 58 then
+        FieldSel = 55
+    end
+    while not FieldSlotActionable(FieldSel) do
+        FieldSel = (FieldSel + 1) % 59
+    end
+
+    local fieldPressed = IsTouchInZone(0, 0, 320, 240)
+    if fieldPressed and not FieldTapWas then
+        local tapSlot = -1
+        if IsTouchInZone(287, 20, 35, 29) then
+            tapSlot = 55
+        elseif IsTouchInZone(287, 60, 35, 26) then
+            tapSlot = 56
+        elseif IsTouchInZone(287, 100, 35, 26) then
+            tapSlot = 57
+        elseif IsTouchInZone(278, 190, 40, 225) then
+            tapSlot = 58
+        elseif fieldItemSelection >= 1 then
+            local tapCol = math.floor((GetTouchX() - FIELD_GRID_X_OFFSET) / FIELD_GRID_SPACING + 0.5)
+            local tapRow = math.floor((GetTouchY() - FIELD_GRID_Y_OFFSET) / FIELD_GRID_SPACING + 0.5)
+            if tapCol >= 1 and tapCol <= FIELD_GRID_COLS and tapRow >= 1 and tapRow <= FIELD_GRID_ROWS then
+                tapSlot = (tapRow-1)*FIELD_GRID_COLS + (tapCol-1)
+            end
+        end
+        if tapSlot >= 0 then
+            FieldSel = tapSlot
+        end
+    end
+    FieldTapWas = fieldPressed
+
+    local fieldJoyX, fieldJoyY = GetJoystickXY()
+    if not FieldNavMoved then
+        local dir = 0
+        if math.abs(fieldJoyX) > 0.2 then
+            dir = fieldJoyX > 0 and 1 or -1
+        elseif math.abs(fieldJoyY) > 0.2 then
+            dir = fieldJoyY > 0 and 1 or -1
+        end
+        if dir ~= 0 then
+            if math.abs(fieldJoyX) > 0.2 then
+                FieldSel = (FieldSel + dir) % 59
+            elseif FieldSel <= 54 then
+                local navCol = FieldSel % FIELD_GRID_COLS
+                local navRow = FieldSel // FIELD_GRID_COLS
+                FieldSel = ((navRow + dir) % FIELD_GRID_ROWS) * FIELD_GRID_COLS + navCol
+            else
+                FieldSel = (FieldSel + dir) % 59
+            end
+            while not FieldSlotActionable(FieldSel) do
+                FieldSel = (FieldSel + dir) % 59
+            end
+            FieldNavMoved = true
+        end
+    elseif math.abs(fieldJoyX) <= 0.2 and math.abs(fieldJoyY) <= 0.2 then
+        FieldNavMoved = false
+    end
+
+    local fieldJoyBtn = GetJoystickButton()
+    if fieldJoyBtn and not FieldJoyWas then
+        FieldApplySlot(FieldSel)
+    end
+    FieldJoyWas = fieldJoyBtn
 
     if not IsTouchInZone(0,0,320,240) then
         Touched = false
@@ -159,6 +243,9 @@ elseif GameMode == GAME_MODE_FIELD then
             end
         end
     end
+
+    local cursorX, cursorY, cursorW, cursorH = FieldSlotCursorRect(FieldSel)
+    DrawRect(cursorX, cursorY, cursorW, cursorH, 0xFFFF)
 end
 
 if Energy < 0.95 then
