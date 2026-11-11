@@ -143,7 +143,7 @@ if n > 0 then
     MenuNavMoved = false
   end
   local it = MenuItems[sel + 1]
-  DrawRect(it.x - 2, it.y - 2, it.w + 4, it.h + 4, 0xFFFF)
+  DrawGlowRect(it.x - 2, it.y - 2, it.w + 4, it.h + 4)
   local joyBtn = GetJoystickButton()
   if joyBtn and not MenuJoyWas then
     it.act()

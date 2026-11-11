@@ -28,12 +28,8 @@ if GameMode == GAME_MODE_OVERVIEW then
         DrawSprite(SFishSelection, 174, 127, {alpha=0.7})
     end
 
-    if JoystickSelection == 0 then
-        DrawRect(-2, 94, 115, 42, 0xFFFF)
-    elseif JoystickSelection == 1 then
-        DrawRect(173, 143, 150, 39, 0xFFFF)
-    else
-        DrawRect(-2, 77, 174, 21, 0xFFFF)
+    if JoystickSelection == 2 then
+        DrawGlowRect(-2, 77, 174, 21)
     end
 
     local joystickX, joystickY = GetJoystickXY()
@@ -169,23 +165,38 @@ elseif GameMode == GAME_MODE_FIELD then
     local fieldJoyX, fieldJoyY = GetJoystickXY()
     if not FieldNavMoved then
         local dir = 0
+        local axis = 0
         if math.abs(fieldJoyX) > 0.2 then
             dir = fieldJoyX > 0 and 1 or -1
+            axis = 1
         elseif math.abs(fieldJoyY) > 0.2 then
             dir = fieldJoyY > 0 and 1 or -1
+            axis = 2
         end
         if dir ~= 0 then
-            if math.abs(fieldJoyX) > 0.2 then
-                FieldSel = (FieldSel + dir) % 59
-            elseif FieldSel <= 54 then
+            local target = FieldSel
+            if FieldSel <= 54 then
                 local navCol = FieldSel % FIELD_GRID_COLS
                 local navRow = FieldSel // FIELD_GRID_COLS
-                FieldSel = ((navRow + dir) % FIELD_GRID_ROWS) * FIELD_GRID_COLS + navCol
+                if axis == 1 then
+                    local newCol = navCol + dir
+                    if newCol < 0 or newCol >= FIELD_GRID_COLS then
+                        target = FIELD_TOOL_FOR_ROW[navRow + 1]
+                    else
+                        target = navRow * FIELD_GRID_COLS + newCol
+                    end
+                else
+                    target = ((navRow + dir) % FIELD_GRID_ROWS) * FIELD_GRID_COLS + navCol
+                end
             else
-                FieldSel = (FieldSel + dir) % 59
+                if axis == 1 then
+                    target = (dir > 0 and 0 or FIELD_GRID_COLS - 1) + FIELD_TOOL_ROW[FieldSel - 54] * FIELD_GRID_COLS
+                else
+                    target = 55 + ((FieldSel - 55 + dir) % 4)
+                end
             end
-            while not FieldSlotActionable(FieldSel) do
-                FieldSel = (FieldSel + dir) % 59
+            if FieldSlotActionable(target) then
+                FieldSel = target
             end
             FieldNavMoved = true
         end
@@ -245,7 +256,7 @@ elseif GameMode == GAME_MODE_FIELD then
     end
 
     local cursorX, cursorY, cursorW, cursorH = FieldSlotCursorRect(FieldSel)
-    DrawRect(cursorX, cursorY, cursorW, cursorH, 0xFFFF)
+    DrawGlowRect(cursorX, cursorY, cursorW, cursorH)
 end
 
 if Energy < 0.95 then
