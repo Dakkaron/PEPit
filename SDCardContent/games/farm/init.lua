@@ -56,7 +56,11 @@ FIELD_GRID_ACTION_WATER = 2
 FIELD_GRID_ACTION_SEED_WHEAT = 3
 
 FIELD_ACTION_RADIUS = 10
+FIELD_BRUSH_RADIUS = 12
 FIELD_ACTION_ENERGY = 0.05
+
+FIELD_TOOL_FOR_ROW = { 55, 55, 56, 57, 57 }
+FIELD_TOOL_ROW = { 0, 2, 4, 4 }
 
 FIELD_ACTION_SEEDBAG_WHEAT_PRICE = 10
 
@@ -160,10 +164,10 @@ function DoUpdateFieldGrid(x, y, type)
       local fg = FieldGrid[col][row]
       if type == FIELD_GRID_ACTION_PLOW then
         SetDrawTargetSprite(SField_fallow)
-        FillCircle(x-8, y-16, FIELD_ACTION_RADIUS, 0xf81f)
+        FillCircle(x-8, y-16, FIELD_BRUSH_RADIUS, 0xf81f)
       elseif type == FIELD_GRID_ACTION_WATER then
         SetDrawTargetSprite(SField_tilled)
-        FillCircle(x-8, y-16, FIELD_ACTION_RADIUS, 0xf81f)
+        FillCircle(x-8, y-16, FIELD_BRUSH_RADIUS, 0xf81f)
       end
       SetDrawTargetFramebuffer()
       local posX = col * FIELD_GRID_SPACING + FIELD_GRID_X_OFFSET
@@ -243,6 +247,15 @@ function FieldSlotCursorRect(slot)
     return 285, 98, 39, 30
   end
   return 274, 188, 46, 38
+end
+
+function DrawGlowRect(x, y, w, h)
+  local glow = math.sin(Ms/100)*0.5+0.5
+  local outerG = 14 + math.floor(glow*8)
+  local midG = 22 + math.floor(glow*9)
+  DrawRect(x-3, y-3, w+6, h+6, 0xF800 | (outerG << 5))
+  DrawRect(x-2, y-2, w+4, h+4, 0xF800 | (midG << 5))
+  DrawRect(x-1, y-1, w+2, h+2, 0xFFE0)
 end
 
 GAME_MODE_OVERVIEW = 0
