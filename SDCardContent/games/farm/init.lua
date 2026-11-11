@@ -12,6 +12,8 @@ SIconBackArrow = LoadSprite("gfx/backarrow.bmp", 0, 0xf81f)
 SBerrySelection = LoadSprite("gfx/berrySelection.bmp", 0, 0xf81f)
 SFishSelection = LoadSprite("gfx/fishSelection.bmp", 0, 0xf81f)
 SFieldSelection = LoadSprite("gfx/fieldSelection.bmp", 0, 0xf81f)
+SGlowCell = LoadSprite("gfx/glowCell.bmp", 0, 0xf81f)
+SGlowTool = LoadSprite("gfx/glowTool.bmp", 0, 0xf81f)
 
 SField_fallow = LoadSprite("gfx/field/field_fallow.bmp", 0, 0xf81f)
 SField_tilled = LoadSprite("gfx/field/field_tilled.bmp", 0, 0xf81f)
@@ -57,6 +59,7 @@ FIELD_GRID_ACTION_SEED_WHEAT = 3
 
 FIELD_ACTION_RADIUS = 10
 FIELD_BRUSH_RADIUS = 12
+FIELD_BRUSH_RADIUS_JOYSTICK = 15
 FIELD_ACTION_ENERGY = 0.05
 
 FIELD_TOOL_FOR_ROW = { 55, 55, 56, 57, 57 }
@@ -128,9 +131,9 @@ function LoadFieldGrid()
 end
 LoadFieldGrid()
 
-function UpdateFieldGrid(x, y, type)
+function UpdateFieldGrid(x, y, type, brushRadius)
   if LastFieldGridUpdateX == -1 and LastFieldGridUpdateY == -1 then
-    DoUpdateFieldGrid(x, y, type)
+    DoUpdateFieldGrid(x, y, type, brushRadius)
   else
     local dX = x-LastFieldGridUpdateX
     local dY = y-LastFieldGridUpdateY
@@ -138,14 +141,14 @@ function UpdateFieldGrid(x, y, type)
       local yFraction = dY/dX
       local yPos = LastFieldGridUpdateY
       for xPos=LastFieldGridUpdateX,x do
-        DoUpdateFieldGrid(xPos, yPos, type)
+        DoUpdateFieldGrid(xPos, yPos, type, brushRadius)
         yPos = yPos + yFraction
       end
     else
       local xFraction = dX/dY
       local xPos = LastFieldGridUpdateX
       for yPos=LastFieldGridUpdateY,y do
-        DoUpdateFieldGrid(xPos, yPos, type)
+        DoUpdateFieldGrid(xPos, yPos, type, brushRadius)
         xPos = xPos + xFraction
       end
     end
@@ -154,7 +157,8 @@ function UpdateFieldGrid(x, y, type)
   LastFieldGridUpdateY = y
 end
 
-function DoUpdateFieldGrid(x, y, type)
+function DoUpdateFieldGrid(x, y, type, brushRadius)
+  local brushR = brushRadius or FIELD_BRUSH_RADIUS
   local radiusSq = FIELD_ACTION_RADIUS*FIELD_ACTION_RADIUS
   for col=1,#FieldGrid do
     for row=1,#(FieldGrid[1]) do
@@ -164,10 +168,10 @@ function DoUpdateFieldGrid(x, y, type)
       local fg = FieldGrid[col][row]
       if type == FIELD_GRID_ACTION_PLOW then
         SetDrawTargetSprite(SField_fallow)
-        FillCircle(x-8, y-16, FIELD_BRUSH_RADIUS, 0xf81f)
+        FillCircle(x-8, y-16, brushR, 0xf81f)
       elseif type == FIELD_GRID_ACTION_WATER then
         SetDrawTargetSprite(SField_tilled)
-        FillCircle(x-8, y-16, FIELD_BRUSH_RADIUS, 0xf81f)
+        FillCircle(x-8, y-16, brushR, 0xf81f)
       end
       SetDrawTargetFramebuffer()
       local posX = col * FIELD_GRID_SPACING + FIELD_GRID_X_OFFSET
@@ -220,7 +224,7 @@ function FieldApplySlot(slot)
     LastFieldGridUpdateY = -1
     local col = slot % FIELD_GRID_COLS
     local row = slot // FIELD_GRID_COLS
-    UpdateFieldGrid(FIELD_GRID_X_OFFSET + (col+1)*FIELD_GRID_SPACING, FIELD_GRID_Y_OFFSET + (row+1)*FIELD_GRID_SPACING, fieldItemSelection)
+    UpdateFieldGrid(FIELD_GRID_X_OFFSET + (col+1)*FIELD_GRID_SPACING, FIELD_GRID_Y_OFFSET + (row+1)*FIELD_GRID_SPACING, fieldItemSelection, FIELD_BRUSH_RADIUS_JOYSTICK)
     LastFieldGridUpdateX = -1
     LastFieldGridUpdateY = -1
   elseif slot == 55 then
