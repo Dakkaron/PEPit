@@ -28,10 +28,6 @@ if GameMode == GAME_MODE_OVERVIEW then
         DrawSprite(SFishSelection, 174, 127, {alpha=0.7})
     end
 
-    if JoystickSelection == 2 then
-        DrawGlowRect(-2, 77, 174, 21)
-    end
-
     local joystickX, joystickY = GetJoystickXY()
     local overviewJoyBtn = GetJoystickButton()
     if not Touched then
@@ -232,11 +228,11 @@ elseif GameMode == GAME_MODE_FIELD then
         local touchX = GetTouchX()
         local touchY = GetTouchY()
         if fieldItemSelection == FIELD_ITEM_SELECTION_PLOW then
-            UpdateFieldGrid(touchX, touchY, FIELD_GRID_ACTION_PLOW)
+            UpdateFieldGrid(touchX, touchY, FIELD_GRID_ACTION_PLOW, FIELD_BRUSH_RADIUS)
         elseif fieldItemSelection == FIELD_ITEM_SELECTION_WATERING_CAN then
-            UpdateFieldGrid(touchX, touchY, FIELD_GRID_ACTION_WATER)
+            UpdateFieldGrid(touchX, touchY, FIELD_GRID_ACTION_WATER, FIELD_BRUSH_RADIUS)
         elseif fieldItemSelection == FIELD_ITEM_SELECTION_SEEDBAG then
-            UpdateFieldGrid(touchX, touchY, FIELD_GRID_ACTION_SEED_WHEAT)
+            UpdateFieldGrid(touchX, touchY, FIELD_GRID_ACTION_SEED_WHEAT, FIELD_BRUSH_RADIUS)
         end
     end
     for col=1,#FieldGrid do
@@ -256,7 +252,25 @@ elseif GameMode == GAME_MODE_FIELD then
     end
 
     local cursorX, cursorY, cursorW, cursorH = FieldSlotCursorRect(FieldSel)
-    DrawGlowRect(cursorX, cursorY, cursorW, cursorH)
+    local glowSprite = SGlowCell
+    if FieldSel > 54 then
+        glowSprite = SGlowTool
+    end
+    local glowW = SpriteWidth(glowSprite)
+    local glowH = SpriteHeight(glowSprite)
+    local glowX = cursorX + cursorW/2 - glowW/2
+    local glowY = cursorY + cursorH/2 - glowH/2
+    if glowX < 0 then
+        glowX = 0
+    elseif glowX > 320-glowW then
+        glowX = 320-glowW
+    end
+    if glowY < 0 then
+        glowY = 0
+    elseif glowY > 240-glowH then
+        glowY = 240-glowH
+    end
+    DrawSprite(glowSprite, glowX, glowY, {alpha=math.sin(Ms/100)*0.5+0.5})
 end
 
 if Energy < 0.95 then
