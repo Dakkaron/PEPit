@@ -3,6 +3,10 @@
 -- globals immediately so upgrades take effect in the running session.
 if not MenuTouch then MenuTouch = {} end
 if not MenuLastActionMs then MenuLastActionMs = 0 end
+if not MenuSel then MenuSel = 0 end
+if not MenuNavMoved then MenuNavMoved = false end
+if not MenuJoyWas then MenuJoyWas = false end
+MenuItems = {}
 
 COL_GOLD = rgb(232, 200, 90)
 COL_GRAY = rgb(110, 110, 110)
@@ -52,11 +56,14 @@ function Button(id, x, y, w, h, label, enabled, action)
   SetTextColor(COL_BLACK)
   SetTextSize(1)
   DrawString(label, x + 5, y + 4)
+  local idx = #MenuItems + 1
+  MenuItems[idx] = { x = x, y = y, w = w, h = h, act = enabled and action or function() end }
   local touched = IsTouchInZone(x, y, w, h)
   if touched and not MenuTouch[id] then
     MenuTouch[id] = true
     if enabled and Ms - MenuLastActionMs > 400 then
       MenuLastActionMs = Ms
+      MenuSel = idx - 1
       action()
     end
   elseif not touched then
@@ -109,6 +116,34 @@ DrawString("Lenken: " .. MAX_SPEED .. " px/s", 64, 158)
 FillRect(240, 200, 90, 40, 0x001F)
 SetTextSize(2)
 DrawString("Fertig", 255, 215)
+local doneIdx = #MenuItems + 1
+MenuItems[doneIdx] = { x = 240, y = 200, w = 90, h = 40, act = function() CloseProgressionMenu() end }
 if IsTouchInZone(240, 200, 80, 40) then
+  MenuSel = doneIdx - 1
   CloseProgressionMenu()
 end
+
+local n = #MenuItems
+if MenuSel >= n then MenuSel = 0 end
+local jx, jy = GetJoystickXY()
+if not MenuNavMoved then
+  local dir = 0
+  if math.abs(jy) > 0.2 then
+    dir = jy > 0 and 1 or -1
+  elseif math.abs(jx) > 0.2 then
+    dir = jx > 0 and 1 or -1
+  end
+  if dir ~= 0 then
+    MenuSel = (MenuSel + dir) % n
+    MenuNavMoved = true
+  end
+elseif math.abs(jx) <= 0.2 and math.abs(jy) <= 0.2 then
+  MenuNavMoved = false
+end
+local it = MenuItems[MenuSel + 1]
+DrawRect(it.x - 2, it.y - 2, it.w + 4, it.h + 4, 0xFFFF)
+local joyBtn = GetJoystickButton()
+if joyBtn and not MenuJoyWas then
+  it.act()
+end
+MenuJoyWas = joyBtn

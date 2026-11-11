@@ -495,26 +495,6 @@ WasBlowing = false
 -- PEPShort
 RockImageLoaded = -1
 
--- Progression Menu
-function DisplayBuyStage(price)
-  if (Money < price) then
-    FillRect(10, 60, 220, 35, 0xF800)
-  else
-    FillRect(10, 60, 220, 35, 0x001F)
-    SetTextSize(1)
-    DrawString("Nicht genug Geld", 15, 84)
-  end
-
-  SetTextSize(2)
-  DrawString("Tiefer graben: €" .. price, 15, 65)
-  if (Money >= price and IsTouchInZone(10, 60, 220, 35)) then
-    Money = Money - price
-    Stage = Stage + 1
-    PrefsSetInt("stage", Stage)
-    PrefsSetInt("money", Money)
-  end
-end
-
 --[[
 --  0 = tunnel
 --  1 = dirt
