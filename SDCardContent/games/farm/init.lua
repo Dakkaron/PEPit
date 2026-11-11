@@ -23,6 +23,11 @@ Money = PrefsGetInt("money", 0)
 Energy = 0
 Touched = false
 
+FieldJoyWas = false
+FieldTapWas = false
+FieldNavMoved = false
+FieldSel = 55
+
 FIELD_GRID_PLANT_NONE = 0
 FIELD_GRID_PLANT_WHEAT = 1
 
@@ -195,6 +200,49 @@ function DoUpdateFieldGrid(x, y, type)
       end
     end
   end
+end
+
+function FieldSlotActionable(slot)
+  if slot >= 55 then
+    return true
+  end
+  return fieldItemSelection >= 1 and Energy >= FIELD_ACTION_ENERGY and
+    (fieldItemSelection ~= FIELD_ITEM_SELECTION_SEEDBAG or Money >= FIELD_ACTION_SEEDBAG_WHEAT_PRICE)
+end
+
+function FieldApplySlot(slot)
+  if slot <= 54 then
+    LastFieldGridUpdateX = -1
+    LastFieldGridUpdateY = -1
+    local col = slot % FIELD_GRID_COLS
+    local row = slot // FIELD_GRID_COLS
+    UpdateFieldGrid(FIELD_GRID_X_OFFSET + (col+1)*FIELD_GRID_SPACING, FIELD_GRID_Y_OFFSET + (row+1)*FIELD_GRID_SPACING, fieldItemSelection)
+    LastFieldGridUpdateX = -1
+    LastFieldGridUpdateY = -1
+  elseif slot == 55 then
+    fieldItemSelection = FIELD_ITEM_SELECTION_PLOW
+  elseif slot == 56 then
+    fieldItemSelection = FIELD_ITEM_SELECTION_WATERING_CAN
+  elseif slot == 57 then
+    fieldItemSelection = FIELD_ITEM_SELECTION_SEEDBAG
+  elseif slot == 58 then
+    GameMode = GAME_MODE_OVERVIEW
+  end
+end
+
+function FieldSlotCursorRect(slot)
+  if slot <= 54 then
+    local col = slot % FIELD_GRID_COLS
+    local row = slot // FIELD_GRID_COLS
+    return FIELD_GRID_X_OFFSET + (col+1)*FIELD_GRID_SPACING - 14, FIELD_GRID_Y_OFFSET + (row+1)*FIELD_GRID_SPACING - 14, 24, 24
+  elseif slot == 55 then
+    return 285, 18, 39, 33
+  elseif slot == 56 then
+    return 285, 58, 39, 30
+  elseif slot == 57 then
+    return 285, 98, 39, 30
+  end
+  return 274, 188, 46, 38
 end
 
 GAME_MODE_OVERVIEW = 0
