@@ -330,6 +330,7 @@ function DisplayHorseShop(offset)
       ShopMenuOffset = ShopMenuOffset - 1
       TouchBlocked = true
     end
+    MenuItems[#MenuItems + 1] = { x = 275, y = 100, w = 32, h = 32, act = function() ShopMenuOffset = ShopMenuOffset - 1 end }
   end
   if ShopMenuOffset<#ShopHorses-2 then
     DrawSprite(SButtonDown, 275, 150)
@@ -337,6 +338,7 @@ function DisplayHorseShop(offset)
       ShopMenuOffset = ShopMenuOffset + 1
       TouchBlocked = true
     end
+    MenuItems[#MenuItems + 1] = { x = 275, y = 150, w = 32, h = 32, act = function() ShopMenuOffset = ShopMenuOffset + 1 end }
   end
   local yPos = 35
   FillRect(10, yPos, 220, 60, 0xfea0)
@@ -365,12 +367,20 @@ function DisplayHorseShop(offset)
   for i = 1, #ShopHorses - ShopMenuOffset do
     local shopHorse = ShopHorses[i + ShopMenuOffset]
     yPos = 35 + (i)*64
-    if Money > shopHorse.cost and IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
-      TouchBlocked = true
-      ConfirmDialogOpen = true
-      ConfirmDialogText = "Willst du " .. shopHorse.name .. "\n\nfür €" .. shopHorse.cost .." kaufen?\n \nDein Kontostand beträgt\n€" .. Money  
-      ConfirmDialogItemNr = i + ShopMenuOffset
-      break
+    if Money > shopHorse.cost then
+      local idx = i + ShopMenuOffset
+      local openConfirm = function()
+        TouchBlocked = true
+        ConfirmDialogOpen = true
+        ConfirmDialogText = "Willst du " .. shopHorse.name .. "\n\nfür €" .. shopHorse.cost .." kaufen?\n \nDein Kontostand beträgt\n€" .. Money  
+        ConfirmDialogItemNr = idx
+        MenuSel = 1
+      end
+      MenuItems[#MenuItems + 1] = { x = 10, y = yPos, w = 220, h = 60, act = openConfirm }
+      if IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
+        openConfirm()
+        break
+      end
     end
   end
 end
@@ -439,6 +449,7 @@ function DisplayItemShop()
       ShopMenuOffset = ShopMenuOffset - 1
       TouchBlocked = true
     end
+    MenuItems[#MenuItems + 1] = { x = 275, y = 100, w = 32, h = 32, act = function() ShopMenuOffset = ShopMenuOffset - 1 end }
   end
   if ShopMenuOffset<#ShopItems-2 then
     DrawSprite(SButtonDown, 275, 150)
@@ -446,6 +457,7 @@ function DisplayItemShop()
       ShopMenuOffset = ShopMenuOffset + 1
       TouchBlocked = true
     end
+    MenuItems[#MenuItems + 1] = { x = 275, y = 150, w = 32, h = 32, act = function() ShopMenuOffset = ShopMenuOffset + 1 end }
   end
   for i = 1, #ShopItems - ShopMenuOffset do
     local shopItem = ShopItems[i + ShopMenuOffset]
@@ -478,8 +490,8 @@ function DisplayItemShop()
     yPos = 35 + (i-1)*64
     local isOwned = (OwnedItems & shopItem.color) ~= 0
     local isEquipped = PlayerHorse.coat == shopItem.color or PlayerHorse.helmet == shopItem.color
-    if IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
-      if isOwned and not isEquipped then
+    if isOwned and not isEquipped then
+      local equip = function()
         if shopItem.itemType == ITEM_TYPE_COAT then
           PlayerHorse.coat = shopItem.color
           PrefsSetInt("hcoat", shopItem.color)
@@ -488,12 +500,24 @@ function DisplayItemShop()
           PrefsSetInt("hhelmet", shopItem.color)
         end
         TouchBlocked = true
+      end
+      MenuItems[#MenuItems + 1] = { x = 10, y = yPos, w = 220, h = 60, act = equip }
+      if IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
+        equip()
         break
-      elseif not isOwned and Money > shopItem.cost then
+      end
+    elseif not isOwned and Money > shopItem.cost then
+      local idx = i + ShopMenuOffset
+      local openConfirm = function()
         TouchBlocked = true
         ConfirmDialogOpen = true
         ConfirmDialogText = "Willst du " .. shopItem.name .. "\n\nfür €" .. shopItem.cost .." kaufen?\n \nDein Kontostand beträgt\n€" .. Money  
-        ConfirmDialogItemNr = i + ShopMenuOffset
+        ConfirmDialogItemNr = idx
+        MenuSel = 1
+      end
+      MenuItems[#MenuItems + 1] = { x = 10, y = yPos, w = 220, h = 60, act = openConfirm }
+      if IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
+        openConfirm()
         break
       end
     end
@@ -513,7 +537,7 @@ function DisplayConfirmDialog()
   DrawString("Ja", 80, 157)
   FillRect(180, 145, 100, 40, 0x001F)
   DrawString("Nein", 215, 157)
-  if not TouchBlocked and IsTouchInZone(40, 145, 100, 40) then
+  local yes = function()
     if ShopTab == 0 then -- Horse shop
       shopHorse = ShopHorses[ConfirmDialogItemNr]
       Money = Money - shopHorse.cost
@@ -547,8 +571,16 @@ function DisplayConfirmDialog()
     if ShopMenuOffset > 0 then
       ShopMenuOffset = ShopMenuOffset - 1
     end
-  elseif not TouchBlocked and IsTouchInZone(180, 145, 100, 40) then
+  end
+  local no = function()
     ConfirmDialogOpen = false
     TouchBlocked = true
+  end
+  MenuItems[#MenuItems + 1] = { x = 40, y = 145, w = 100, h = 40, act = yes }
+  MenuItems[#MenuItems + 1] = { x = 180, y = 145, w = 100, h = 40, act = no }
+  if not TouchBlocked and IsTouchInZone(40, 145, 100, 40) then
+    yes()
+  elseif not TouchBlocked and IsTouchInZone(180, 145, 100, 40) then
+    no()
   end
 end
