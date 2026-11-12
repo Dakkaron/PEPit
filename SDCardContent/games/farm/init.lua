@@ -242,7 +242,7 @@ function FieldSlotCursorRect(slot)
   if slot <= 54 then
     local col = slot % FIELD_GRID_COLS
     local row = slot // FIELD_GRID_COLS
-    return FIELD_GRID_X_OFFSET + (col+1)*FIELD_GRID_SPACING - 14, FIELD_GRID_Y_OFFSET + (row+1)*FIELD_GRID_SPACING - 14, 24, 24
+    return FIELD_GRID_X_OFFSET + (col+1)*FIELD_GRID_SPACING - 12, FIELD_GRID_Y_OFFSET + (row+1)*FIELD_GRID_SPACING - 12, 24, 24
   elseif slot == 55 then
     return 285, 18, 39, 33
   elseif slot == 56 then
