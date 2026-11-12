@@ -20,11 +20,45 @@
 #define PRESSURE_BAR_X 1
 #define PRESSURE_BAR_Y 190
 
+// Auto-tare runs in physical signed mbar: raw counts / (PRESSURE_SENSOR_DIVISOR * 1000)
+// with the natural sensor sign (push positive, suction negative; flip SIGN if inverted).
 #define PRESSURE_SENSOR_DIVISOR 65L
-#define PRESSURE_SENSOR_CUTOFF_LIMIT 200
-#define PRESSURE_SENSOR_SMOOTHING_NUM_READINGS 10
-#define PRESSURE_SENSOR_MAX_SKIPS 10
-#define PRESSURE_TARE_TOLERANCE 1
+#define PRESSURE_SENSOR_SIGN 1.0f
+#define PRESSURE_MBAR_CUTOFF 60.0f
+#define PRESSURE_MA_READINGS 5
+#define PRESSURE_SPIKE_JUMP 5.0f
+#define PRESSURE_SPIKE_CONFIRM 4
+#define PRESSURE_TARE_BUCKET_MS 500
+#define PRESSURE_TARE_BUCKETS 120
+#define PRESSURE_MIN_BUCKET_SAMPLES 4
+#define PRESSURE_TRANS_RANGE 2.5f
+#define PRESSURE_CLUSTER_SPAN 0.7f
+#define PRESSURE_IDLE_TOLERANCE 1.8f
+#define PRESSURE_IDLE_STEP 0.3f
+#define PRESSURE_TREND_MAX 0.6f
+#define PRESSURE_CAND_MAX_AGE 40
+#define PRESSURE_ANCHOR_FOLLOW_MAX 0.7f
+#define PRESSURE_ANCHOR_RATE 0.01f
+#define PRESSURE_ANCHOR_TAKE 40
+#define PRESSURE_ANCHOR_CONFIRM 24
+#define PRESSURE_ANCHOR_LIMIT 1.5f
+#define PRESSURE_ANCHOR_MATCH 1.0f
+#define PRESSURE_SUSPECT_ADJ 2
+#define PRESSURE_CHASE_REFILL 0.025f
+#define PRESSURE_CHASE_CAP 0.5f
+#define PRESSURE_REC_REFILL 0.1f
+#define PRESSURE_REC_CAP 2.0f
+#define PRESSURE_CROSS_TOL 0.6f
+#define PRESSURE_CROSS_STEP 0.4f
+#define PRESSURE_XSCAN_MAX 4
+// Display-only calibration of the manometer dial: physical pressure in mbar is
+//   compensatedPercent * targetStrength / PRESSURE_MBAR_CALIBRATION
+// Measured on real hardware against a physical manometer (5->25, 10->49, 15->75
+// at targetStrength 200), i.e. ~65000 HX711 counts per mbar at gain 64.
+// Deliberately NOT applied to PRESSURE_SENSOR_DIVISOR: the profile targetStrength
+// values are empirically tuned to the raw percent-of-target scaling, and changing
+// the divisor would shift every game threshold by the same factor.
+#define PRESSURE_MBAR_CALIBRATION 1000L
 
 #define PRESSURE_SENSOR_CUMULATIVE_ERROR_FACTOR 16
 
@@ -71,9 +105,10 @@
 #define FIRMWARE_FILE_NAME "firmware.bin"
 #define SDCARD_CONTENT_FILE_NAME "SDCardContent.tar"
 
-#define GAME_SELECTION_POWEROFF_TIMEOUT 3L*60L*1000L // Power off device if it spends >3 minutes on game selection screen
-#define WIN_SCREEN_TIMEOUT 3L*60L*1000L
-#define SHOW_SYSTEM_UPDATE_ON_WINSCREEN_TIMEOUT 3L*1000L
+// Multiplied the timeouts by 100L for debug purposes. I don't want the device to sleep while debugging.
+#define GAME_SELECTION_POWEROFF_TIMEOUT 100L*3L*60L*1000L // Power off device if it spends >3 minutes on game selection screen
+#define WIN_SCREEN_TIMEOUT 100L*3L*60L*1000L
+#define SHOW_SYSTEM_UPDATE_ON_WINSCREEN_TIMEOUT 100L*3L*1000L
 
 #define MANOMETER_WINSCREEN_PATH "/gfx/manometerWinscreen.bmp"
 

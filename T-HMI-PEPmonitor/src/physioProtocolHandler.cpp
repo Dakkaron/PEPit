@@ -199,6 +199,11 @@ static void drawManometerModeDisplay() {
       }
       spr.print(secondsLeft % 60);
     }
+  } else if (isInhalationTask()) {
+    // Manometer practice for inhalation-only profiles: no dial, just the cue.
+    spr.setTextSize(3);
+    spr.setTextDatum(CC_DATUM);
+    spr.drawString("Bitte inhalieren.", SCREEN_WIDTH/2, SCREEN_HEIGHT/2);
   } else {
     spr.drawCircle(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, 100, 0xffff);
     spr.setTextDatum(CC_DATUM);
@@ -216,18 +221,22 @@ static void drawManometerModeDisplay() {
         spr.drawLine(SCREEN_WIDTH/2 + cosI*100, SCREEN_HEIGHT/2 + sinI*100, SCREEN_WIDTH/2 + cosI*90, SCREEN_HEIGHT/2 + sinI*90, 0xffff);
       }
     }
-    spr.setTextSize(1);
-    spr.setTextDatum(TL_DATUM);
-    float angleInRadians = (float)(blowData.pressure)*0.025*PI - PI*0.5;
+    float dialMbar = blowData.pressure * blowData.targetPressure / (float)PRESSURE_MBAR_CALIBRATION;
+    if (blowData.taskType == PROFILE_TASK_TYPE_INHALATIONPEP && blowData.negativePressure) {
+      dialMbar = -dialMbar;
+    }
+    float angleInRadians = dialMbar*0.025*PI - PI*0.5;
     float cosI = cos(angleInRadians);
     float sinI = sin(angleInRadians);
     if (cosI>-0.01 && cosI<0.01) {
       cosI = 0.0;
     }
     spr.drawLine(SCREEN_WIDTH*0.5, SCREEN_HEIGHT*0.5, SCREEN_WIDTH*0.5 + cosI*60.0, SCREEN_HEIGHT*0.5 + sinI*60.0, 0xffff);
-
+  }
+  if (!isTrampolineTask()) {
     spr.fillRect(240, 210, 80, 30, TFT_BLUE);
     spr.setTextSize(2);
+    spr.setTextDatum(TL_DATUM);
     if (blowData.cycleNumber >= blowData.totalCycleNumber-1 && blowData.taskNumber >= blowData.totalTaskNumber-1) {
       spr.drawString("Fertig", 255, 220);
     } else {
@@ -612,7 +621,35 @@ void handlePhysioTask() {
     blowData.cycleNumber = currentCycle;
     blowData.totalBlowCount = profileData.taskRepetitions[currentTask];
     blowData.taskType = profileData.taskType[currentTask];
-    if (isPepTask() || isInhalationTask() || (isInhalationPEPTask() && !isInhalationPEPTaskActingLikePEP(&blowData))) {
+    static int tareTaskNumber = -1;
+    static uint32_t tareTarget1 = 0, tareTarget2 = 0;
+    if (currentTask != tareTaskNumber ||
+        profileData.taskTargetStrength[currentTask] != tareTarget1 ||
+        profileData.taskTargetStrength2[currentTask] != tareTarget2) {
+      tareTaskNumber = currentTask;
+      tareTarget1 = profileData.taskTargetStrength[currentTask];
+      tareTarget2 = profileData.taskTargetStrength2[currentTask];
+      tareReset();
+      float inhFS = 0, pepFS = 0;
+      if (isInhalationPEPTask()) {
+        inhFS = profileData.taskTargetStrength[currentTask] / 10.0f;
+        pepFS = profileData.taskTargetStrength2[currentTask] / 10.0f;
+      } else if (isInhalationTask()) {
+        inhFS = profileData.taskTargetStrength[currentTask] / 10.0f;
+      } else if (isPepTask()) {
+        pepFS = profileData.taskTargetStrength[currentTask] / 10.0f;
+      }
+      tareSetTask(inhFS, pepFS);
+    }
+    bool actingLikePEP = isInhalationPEPTaskActingLikePEP(&blowData);
+    if (isInhalationPEPTask() && systemConfig.manometerMode) {
+      static bool autoPepMode = false;
+      float dev = pressureDeviationMbar();
+      if (dev > 0.5f) autoPepMode = true;
+      else if (dev < -0.5f) autoPepMode = false;
+      actingLikePEP = autoPepMode;
+    }
+    if (isPepTask() || isInhalationTask() || (isInhalationPEPTask() && !actingLikePEP)) {
       blowData.targetPressure = profileData.taskTargetStrength[currentTask];
       blowData.minPressure = 100*profileData.taskMinStrength[currentTask]/profileData.taskTargetStrength[currentTask];
       blowData.negativePressure = profileData.taskNegativeStrength[currentTask];
