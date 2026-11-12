@@ -7,5 +7,8 @@
 void initPressureSensor(String* errorMessage);
 void readPressure(BlowData* blowData);
 void powerDownPressureSensor(bool down);
+void tareReset();
+void tareSetTask(float inhFullScaleMbar, float pepFullScaleMbar);
+float pressureDeviationMbar();
 
 #endif /*PRESSURESENSOR*/
