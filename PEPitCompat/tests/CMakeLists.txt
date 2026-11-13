@@ -17,6 +17,7 @@ add_executable(pepit_tests
     test_ini_parsing.cpp
     test_config_parsing.cpp
     test_pressure_sensor.cpp
+    test_manometer_display.cpp
     test_execution_log.cpp
     test_game_selection.cpp
     test_time_handling.cpp
