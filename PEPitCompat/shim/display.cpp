@@ -7,6 +7,7 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -206,7 +207,7 @@ static const uint64_t REC_MAX_LAG_US = 1000000;   // longer stalls: resync inste
 
 static int    recKey_        = SDL_SCANCODE_R;
 static volatile bool recPressPending_ = false;
-static FILE*  recRaw_        = nullptr;
+static std::atomic<FILE*> recRaw_{nullptr};  // lock-free reads only in idle-gate paths
 static char   recPath_[600]      = {0};
 static char   recRawPath_[600]   = {0};
 static char   recBaseTitle_[512] = {0};
@@ -299,9 +300,8 @@ static void startRecording() {
 
 static void stopRecording() {
     std::lock_guard<std::recursive_mutex> lock(recMutex_);
-    if (!recRaw_) return;
-    FILE* raw = recRaw_;
-    recRaw_ = nullptr;
+    FILE* raw = recRaw_.exchange(nullptr);
+    if (!raw) return;
     setRecordingTitle(false);
 
     uint64_t endUs = nowUs();
@@ -357,13 +357,18 @@ void toggleRecording() {
 // Called from every event pump (main loop, delay()/vTaskDelay poller): feeds
 // frames on a fixed schedule and applies pending keydown edges.
 void updateRecording() {
+    // A quit signal can freeze the calling thread right here (retireCurrentThread);
+    // an idle pump must never be holding recMutex_ when that happens, or main's
+    // shutdown path would deadlock on a permanently frozen owner.
+    if (!recPressPending_ && !recRaw_) return;
     std::lock_guard<std::recursive_mutex> lock(recMutex_);
     if (recPressPending_) {
         recPressPending_ = false;
         toggleRecording();
     }
 
-    if (!recRaw_ || !recFrame_) return;
+    FILE* raw = recRaw_.load();
+    if (!raw || !recFrame_) return;
     const uint64_t step = 1000000ull / REC_FPS;
     uint64_t now = nowUs();
     // Longer stalls (blocking game logic) are skipped rather than filled with
@@ -373,7 +378,7 @@ void updateRecording() {
     }
     while (recNextUs_ <= now) {
         fillRGB24FromFramebuffer(recFrame_);
-        if (fwrite(recFrame_, 1, 320 * 240 * 3, recRaw_) != 320 * 240 * 3) {
+        if (fwrite(recFrame_, 1, 320 * 240 * 3, raw) != 320 * 240 * 3) {
             printf("[PEPitCompat] Recording file write failed, stopping\n");
             stopRecording();
             return;
@@ -385,5 +390,19 @@ void updateRecording() {
 
 // Finalize an active recording on shutdown so the MP4 stays playable.
 void stopRecordingIfActive() {
-    stopRecording();
+    // A retired task can be frozen mid-pump while holding recMutex_; cleanup
+    // must not block forever on it. Give up after ~1s and keep the raw dump.
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        if (recMutex_.try_lock()) {
+            stopRecording();
+            recMutex_.unlock();
+            return;
+        }
+        usleep(50 * 1000);
+    }
+    if (recRaw_) {
+        printf("[PEPitCompat] Recording finalize skipped (task frozen holding recording lock); raw frames kept: %s\n",
+               recRawPath_);
+        fflush(stdout);
+    }
 }
