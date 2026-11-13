@@ -50,5 +50,6 @@ T-HMI-PEPmonitor/src/initModeConfig.h
 # Local work plans — never commit
 TASK_INFO/
 
-# Monster game save data is game content — never commit (licensing)
-PEPitCompat/data/prefs_game-monsters.dat
+# prefs*.dat are device/emulator runtime state (regenerated at runtime by the
+# shims) — never commit. Force-add (-f) only genuine test fixtures.
+prefs*.dat
