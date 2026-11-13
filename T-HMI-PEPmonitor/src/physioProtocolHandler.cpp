@@ -183,6 +183,31 @@ inline static bool isInhalationTask() {
   return profileData.taskType[currentTask] == PROFILE_TASK_TYPE_INHALATION;
 }
 
+// Manometer practice mode, Inhalation+PEP: dial direction follows the actual
+// breath sign (0.5 mbar deadband latch), not the counted-blow alternation.
+static bool manometerAutoPepMode = false;
+
+void manometerAutoDirectionUpdate(float devMbar) {
+  if (devMbar > 0.5f) manometerAutoPepMode = true;
+  else if (devMbar < -0.5f) manometerAutoPepMode = false;
+}
+
+bool manometerAutoDirectionIsPep() {
+  return manometerAutoPepMode;
+}
+
+void manometerAutoDirectionReset() {
+  manometerAutoPepMode = false;
+}
+
+// Dial value in calibrated mbar. Display-only sign: Inhalation+PEP inhalation
+// phases read negative (suction left of zero); blowData.pressure is untouched.
+float manometerDialMbar(const BlowData& b) {
+  float dialMbar = b.pressure * b.targetPressure / (float)PRESSURE_MBAR_CALIBRATION;
+  if (b.taskType == PROFILE_TASK_TYPE_INHALATIONPEP && b.negativePressure) dialMbar = -dialMbar;
+  return dialMbar;
+}
+
 static void drawManometerModeDisplay() {
   spr.fillSprite(TFT_BLACK);
   if (isTrampolineTask()) {
@@ -221,10 +246,7 @@ static void drawManometerModeDisplay() {
         spr.drawLine(SCREEN_WIDTH/2 + cosI*100, SCREEN_HEIGHT/2 + sinI*100, SCREEN_WIDTH/2 + cosI*90, SCREEN_HEIGHT/2 + sinI*90, 0xffff);
       }
     }
-    float dialMbar = blowData.pressure * blowData.targetPressure / (float)PRESSURE_MBAR_CALIBRATION;
-    if (blowData.taskType == PROFILE_TASK_TYPE_INHALATIONPEP && blowData.negativePressure) {
-      dialMbar = -dialMbar;
-    }
+    float dialMbar = manometerDialMbar(blowData);
     float angleInRadians = dialMbar*0.025*PI - PI*0.5;
     float cosI = cos(angleInRadians);
     float sinI = sin(angleInRadians);
@@ -643,11 +665,8 @@ void handlePhysioTask() {
     }
     bool actingLikePEP = isInhalationPEPTaskActingLikePEP(&blowData);
     if (isInhalationPEPTask() && systemConfig.manometerMode) {
-      static bool autoPepMode = false;
-      float dev = pressureDeviationMbar();
-      if (dev > 0.5f) autoPepMode = true;
-      else if (dev < -0.5f) autoPepMode = false;
-      actingLikePEP = autoPepMode;
+      manometerAutoDirectionUpdate(pressureDeviationMbar());
+      actingLikePEP = manometerAutoDirectionIsPep();
     }
     if (isPepTask() || isInhalationTask() || (isInhalationPEPTask() && !actingLikePEP)) {
       blowData.targetPressure = profileData.taskTargetStrength[currentTask];
