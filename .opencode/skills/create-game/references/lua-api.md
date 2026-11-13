@@ -3,7 +3,7 @@
 init (`init.lua`): `Ms`, `LeftHandedMode`
 
 `updateBlowData` (per frame, pep short/long/equal + inhalation):
-`CurrentlyBlowing` `Ms` `MsDelta` (=1 on new task) `BlowStartMs` `BlowEndMs` `TargetDurationMs` `TaskStartMs` `CurrentRepetition` (blows in task) `NewRepetition` (one-frame true at blow END) `Repetitions` (blows per task) `CycleNumber` `TotalCycleNumber` `TaskNumber` `CumulatedTaskNumber` (=taskNumber+cycleNumber*totalTaskNumber) `TotalTaskNumber` `IsNewTask` `TaskType` `Pressure` `PeakPressure` `MinPressure` `CumulativeError` `Fails` `LastBlowStatus` (1 ok, 2 failed, 4 new blow) `TotalTimeSpentBreathing` `BreathingScore` `LeftHandedMode`
+`CurrentlyBlowing` `Ms` `MsDelta` (=1 on new task) `BlowStartMs` `BlowEndMs` `TargetDurationMs` `TaskStartMs` `CurrentRepetition` (blows in task) `NewRepetition` (one-frame true at blow END) `Repetitions` (blows per task) `CycleNumber` `TotalCycleNumber` `TaskNumber` `CumulatedTaskNumber` (=taskNumber+cycleNumber*totalTaskNumber) `TotalTaskNumber` `IsNewTask` `TaskType` `Pressure` `PeakPressure` `MinPressure` `CumulativeError` `Fails` `LastBlowStatus` (1 succeeded = blow ended after lasting >`TargetDurationMs`, 2 failed = ended sooner, 4 new blow; blowing past the target is never a fail) `TotalTimeSpentBreathing` `BreathingScore` `LeftHandedMode`
 
 `updateJumpData` (trampoline):
 `Ms` `MsDelta` `CycleNumber` `TotalCycleNumber` `CumulatedTaskNumber` `TaskNumber` `TotalTaskNumber` `CurrentRepetition` (jumps) `CurrentBonusRepetition` `CurrentlyJumping` `NewRepetition` `NewBonusRepetition` `MsLeft` `LastJumpMs` `LeftHandedMode`
