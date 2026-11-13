@@ -55,6 +55,9 @@ static void quitSignalHandler(int) {
     g_requestQuit = 1;
     if (!g_jumpActive) return;
     if (mainThreadMayJump()) {
+        // Consume the jump before leaving: a nested alarm could otherwise
+        // siglongjmp through the same already-spent jmp_buf.
+        g_jumpActive = 0;
         siglongjmp(g_quitJumpBuf, 1);
     }
     retireCurrentThread();
@@ -67,12 +70,15 @@ static void quitSignalHandler(int) {
 // rule applies here.
 static void periodicCheckHandler(int) {
     // Check for quit conditions that may have been set by the main loop or other handlers
-    if (g_requestQuit) {
-        if (mainThreadMayJump()) {
-            siglongjmp(g_quitJumpBuf, 4); // Periodic check caught a pending quit
-        }
-        retireCurrentThread();
+    if (!g_requestQuit) return;
+    // Jump already consumed (main is tearing down): a pending alarm must not
+    // pause main mid-cleanup, and there is nothing left to escape from.
+    if (!g_jumpActive) return;
+    if (mainThreadMayJump()) {
+        g_jumpActive = 0;
+        siglongjmp(g_quitJumpBuf, 4); // Periodic check caught a pending quit
     }
+    retireCurrentThread();
 }
 
 // Install signal handlers and set up the jump buffer — call from main()

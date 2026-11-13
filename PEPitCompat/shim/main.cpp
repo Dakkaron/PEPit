@@ -379,20 +379,22 @@ int main(int argc, char* argv[]) {
     sigjmp_buf quitJumpBuf;
     int jumpResult = sigsetjmp(quitJumpBuf, 1);
     if (jumpResult != 0) {
-        // We jumped here from the signal handler — quit immediately
+        // We jumped here from the signal handler — skip straight to cleanup.
+        // The jmp_buf is spent: re-installing handlers/the periodic alarm here
+        // would let a late signal longjmp main a second time and run the
+        // cleanup below twice.
         printf("[PEPitCompat] Signal received, exiting...\n");
     }
 
-    // Install signal handlers with jump buffer for immediate escape from tight loops
-    initSignalHandlers(&quitJumpBuf);
-
-    // Write initial shot metadata so status/screenshot have valid state before first SHOT
-    // (must happen before setup() — setup() may block in the selection loops waiting for input)
-    writeShotMeta();
-    fprintf(stderr, "[PEPitCompat] PRE_SETUP_MARKER\n");
-
-    // If we jumped here from a signal during setup(), skip the main loop
     if (jumpResult == 0) {
+        // Install signal handlers with jump buffer for immediate escape from tight loops
+        initSignalHandlers(&quitJumpBuf);
+
+        // Write initial shot metadata so status/screenshot have valid state before first SHOT
+        // (must happen before setup() — setup() may block in the selection loops waiting for input)
+        writeShotMeta();
+        fprintf(stderr, "[PEPitCompat] PRE_SETUP_MARKER\n");
+
         // Call original setup() — initializes all peripherals and runs UI flow
         setup();
         fprintf(stderr, "[PEPitCompat] POST_SETUP_MARKER\n");
@@ -451,7 +453,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-cleanup:
     // Disable jump-based signal escapes before teardown: a late SIGINT/SIGTERM
     // must not longjmp out of the blocking recording transcode below and run
     // this cleanup twice.
