@@ -1,6 +1,3 @@
--- Progression menu: upgrade shop. Coins are earned by flying distance
--- (mainGame.lua) and persisted in Prefs; buying updates the physics
--- globals immediately so upgrades take effect in the running session.
 if not MenuTouch then MenuTouch = {} end
 if not MenuLastActionMs then MenuLastActionMs = 0 end
 if not MenuSel then MenuSel = 0 end
@@ -49,8 +46,6 @@ function selectOrBuySkin(i)
   end
 end
 
--- One press = one action: the handler only fires on the touch-down edge,
--- and the cooldown absorbs jittery touch signals between frames.
 function Button(id, x, y, w, h, label, enabled, action)
   FillRect(x, y, w, h, enabled and COL_GOLD or COL_GRAY)
   SetTextColor(COL_BLACK)

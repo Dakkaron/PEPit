@@ -1,13 +1,6 @@
--- Hot Air Balloon — per-frame game logic (runs in all five blow phases).
--- Injected globals: CurrentlyBlowing, Ms, MsDelta, NewRepetition, ...
--- (gameLua.cpp). Fuel is added on NewRepetition: the firmware's one-frame
--- pulse on every blow that reaches its target duration (blow END, not
--- blow start, same semantics as soccer).
 
--- ------------------------------------------------------------ steering
 local mag = UpdateSteering(Ms, MsDelta)
 
--- ------------------------------------------------------------ obstacles
 if State == "flying" then
   if Ms - LastSpawnMs >= SPAWN_MS then
     LastSpawnMs = Ms
@@ -30,7 +23,6 @@ if State == "flying" then
   end
 end
 
--- ------------------------------------------------------------ distance & coins
 if State == "flying" then
   GroundOffset = GroundOffset + DRIFT_SPEED * (MsDelta / 1000)
   Distance = GroundOffset + (BalloonX - START_X)
@@ -42,11 +34,10 @@ if State == "flying" then
   end
 end
 
--- ------------------------------------------------------------ fuel
 if NewRepetition then
-  Fuel = Fuel + FUEL_PER_BLOW      -- the completed blow stoked the flames
+  Fuel = Fuel + FUEL_PER_BLOW
   FlameUntilMs = Ms + 900
-  VelY = VelY - 20                -- a little lift with the new heat
+  VelY = VelY - 20
 end
 if CurrentlyBlowing then
   Fuel = Fuel + BLOW_GAIN * (MsDelta / 1000)
@@ -61,20 +52,16 @@ if State == "flying" and Fuel <= 0 then
   State = "crashing"
 end
 
--- ------------------------------------------------------------ motion
 if State == "flying" then
   BalloonX = Constrain(BalloonX + VelX * (MsDelta / 1000), 30, 285)
   BalloonY = Constrain(BalloonY + VelY * (MsDelta / 1000),
                        PLAY_TOP + BALLOON_R + 2, GROUND_Y - BASKET_DROP)
 else
-  -- the balloon drops out of the sky, then the run resets
   VelY = VelY + 160 * (MsDelta / 1000)
   BalloonY = BalloonY + VelY * (MsDelta / 1000)
   if BalloonY > GROUND_Y - BASKET_DROP then BalloonY = GROUND_Y - BASKET_DROP end
   if Ms - CrashMs > CRASH_MS then
     Fuel = FUEL_START
-    -- fold the balloon's screen offset into the world position so the
-    -- flown distance survives the reset
     GroundOffset = GroundOffset + (BalloonX - START_X)
     BalloonX, BalloonY = START_X, START_Y
     VelX, VelY = 0, 0
@@ -85,10 +72,8 @@ else
   end
 end
 
--- --------------------------------------------------------------- drawing
 DrawSprite(SBackground, 0, PLAY_TOP)
 
--- grass tufts ride the world at DRIFT_SPEED, making the ground visibly scroll
 for i = GroundOffset // GROUND_SPACING, (GroundOffset + 320) // GROUND_SPACING do
   DrawSprite(STuft, i * GROUND_SPACING - GroundOffset, GROUND_Y + 4)
 end
