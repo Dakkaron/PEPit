@@ -112,6 +112,10 @@ public:
         size_t pos = data.find(cstr, from);
         return pos == std::string::npos ? -1 : (int32_t)pos;
     }
+    int32_t lastIndexOf(char c) const {
+        size_t pos = data.rfind(c);
+        return pos == std::string::npos ? -1 : (int32_t)pos;
+    }
 
     // Substring
     String substring(uint32_t start) const {
