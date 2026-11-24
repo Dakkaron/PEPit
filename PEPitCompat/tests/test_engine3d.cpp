@@ -146,6 +146,96 @@ std::filesystem::path writeModelFixtures(const std::string& name) {
     return root;
 }
 
+void markerColor(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b) {
+    if (x >= 48 && y < 16) { *r = 240; *g = 20; *b = 20; }
+    else { *r = 20; *g = 20; *b = 240; }
+}
+
+std::string makeMarkerBmp(int w, int h) {
+    int rowSize = (w * 3 + 3) & ~3;
+    std::string out;
+    out.append("BM");
+    auto put32 = [&](uint32_t v) { out.append((const char*)&v, 4); };
+    auto put16 = [&](uint16_t v) { out.append((const char*)&v, 2); };
+    put32(54 + rowSize * h);
+    put32(0);
+    put32(54);
+    put32(40);
+    put32(w);
+    put32(h);
+    put16(1);
+    put16(24);
+    put32(0);
+    put32(rowSize * h);
+    put32(2835);
+    put32(2835);
+    put32(0);
+    put32(0);
+    uint8_t r, g, b;
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            markerColor(x, h - 1 - y, &r, &g, &b);
+            out += char(b); out += char(g); out += char(r);
+        }
+        out.append(rowSize - w * 3, 0);
+    }
+    return out;
+}
+
+const char* UVFIXED_OBJ =
+    "mtllib cube.mtl\n"
+    "v 25 25 -25\nv -25 25 -25\nv -25 -25 -25\nv 25 -25 -25\n"
+    "v 25 25 25\nv -25 25 25\nv -25 -25 25\nv 25 -25 25\n"
+    "vt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\n"
+    "vn 0 0 -1\nvn -1 0 0\nvn 0 0 1\nvn 1 0 0\nvn 0 1 0\nvn 0 -1 0\n"
+    "usemtl marker\ns off\n"
+    "f 1/3/1 4/2/1 3/1/1\nf 1/3/1 3/1/1 2/4/1\n"
+    "f 7/2/3 8/1/3 5/4/3\nf 7/2/3 5/4/3 6/3/3\n"
+    "f 4/1/4 1/4/4 5/3/4\nf 4/1/4 5/3/4 8/2/4\n"
+    "f 2/3/2 3/2/2 7/1/2\nf 2/3/2 7/1/2 6/4/2\n"
+    "f 6/4/5 5/3/5 1/2/5\nf 6/4/5 1/2/5 2/1/5\n"
+    "f 8/1/6 7/2/6 3/3/6\nf 8/1/6 3/3/6 4/4/6\n";
+
+void runView(const char* label, float yaw) {
+    resetWorld3D();
+    int16_t mesh = loadMesh3D(String("/models/cube.obj"));
+    REQUIRE(mesh >= 0);
+    int16_t cube = createEntity3D(mesh);
+    rotateEntity3D(cube, 0, yaw, 0);
+
+    TFT_eSprite disp = TFT_eSprite(&tft);
+    disp.setColorDepth(16);
+    disp.createSprite(320, 240);
+    disp.fillSprite(0);
+    updateWorld3D(&disp);
+    drawWorld3D(&disp);
+    const uint16_t* fb = (const uint16_t*)disp.getPointer();
+
+    long sx = 0, sy = 0; int n = 0, nblue = 0;
+    long lx0 = 9999, lx1 = -1, ly0 = 9999, ly1 = -1;
+    for (int y = 0; y < 240; y++) {
+        for (int x = 0; x < 320; x++) {
+            uint16_t p = __builtin_bswap16(fb[y * 320 + x]);
+            if (!p) continue;
+            int r = (p >> 11) & 31, g = (p >> 5) & 63, b = p & 31;
+            if (x < lx0) lx0 = x; if (x > lx1) lx1 = x;
+            if (y < ly0) ly0 = y; if (y > ly1) ly1 = y;
+            if (r >= 10 && g <= 7 && b <= 7) { sx += x; sy += y; n++; }
+            else if (b >= 15 && b > r + 4) nblue++;
+        }
+    }
+    if (n == 0) { printf("%s: no marker pixels (blue=%d)\n", label, nblue); }
+    else {
+        double cx = (double)sx / n, cy = (double)sy / n;
+        double mx = (lx0 + lx1) / 2.0, my = (ly0 + ly1) / 2.0;
+        printf("%s: facebox x[%ld..%ld] y[%ld..%ld] marker n=%d pos=(%.0f,%.0f) -> %s-%s\n",
+               label, lx0, lx1, ly0, ly1, n, cx, cy,
+               cx < mx ? "LEFT" : "RIGHT", cy < my ? "TOP" : "BOTTOM");
+    }
+    fflush(stdout);
+    disp.deleteSprite();
+}
+
 }  // namespace
 
 TEST_CASE("engine3d: OBJ load auto-textures via mtllib map_Kd and renders textured", "[engine3d]") {
@@ -168,6 +258,39 @@ TEST_CASE("engine3d: OBJ load auto-textures via mtllib map_Kd and renders textur
     CHECK(r >= g);
     CHECK(g >= b);
 
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: per-face UV winding keeps texture orientation consistent", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_chirality");
+    writeSdFile(root, "models/cube.obj", UVFIXED_OBJ);
+    writeSdFile(root, "models/cube.mtl", "newmtl marker\nmap_Kd marker.bmp\n");
+    writeSdFile(root, "models/marker.bmp", makeMarkerBmp(64, 64));
+
+    struct View { const char* name; float yaw; };
+    for (View v : {View{"front", 0.0f}, View{"yaw+90", 90.0f}, View{"yaw-90", -90.0f}}) {
+        resetWorld3D();
+        int16_t mesh = loadMesh3D(String("/models/cube.obj"));
+        REQUIRE(mesh >= 0);
+        int16_t cube = createEntity3D(mesh);
+        rotateEntity3D(cube, 0, v.yaw, 0);
+
+        Display3D d;
+        d.render();
+        long sx = 0, sy = 0;
+        int n = 0;
+        for (int y = 51; y <= 189; y++) {          // cube silhouette rows
+            for (int x = 91; x <= 229; x++) {
+                int r, g, b;
+                Display3D::rgb(d.pixel(x, y), r, g, b);
+                if (r > 120 && g < 60 && b < 60) { sx += x; sy += y; n++; }
+            }
+        }
+        INFO(v.name);
+        CHECK(n > 300);                            // marker present on the visible face
+        CHECK(sx > n * 160);                       // right half of the face
+        CHECK(sy < n * 120);                       // upper half of the face
+    }
     resetWorld3D();
 }
 

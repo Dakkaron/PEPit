@@ -1,4 +1,8 @@
 # 3ddemo cube, 50 units, standard CCW winding
+# uv convention: v=0 is the texture's bottom row, v=1 the top row.
+# Each face lists its four corners' uv so the texture is upright when the
+# face is seen from outside the cube; shared corners carry matching uv ends
+# so the pattern stays continuous (and rotates WITH the cube) across edges.
 mtllib cube.mtl
 o cube
 v 25 25 -25
@@ -21,15 +25,21 @@ vn 0 1 0
 vn 0 -1 0
 usemtl bricks
 s off
-f 1/1/1 4/2/1 3/3/1
-f 1/1/1 3/3/1 2/4/1
-f 7/1/3 8/2/3 5/3/3
-f 7/1/3 5/3/3 6/4/3
-f 4/1/4 1/2/4 5/3/4
-f 4/1/4 5/3/4 8/4/4
-f 2/1/2 3/2/2 7/3/2
-f 2/1/2 7/3/2 6/4/2
-f 6/1/5 5/2/5 1/3/5
-f 6/1/5 1/3/5 2/4/5
+# front (vn1): v2 UL v1 UR v4 LR v3 LL
+f 1/3/1 4/2/1 3/1/1
+f 1/3/1 3/1/1 2/4/1
+# back (vn3): v6 UL v5 UR v8 LR v7 LL (x axis appears flipped from behind)
+f 7/2/3 8/1/3 5/4/3
+f 7/2/3 5/4/3 6/3/3
+# right (vn4): v4 LL v1 UL v5 UR v8 LR
+f 4/1/4 1/4/4 5/3/4
+f 4/1/4 5/3/4 8/2/4
+# left (vn2): v7 LL v6 UL v2 UR v3 LR
+f 2/3/2 3/2/2 7/1/2
+f 2/3/2 7/1/2 6/4/2
+# top (vn5): texture up = back edge: v2 LL v6 UL v5 UR v1 LR
+f 6/4/5 5/3/5 1/2/5
+f 6/4/5 1/2/5 2/1/5
+# bottom (vn6): texture up = front edge: v8 LL v7 LR v4 UL v3 UR
 f 8/1/6 7/2/6 3/3/6
 f 8/1/6 3/3/6 4/4/6
