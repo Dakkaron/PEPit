@@ -16,7 +16,7 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <string>
+#include <string>\n#include <vector>
 
 #include "Arduino.h"
 #include "TFT_eSPI.h"
@@ -236,6 +236,23 @@ void runView(const char* label, float yaw) {
     disp.deleteSprite();
 }
 
+void stripeColor(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b) {
+    if ((x / 8) & 1) { *r = 255; *g = 255; *b = 255; }
+    else { *r = 30; *g = 30; *b = 180; }
+}
+
+/*
+ * Single planar quad tilted so depth varies from 55 (left) to 95 (right):
+ * perspective-correct mapping compresses stripe density toward the far side,
+ * screen-affine mapping keeps every stripe the same width.
+ */
+const char* TILTQUAD_OBJ =
+    "mtllib quad.mtl\n"
+    "v -25 25 -45\nv 25 25 -5\nv 25 -25 -5\nv -25 -25 -45\n"
+    "vt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\n"
+    "usemtl stripes\n"
+    "f 1/4 2/3 3/2\nf 1/4 3/2 4/1\n";
+
 }  // namespace
 
 TEST_CASE("engine3d: OBJ load auto-textures via mtllib map_Kd and renders textured", "[engine3d]") {
@@ -291,6 +308,61 @@ TEST_CASE("engine3d: per-face UV winding keeps texture orientation consistent", 
         CHECK(sx > n * 160);                       // right half of the face
         CHECK(sy < n * 120);                       // upper half of the face
     }
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: texture interpolation is perspective-correct", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_persp");
+    writeSdFile(root, "models/quad.obj", TILTQUAD_OBJ);
+    writeSdFile(root, "models/quad.mtl", "newmtl stripes\nmap_Kd stripes.bmp\n");
+    writeSdFile(root, "models/stripes.bmp", makeBmp24(64, 64, stripeColor));
+    resetWorld3D();
+
+    int16_t mesh = loadMesh3D(String("/models/quad.obj"));
+    REQUIRE(mesh >= 0);
+    REQUIRE(createEntity3D(mesh) >= 0);
+
+    Display3D d;
+    d.render();  // default camera at (0,0,-100): near edge at x=-25, far at x=25
+
+    const int ROW = 120;
+    int faceL = -1, faceR = -1;
+    std::vector<int> boundaries;
+    int prevClass = -1;
+    for (int x = 0; x < 320; x++) {
+        int r, g, b;
+        Display3D::rgb(d.pixel(x, ROW), r, g, b);
+        int cls = -1;
+        if (r > 60 && g > 60 && b > 60) cls = 1;              // white stripe
+        else if (b > 60 && b > r + 20 && b > g + 20) cls = 0; // dark stripe
+        if (cls < 0) continue;
+        if (faceL < 0) faceL = x;
+        faceR = x;
+        if (prevClass >= 0 && cls != prevClass) boundaries.push_back(x);
+        prevClass = cls;
+    }
+    REQUIRE(faceR - faceL > 80);
+    REQUIRE(boundaries.size() >= 6);
+
+    int mid = (faceL + faceR) / 2;
+    long nearSpan = 0, farSpan = 0;
+    int nearCount = 0, farCount = 0;
+    std::vector<int> cuts = boundaries;
+    cuts.insert(cuts.begin(), faceL);
+    cuts.push_back(faceR);
+    for (size_t i = 1; i < cuts.size(); i++) {
+        int span = cuts[i] - cuts[i - 1];
+        int spanMid = (cuts[i] + cuts[i - 1]) / 2;
+        if (spanMid < mid) { nearSpan += span; nearCount++; }
+        else if (spanMid > mid) { farSpan += span; farCount++; }
+    }
+    REQUIRE(nearCount >= 2);
+    REQUIRE(farCount >= 2);
+    double nearAvg = (double)nearSpan / nearCount;
+    double farAvg = (double)farSpan / farCount;
+    INFO("near stripe width " << nearAvg << ", far " << farAvg);
+    CHECK(nearAvg > farAvg * 1.25);   // affine mapping would give a ratio of 1
+
     resetWorld3D();
 }
 

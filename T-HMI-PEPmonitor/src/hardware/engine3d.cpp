@@ -102,7 +102,8 @@ typedef struct {
 
 typedef struct {
   int32_t sx[4], sy[4];   // Q8 screen coordinates
-  int32_t su[4], sv[4];   // Q16 texture coordinates
+  float ru[4], rv[4];     // Q16 texture coords times 1/viewZ (screen-linear)
+  float rz[4];            // 1/viewZ; dividing ru/rz gives perspective-correct uv
   uint32_t color[4];      // per-vertex Gouraud color, 0x00RRGGBB
   const uint16_t* tex;    // null unless textured
   int16_t texW, texH, texMask;
@@ -1441,9 +1442,10 @@ void updateWorld3D(DISPLAY_T* display) {
         d->sx[0] = mesh->scrX[ia]; d->sy[0] = mesh->scrY[ia];
         d->sx[1] = mesh->scrX[ib]; d->sy[1] = mesh->scrY[ib];
         d->sx[2] = mesh->scrX[ic]; d->sy[2] = mesh->scrY[ic];
-        d->su[0] = uvA0; d->sv[0] = uvA1;
-        d->su[1] = uvB0; d->sv[1] = uvB1;
-        d->su[2] = uvC0; d->sv[2] = uvC1;
+        float izA = 1.0f / za, izB = 1.0f / zb, izC = 1.0f / zc;
+        d->ru[0] = uvA0 * izA; d->rv[0] = uvA1 * izA; d->rz[0] = izA;
+        d->ru[1] = uvB0 * izB; d->rv[1] = uvB1 * izB; d->rz[1] = izB;
+        d->ru[2] = uvC0 * izC; d->rv[2] = uvC1 * izC; d->rz[2] = izC;
         d->color[0] = colA;
         d->color[1] = colB;
         d->color[2] = colC;
@@ -1460,8 +1462,10 @@ void updateWorld3D(DISPLAY_T* display) {
         zAvg = 0.0f;
         for (uint8_t ci = 0; ci < clipCount; ci++) {
           projectClipPoint3D(clipPos[ci], projScale, halfW, halfH, &d->sx[ci], &d->sy[ci]);
-          d->su[ci] = clipU[ci];
-          d->sv[ci] = clipV[ci];
+          float izc = 1.0f / clipPos[ci][2];
+          d->ru[ci] = clipU[ci] * izc;
+          d->rv[ci] = clipV[ci] * izc;
+          d->rz[ci] = izc;
           d->color[ci] = clipCol[ci];
           zAvg += clipPos[ci][2];
         }
@@ -1483,7 +1487,8 @@ void updateWorld3D(DISPLAY_T* display) {
   }
 }
 // ---------------------------------------------------------------------------
-// Rasterizer: integer span filling with Gouraud shading and affine textures
+// Rasterizer: integer span filling with Gouraud shading (screen-space) and
+// perspective-correct textures (u/z and 1/z interpolated, divided per pixel)
 // ---------------------------------------------------------------------------
 
 static inline uint16_t sampleTexel3D(const uint16_t* tex, int32_t tw, int32_t th,
@@ -1513,35 +1518,38 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
   int32_t x1 = t->sx[i1], y1 = t->sy[i1];
   int32_t x2 = t->sx[i2], y2 = t->sy[i2];
   uint32_t c0 = t->color[i0], c1 = t->color[i1], c2 = t->color[i2];
-  int32_t u0 = t->su[i0], v0 = t->sv[i0];
-  int32_t u1 = t->su[i1], v1 = t->sv[i1];
-  int32_t u2 = t->su[i2], v2 = t->sv[i2];
+  float u0 = t->ru[i0], v0 = t->rv[i0], w0 = t->rz[i0];
+  float u1 = t->ru[i1], v1 = t->rv[i1], w1 = t->rz[i1];
+  float u2 = t->ru[i2], v2 = t->rv[i2], w2 = t->rz[i2];
   uint8_t mode = t->mode;
   const uint16_t* texPix = t->tex;
   if ((mode == 2 || mode == 3) && !texPix) mode = (mode == 2) ? 1 : 0;
 
   if (y0 > y1) {
-    int32_t tv; uint32_t tc;
+    int32_t tv; uint32_t tc; float tf;
     tv = x0; x0 = x1; x1 = tv;
     tv = y0; y0 = y1; y1 = tv;
-    tv = u0; u0 = u1; u1 = tv;
-    tv = v0; v0 = v1; v1 = tv;
+    tf = u0; u0 = u1; u1 = tf;
+    tf = v0; v0 = v1; v1 = tf;
+    tf = w0; w0 = w1; w1 = tf;
     tc = c0; c0 = c1; c1 = tc;
   }
   if (y1 > y2) {
-    int32_t tv; uint32_t tc;
+    int32_t tv; uint32_t tc; float tf;
     tv = x1; x1 = x2; x2 = tv;
     tv = y1; y1 = y2; y2 = tv;
-    tv = u1; u1 = u2; u2 = tv;
-    tv = v1; v1 = v2; v2 = tv;
+    tf = u1; u1 = u2; u2 = tf;
+    tf = v1; v1 = v2; v2 = tf;
+    tf = w1; w1 = w2; w2 = tf;
     tc = c1; c1 = c2; c2 = tc;
   }
   if (y0 > y1) {
-    int32_t tv; uint32_t tc;
+    int32_t tv; uint32_t tc; float tf;
     tv = x0; x0 = x1; x1 = tv;
     tv = y0; y0 = y1; y1 = tv;
-    tv = u0; u0 = u1; u1 = tv;
-    tv = v0; v0 = v1; v1 = tv;
+    tf = u0; u0 = u1; u1 = tf;
+    tf = v0; v0 = v1; v1 = tf;
+    tf = w0; w0 = w1; w1 = tf;
     tc = c0; c0 = c1; c1 = tc;
   }
   if (y2 - y0 <= 0) return;
@@ -1589,19 +1597,19 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
       sCb = ((b2 - b1) * 256) / dy12;
     }
   }
-  int32_t sAu = 0, sAv = 0, sBu = 0, sBv = 0, sCu = 0, sCv = 0;
+  float sAu = 0, sAv = 0, sAw = 0, sBu = 0, sBv = 0, sBw = 0, sCu = 0, sCv = 0, sCw = 0;
   if (wantUV) {
     if (dy02 > 0) {
-      sAu = ((u2 - u0) * 256) / dy02;
-      sAv = ((v2 - v0) * 256) / dy02;
+      float inv = 256.0f / (float)dy02;
+      sAu = (u2 - u0) * inv; sAv = (v2 - v0) * inv; sAw = (w2 - w0) * inv;
     }
     if (dy01 > 0) {
-      sBu = ((u1 - u0) * 256) / dy01;
-      sBv = ((v1 - v0) * 256) / dy01;
+      float inv = 256.0f / (float)dy01;
+      sBu = (u1 - u0) * inv; sBv = (v1 - v0) * inv; sBw = (w1 - w0) * inv;
     }
     if (dy12 > 0) {
-      sCu = ((u2 - u1) * 256) / dy12;
-      sCv = ((v2 - v1) * 256) / dy12;
+      float inv = 256.0f / (float)dy12;
+      sCu = (u2 - u1) * inv; sCv = (v2 - v1) * inv; sCw = (w2 - w1) * inv;
     }
   }
 
@@ -1675,27 +1683,28 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
         break;
       }
       case 3: {
-        int32_t auA = u0 + sAu * kA, avA = v0 + sAv * kA;
-        int32_t auB, avB;
-        if (lower) { auB = u1 + sCu * kB; avB = v1 + sCv * kB; }
-        else { auB = u0 + sBu * kB; avB = v0 + sBv * kB; }
-        int32_t curU = bIsLeft ? auB : auA;
-        int32_t curV = bIsLeft ? avB : avA;
-        int32_t rightU = bIsLeft ? auA : auB;
-        int32_t rightV = bIsLeft ? avA : avB;
-        int32_t dU = (span > 0) ? ((rightU - curU) * 256) / span : 0;
-        int32_t dV = (span > 0) ? ((rightV - curV) * 256) / span : 0;
-        curU += (dU * dist) >> 8;
-        curV += (dV * dist) >> 8;
+        float kaF = (float)kA, kbF = (float)kB;
+        float auA = u0 + sAu * kaF, avA = v0 + sAv * kaF, awA = w0 + sAw * kaF;
+        float auB, avB, awB;
+        if (lower) { auB = u1 + sCu * kbF; avB = v1 + sCv * kbF; awB = w1 + sCw * kbF; }
+        else { auB = u0 + sBu * kbF; avB = v0 + sBv * kbF; awB = w0 + sBw * kbF; }
+        float curUw = bIsLeft ? auB : auA, curVw = bIsLeft ? avB : avA, curW = bIsLeft ? awB : awA;
+        float rightUw = bIsLeft ? auA : auB, rightVw = bIsLeft ? avA : avB, rightW = bIsLeft ? awA : awB;
+        float fspan = (span > 0) ? (float)span : 1.0f;
+        float dUw = (rightUw - curUw) * 256.0f / fspan;
+        float dVw = (rightVw - curVw) * 256.0f / fspan;
+        float dW = (rightW - curW) * 256.0f / fspan;
+        float distF = (float)dist * 0.00390625f;
+        curUw += dUw * distF; curVw += dVw * distF; curW += dW * distF;
         for (int32_t x = px0; x <= px1; x++) {
-          uint32_t smp = sampleTexel3D(texPix, texW, texH, texMask, curU, curV);
+          float f = (curW > 1e-12f) ? (1.0f / curW) : 0.0f;
+          uint32_t smp = sampleTexel3D(texPix, texW, texH, texMask, (int32_t)(curUw * f), (int32_t)(curVw * f));
           uint32_t r5 = (((smp >> 11) & 31) * (uint32_t)lightR5) >> 5;
           uint32_t g6 = (((smp >> 5) & 63) * (uint32_t)lightG6) >> 6;
           uint32_t b5 = ((smp & 31) * (uint32_t)lightB5) >> 5;
           // framebuffer holds byte-swapped RGB565 words (TFT_eSPI convention)
           row[x] = __builtin_bswap16((uint16_t)((r5 << 11) | (g6 << 5) | b5));
-          curU += dU;
-          curV += dV;
+          curUw += dUw; curVw += dVw; curW += dW;
         }
         break;
       }
@@ -1704,30 +1713,31 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
         int32_t arB, agB, abB;
         if (lower) { arB = r1 + sCr * kB; agB = g1 + sCg * kB; abB = b1 + sCb * kB; }
         else { arB = r0 + sBr * kB; agB = g0 + sBg * kB; abB = b0 + sBb * kB; }
-        int32_t auA = u0 + sAu * kA, avA = v0 + sAv * kA;
-        int32_t auB, avB;
-        if (lower) { auB = u1 + sCu * kB; avB = v1 + sCv * kB; }
-        else { auB = u0 + sBu * kB; avB = v0 + sBv * kB; }
+        float kaF = (float)kA, kbF = (float)kB;
+        float auA = u0 + sAu * kaF, avA = v0 + sAv * kaF, awA = w0 + sAw * kaF;
+        float auB, avB, awB;
+        if (lower) { auB = u1 + sCu * kbF; avB = v1 + sCv * kbF; awB = w1 + sCw * kbF; }
+        else { auB = u0 + sBu * kbF; avB = v0 + sBv * kbF; awB = w0 + sBw * kbF; }
         int32_t leftR = bIsLeft ? arB : arA;
         int32_t leftG = bIsLeft ? agB : agA;
         int32_t leftB = bIsLeft ? abB : abA;
         int32_t rightR = bIsLeft ? arA : arB;
         int32_t rightG = bIsLeft ? agA : agB;
         int32_t rightB = bIsLeft ? abA : abB;
-        int32_t leftU = bIsLeft ? auB : auA;
-        int32_t leftV = bIsLeft ? avB : avA;
-        int32_t rightU = bIsLeft ? auA : auB;
-        int32_t rightV = bIsLeft ? avA : avB;
+        float curUw = bIsLeft ? auB : auA, curVw = bIsLeft ? avB : avA, curW = bIsLeft ? awB : awA;
+        float rightUw = bIsLeft ? auA : auB, rightVw = bIsLeft ? avA : avB, rightW = bIsLeft ? awA : awB;
         int32_t dR = (span > 0) ? ((rightR - leftR) * 256) / span : 0;
         int32_t dG = (span > 0) ? ((rightG - leftG) * 256) / span : 0;
         int32_t dB = (span > 0) ? ((rightB - leftB) * 256) / span : 0;
-        int32_t dU = (span > 0) ? ((rightU - leftU) * 256) / span : 0;
-        int32_t dV = (span > 0) ? ((rightV - leftV) * 256) / span : 0;
+        float fspan = (span > 0) ? (float)span : 1.0f;
+        float dUw = (rightUw - curUw) * 256.0f / fspan;
+        float dVw = (rightVw - curVw) * 256.0f / fspan;
+        float dW = (rightW - curW) * 256.0f / fspan;
+        float distF = (float)dist * 0.00390625f;
         int32_t curR = leftR + ((dR * dist) >> 8);
         int32_t curG = leftG + ((dG * dist) >> 8);
         int32_t curB = leftB + ((dB * dist) >> 8);
-        int32_t curU = leftU + ((dU * dist) >> 8);
-        int32_t curV = leftV + ((dV * dist) >> 8);
+        curUw += dUw * distF; curVw += dVw * distF; curW += dW * distF;
         for (int32_t x = px0; x <= px1; x++) {
           int32_t r8 = curR >> 8;
           int32_t g8 = curG >> 8;
@@ -1735,7 +1745,8 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
           if (r8 < 0) r8 = 0; else if (r8 > 255) r8 = 255;
           if (g8 < 0) g8 = 0; else if (g8 > 255) g8 = 255;
           if (b8 < 0) b8 = 0; else if (b8 > 255) b8 = 255;
-          uint32_t smp = sampleTexel3D(texPix, texW, texH, texMask, curU, curV);
+          float f = (curW > 1e-12f) ? (1.0f / curW) : 0.0f;
+          uint32_t smp = sampleTexel3D(texPix, texW, texH, texMask, (int32_t)(curUw * f), (int32_t)(curVw * f));
           uint32_t r5 = (((smp >> 11) & 31) * (uint32_t)(r8 >> 3)) >> 5;
           uint32_t g6 = (((smp >> 5) & 63) * (uint32_t)(g8 >> 2)) >> 6;
           uint32_t b5 = ((smp & 31) * (uint32_t)(b8 >> 3)) >> 5;
@@ -1744,8 +1755,7 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
           curR += dR;
           curG += dG;
           curB += dB;
-          curU += dU;
-          curV += dV;
+          curUw += dUw; curVw += dVw; curW += dW;
         }
         break;
       }
