@@ -349,13 +349,10 @@ def build():
             add_box(sx * 5.95, wy + 1.2, z, 1.5, 0.3, 0.5, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
             add_box(sx * 5.95, 1.6, z, 1.5, 0.3, 0.5, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
 
-    # wheels
-    for sx in (1, -1):
-        add_wheel(sx * 9.0, 4.6, 12.6, 4.6, 1.45, 36)
-        add_wheel(sx * 9.4, 5.1, -11.8, 5.1, 1.7, 36)
 
-def write_obj():
-    lines = ["# procedural race car for PEPit 3D engine", "mtllib racecar.mtl", "o racecar"]
+
+def write_obj(name):
+    lines = ["# procedural race car part for PEPit 3D engine", "mtllib %s.mtl" % name, "o %s" % name]
     for x, y, z in verts:
         lines.append("v %.3f %.3f %.3f" % (x, y, z))
     for u, v in uvs:
@@ -366,7 +363,7 @@ def write_obj():
     for va, vb, vc, ta, tb, tc, ni in faces:
         lines.append("f %d/%d/%d %d/%d/%d %d/%d/%d" % (
             va + 1, ta + 1, ni + 1, vb + 1, tb + 1, ni + 1, vc + 1, tc + 1, ni + 1))
-    with open(os.path.join(OUT_DIR, "racecar.obj"), "w") as f:
+    with open(os.path.join(OUT_DIR, name + ".obj"), "w") as f:
         f.write("\n".join(lines) + "\n")
 
 def draw_atlas():
@@ -440,13 +437,26 @@ def draw_atlas():
 
     img.save(os.path.join(OUT_DIR, "racecar.bmp"))
 
-def write_mtl():
-    with open(os.path.join(OUT_DIR, "racecar.mtl"), "w") as f:
+def write_mtl(name):
+    with open(os.path.join(OUT_DIR, name + ".mtl"), "w") as f:
         f.write("newmtl racecar\nKd 1.000 1.000 1.000\nmap_Kd racecar.bmp\n")
+
+def build_wheel(name, r, half_w, segs):
+    global verts, uvs, normals, faces
+    verts, uvs, normals, faces = [], [], [], []
+    add_wheel(0, 0, 0, r, half_w, segs)
+    write_obj(name)
+    write_mtl(name)
+    print(name + ":", len(faces), "tris")
+
+# hub centers used by the game scripts to place wheel entities under the car
+WHEEL_POS = {"front": (9.0, 4.6, 12.6 * ZLEN), "rear": (9.4, 5.1, -11.8 * ZLEN)}
 
 if __name__ == "__main__":
     build()
-    write_obj()
+    write_obj("racecar")
+    print("body:", len(faces), "tris")
     draw_atlas()
-    write_mtl()
-    print("triangles:", len(faces), "raw v:", len(verts), "raw vn:", len(normals))
+    write_mtl("racecar")
+    build_wheel("wheel_front", 4.6, 1.45, 36)
+    build_wheel("wheel_rear", 5.1, 1.7, 36)

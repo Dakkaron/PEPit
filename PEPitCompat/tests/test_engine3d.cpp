@@ -345,9 +345,9 @@ TEST_CASE("engine3d: created camera replaces the implicit default", "[engine3d]"
 }
 
 TEST_CASE("engine3d: procedural racecar model loads fully textured", "[engine3d]") {
-    // The repo-shipped racecar (tools/gen_racecar.py): every triangle of the
-    // OBJ must load, the mtl atlas must auto-attach, and the car must render
-    // from two opposite sides.
+    // The repo-shipped racecar (tools/gen_racecar.py): body plus two wheel
+    // meshes, every triangle of each OBJ must load, the mtl atlas must
+    // auto-attach, and the assembled car must render from opposite sides.
     std::filesystem::path repoRoot = std::filesystem::path(__FILE__).parent_path()
         .parent_path().parent_path();
     std::filesystem::path models = repoRoot / "SDCardContent" / "games" / "3ddemo" / "models";
@@ -356,27 +356,55 @@ TEST_CASE("engine3d: procedural racecar model loads fully textured", "[engine3d]
         REQUIRE(in);
         return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     };
-    std::string obj = read(models / "racecar.obj");
-    uint32_t fileTris = 0;
-    for (size_t pos = 0; (pos = obj.find("\nf ", pos)) != std::string::npos; pos++)
-        fileTris++;
-    REQUIRE(fileTris >= 1500);
+    auto countTris = [](const std::string& obj) {
+        uint32_t n = 0;
+        for (size_t pos = 0; (pos = obj.find("\nf ", pos)) != std::string::npos; pos++)
+            n++;
+        return n;
+    };
+    std::string body = read(models / "racecar.obj");
+    std::string wf = read(models / "wheel_front.obj");
+    std::string wr = read(models / "wheel_rear.obj");
+    uint32_t bodyTris = countTris(body), wfTris = countTris(wf), wrTris = countTris(wr);
+    REQUIRE(bodyTris >= 700);
+    REQUIRE(wfTris >= 200);
+    REQUIRE(wfTris + wrTris + bodyTris >= 1300);
 
     std::filesystem::path root = makeSdRoot("engine3d_racecar");
-    writeSdFile(root, "models/racecar.obj", obj);
+    writeSdFile(root, "models/racecar.obj", body);
     writeSdFile(root, "models/racecar.mtl", read(models / "racecar.mtl"));
     writeSdFile(root, "models/racecar.bmp", read(models / "racecar.bmp"));
+    writeSdFile(root, "models/wheel_front.obj", wf);
+    writeSdFile(root, "models/wheel_front.mtl", read(models / "wheel_front.mtl"));
+    writeSdFile(root, "models/wheel_rear.obj", wr);
+    writeSdFile(root, "models/wheel_rear.mtl", read(models / "wheel_rear.mtl"));
     resetWorld3D();
 
     int16_t mesh = loadMesh3D(String("/models/racecar.obj"));
+    int16_t wfMesh = loadMesh3D(String("/models/wheel_front.obj"));
+    int16_t wrMesh = loadMesh3D(String("/models/wheel_rear.obj"));
     REQUIRE(mesh >= 0);
+    REQUIRE(wfMesh >= 0);
+    REQUIRE(wrMesh >= 0);
     uint16_t verts = 0, faces = 0;
     REQUIRE(getMeshStats3D(mesh, &verts, &faces));
-    CHECK(faces == fileTris);
+    CHECK(faces == bodyTris);
+    REQUIRE(getMeshStats3D(wfMesh, &verts, &faces));
+    CHECK(faces == wfTris);
+    REQUIRE(getMeshStats3D(wrMesh, &verts, &faces));
+    CHECK(faces == wrTris);
 
     int16_t ent = createEntity3D(mesh);
     REQUIRE(ent >= 0);
     positionEntity3D(ent, 0, -4, 0);
+    for (auto wp : {std::make_pair(wfMesh, 15.12f), std::make_pair(wrMesh, -14.16f)}) {
+        for (float sx : {1.0f, -1.0f}) {
+            int16_t w = createEntity3D(wp.first);
+            REQUIRE(w >= 0);
+            REQUIRE(linkEntity3D(w, ent));
+            positionEntity3D(w, sx * 9.0f, 4.8f, wp.second);
+        }
+    }
     positionCamera3D(0, 0, 12, -46);
 
     TFT_eSprite disp = TFT_eSprite(&tft);
@@ -393,6 +421,69 @@ TEST_CASE("engine3d: procedural racecar model loads fully textured", "[engine3d]
         INFO("yaw " << yaw << ": lit pixels " << lit);
         CHECK(lit > 4000);
     }
+    disp.deleteSprite();
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: wheel entities roll and steer when rotated", "[engine3d]") {
+    // A wheel mesh is symmetric except for its spoke/tread texture, so a
+    // rolling or steered wheel must visibly change the rendered frame.
+    std::filesystem::path repoRoot = std::filesystem::path(__FILE__).parent_path()
+        .parent_path().parent_path();
+    std::filesystem::path models = repoRoot / "SDCardContent" / "games" / "3ddemo" / "models";
+    auto read = [](const std::filesystem::path& f) {
+        std::ifstream in(f, std::ios::binary);
+        REQUIRE(in);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+    std::filesystem::path root = makeSdRoot("engine3d_wheels");
+    writeSdFile(root, "models/wheel_front.obj", read(models / "wheel_front.obj"));
+    writeSdFile(root, "models/wheel_front.mtl", read(models / "wheel_front.mtl"));
+    writeSdFile(root, "models/racecar.bmp", read(models / "racecar.bmp"));
+    resetWorld3D();
+
+    int16_t wf = loadMesh3D(String("/models/wheel_front.obj"));
+    REQUIRE(wf >= 0);
+    positionCamera3D(0, 0, 0, -35);
+    cameraRange3D(0, 1.0f, 4000.0f);
+
+    TFT_eSprite disp = TFT_eSprite(&tft);
+    disp.setColorDepth(16);
+    disp.createSprite(320, 240);
+
+    int16_t w0 = createEntity3D(wf);
+    REQUIRE(w0 >= 0);
+    rotateEntity3D(w0, 0, 90, 0);  // yaw so the hub disc faces the camera
+    disp.fillSprite(0);
+    updateWorld3D(&disp);
+    drawWorld3D(&disp);
+    std::vector<uint16_t> base((const uint16_t*)disp.getPointer(),
+                               (const uint16_t*)disp.getPointer() + 320 * 240);
+    int lit = 0;
+    for (auto p : base) if (p) lit++;
+    CHECK(lit > 1500);
+
+    rotateEntity3D(w0, 40, 90, 0);  // roll 40 degrees about the axle
+    disp.fillSprite(0);
+    updateWorld3D(&disp);
+    drawWorld3D(&disp);
+    const uint16_t* fb = (const uint16_t*)disp.getPointer();
+    int diff = 0;
+    for (int i = 0; i < 320 * 240; i++) if (fb[i] != base[i]) diff++;
+    INFO("roll diff " << diff);
+    CHECK(diff > 500);
+    std::vector<uint16_t> rolled(fb, fb + 320 * 240);
+
+    rotateEntity3D(w0, 40, 115, 0);  // same roll, add 25 degrees of steering
+    disp.fillSprite(0);
+    updateWorld3D(&disp);
+    drawWorld3D(&disp);
+    fb = (const uint16_t*)disp.getPointer();
+    diff = 0;
+    for (int i = 0; i < 320 * 240; i++) if (fb[i] != rolled[i]) diff++;
+    INFO("steer diff " << diff);
+    CHECK(diff > 500);
+
     disp.deleteSprite();
     resetWorld3D();
 }

@@ -3,6 +3,7 @@
 
 carMesh = LoadMesh("models/racecar.obj")
 carY = -32  -- car model sits on its wheel bottoms; align them with the ground
+hasWheels = false
 if (carMesh < 0) then
   SerialPrintln("3ddemo: OBJ load failed, falling back to a procedural textured cube")
   carMesh = CreateCube()
@@ -10,6 +11,24 @@ if (carMesh < 0) then
   carY = -7
 end
 car = CreateEntity(carMesh)
+if (carMesh >= 0 and carY == -32) then
+  -- wheels are separate meshes parented to the car so they can roll and steer;
+  -- positions are car-local hub centers (front = +z), matching tools/gen_racecar.py
+  wfMesh = LoadMesh("models/wheel_front.obj")
+  wrMesh = LoadMesh("models/wheel_rear.obj")
+  if (wfMesh >= 0 and wrMesh >= 0) then
+    wFL = CreateEntity(wfMesh); wFR = CreateEntity(wfMesh)
+    wRL = CreateEntity(wrMesh); wRR = CreateEntity(wrMesh)
+    LinkEntity(wFL, car); LinkEntity(wFR, car)
+    LinkEntity(wRL, car); LinkEntity(wRR, car)
+    PositionEntity(wFL, -9.0, 4.6, 15.12)
+    PositionEntity(wFR, 9.0, 4.6, 15.12)
+    PositionEntity(wRL, -9.4, 5.1, -14.16)
+    PositionEntity(wRR, 9.4, 5.1, -14.16)
+    wheelRoll = 0
+    hasWheels = true
+  end
+end
 PositionEntity(car, 0, carY, 0)
 
 groundMesh = CreatePlane(600, 600)
