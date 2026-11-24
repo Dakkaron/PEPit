@@ -1,5 +1,5 @@
-TurnEntity(cube, 0, 0.04 * MsDelta, 0)
-PositionEntity(cube, 0, -10 + Pressure / 100, 0)
+TurnEntity(car, 0, 0.04 * MsDelta, 0)
+PositionEntity(car, 0, carY + Pressure / 100, 0)
 UpdateWorld()
 DrawWorld()
 SetTextSize(1)

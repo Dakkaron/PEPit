@@ -1,13 +1,16 @@
 -- 3D demo: loads an OBJ model (with automatic texture from its mtl material),
 -- sets up a camera, lights and entities. Runs once when the game starts.
 
-cubeMesh = LoadMesh("models/cube.obj")
-if (cubeMesh < 0) then
+carMesh = LoadMesh("models/racecar.obj")
+carY = -32  -- car model sits on its wheel bottoms; align them with the ground
+if (carMesh < 0) then
   SerialPrintln("3ddemo: OBJ load failed, falling back to a procedural textured cube")
-  cubeMesh = CreateCube()
-  SetMeshTexture(cubeMesh, LoadTexture("models/bricks.bmp"))
+  carMesh = CreateCube()
+  SetMeshTexture(carMesh, LoadTexture("models/bricks.bmp"))
+  carY = -7
 end
-cube = CreateEntity(cubeMesh)
+car = CreateEntity(carMesh)
+PositionEntity(car, 0, carY, 0)
 
 groundMesh = CreatePlane(600, 600)
 ground = CreateEntity(groundMesh)
@@ -20,7 +23,7 @@ PositionEntity(sphere, 80, -8, 60)
 EntityColor(sphere, 255, 220, 80)
 
 cam = CreateCamera()
-PositionCamera(cam, 0, 34, -120)
+PositionCamera(cam, 0, 2, -76)
 RotateCamera(cam, -14, 0, 0)
 CameraRange(cam, 1, 4000)
 

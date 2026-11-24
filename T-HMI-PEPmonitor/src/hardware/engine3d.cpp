@@ -124,6 +124,9 @@ static int16_t* bucketHeads3D = nullptr;
 static int32_t drawCount3D = 0;
 static float ambient3D[3] = {0.5f, 0.5f, 0.5f};
 static bool world3DReady = false;
+// Slot 0 starts as an implicit camera so meshes render before the game makes
+// one; the first CreateCamera replaces it so game camera settings take effect.
+static bool implicitCamera3D = false;
 
 static uint16_t* fb3D = nullptr;
 static int32_t fbW3D = 0, fbH3D = 0;
@@ -131,6 +134,7 @@ static int32_t fbW3D = 0, fbH3D = 0;
 static void setupDefaultCamera3D() {
   memset(cameras3D, 0, sizeof(cameras3D));
   cameras3D[0].inUse = true;
+  implicitCamera3D = true;
   cameras3D[0].x = 0;
   cameras3D[0].y = 0;
   cameras3D[0].z = -100;
@@ -1019,6 +1023,10 @@ void entityOrder3D(int16_t handle, int8_t order) {
 
 int16_t createCamera3D() {
   if (!ensureWorld3D()) return -1;
+  if (implicitCamera3D) {
+    implicitCamera3D = false;
+    cameras3D[0].inUse = false;
+  }
   for (int16_t i = 0; i < CAMERA3D_LIMIT; i++) {
     if (cameras3D[i].inUse) continue;
     memset(&cameras3D[i], 0, sizeof(Camera3D));

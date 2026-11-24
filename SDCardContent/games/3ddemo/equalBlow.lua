@@ -1,4 +1,4 @@
-TurnEntity(cube, 0, 0.03 * MsDelta, 0)
+TurnEntity(car, 0, 0.03 * MsDelta, 0)
 camYaw = math.sin(Ms / 900.0) * 30
 RotateCamera(cam, -14, camYaw, 0)
 UpdateWorld()

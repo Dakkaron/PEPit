@@ -311,6 +311,39 @@ TEST_CASE("engine3d: per-face UV winding keeps texture orientation consistent", 
     resetWorld3D();
 }
 
+TEST_CASE("engine3d: created camera replaces the implicit default", "[engine3d]") {
+    resetWorld3D();
+    int16_t mesh = createMesh3DCube();
+    REQUIRE(mesh >= 0);
+    int16_t ent = createEntity3D(mesh);
+    REQUIRE(ent >= 0);
+
+    TFT_eSprite disp = TFT_eSprite(&tft);
+    disp.setColorDepth(16);
+    disp.createSprite(320, 240);
+    disp.fillSprite(0);
+    updateWorld3D(&disp);
+    drawWorld3D(&disp);
+    const uint16_t* fb = (const uint16_t*)disp.getPointer();
+    int defaultLit = 0;
+    for (int i = 0; i < 320 * 240; i++) if (fb[i]) defaultLit++;
+    CHECK(defaultLit > 1000);  // implicit camera at (0,0,-100) frames the cube
+
+    int16_t cam = createCamera3D();
+    REQUIRE(cam >= 0);
+    positionCamera3D(cam, 0, 0, -25);  // inside the cube's near field
+    disp.fillSprite(0);
+    updateWorld3D(&disp);
+    drawWorld3D(&disp);
+    int createdLit = 0;
+    for (int i = 0; i < 320 * 240; i++) if (fb[i]) createdLit++;
+    INFO("default " << defaultLit << " vs created-camera " << createdLit);
+    CHECK(createdLit != defaultLit);  // the new camera must be the active one
+
+    disp.deleteSprite();
+    resetWorld3D();
+}
+
 TEST_CASE("engine3d: procedural racecar model loads fully textured", "[engine3d]") {
     // The repo-shipped racecar (tools/gen_racecar.py): every triangle of the
     // OBJ must load, the mtl atlas must auto-attach, and the car must render
@@ -656,7 +689,8 @@ TEST_CASE("engine3d: procedural sphere and plane render with Gouraud shading", "
     int16_t planeMesh = createMesh3DPlane(600, 600);
     REQUIRE(sphereMesh >= 0);
     REQUIRE(planeMesh >= 0);
-    createEntity3D(sphereMesh);
+    int16_t sphere = createEntity3D(sphereMesh);
+    entityColor3D(sphere, 200, 60, 60);
     int16_t plane = createEntity3D(planeMesh);
     positionEntity3D(plane, 0, -60, 0);
     int16_t cam = createCamera3D();
@@ -667,8 +701,13 @@ TEST_CASE("engine3d: procedural sphere and plane render with Gouraud shading", "
     Display3D d;
     d.render();
     CHECK(d.litPixels() > 20000);
-    CHECK(d.pixel(160, 60) != 0);   // sphere top
-    CHECK(d.pixel(100, 120) != 0);  // sphere side
+    int spherePixels = 0;
+    for (int y = 0; y < 240; y++) {
+        int r, g, b;
+        Display3D::rgb(d.pixel(160, y), r, g, b);
+        if (r > 60 && r > g + 30 && r > b + 30) spherePixels++;
+    }
+    CHECK(spherePixels > 60);  // the created camera must frame the colored sphere
     resetWorld3D();
 }
 
