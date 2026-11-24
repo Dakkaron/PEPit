@@ -110,6 +110,13 @@ String lua_dofile(const String path, bool dontCache) {
     }
   } else {
     //Serial.println("Caching disabled");
+    // Slot 0 is shared with the cache — release whatever pair it held before
+    // reusing it, otherwise cachedPath[0] keeps matching a freed script buffer.
+    if (script[0] != nullptr) {
+      free(script[0]);
+      script[0] = nullptr;
+    }
+    cachedPath[0] = "";
     script[0] = readFileToNewPSBuffer(path.c_str());
     cacheSlot = 0;
     if (script[cacheSlot] == nullptr) {
