@@ -196,35 +196,26 @@ def add_wheel(cx, cy, cz, r, half_w, segs):
         emit_face([p10, p11, p01, p00], "tire", tang, (1, 0, 0), outw)
     for side, outx in ((cx + half_w, 1), (cx - half_w, -1)):
         center = (side, cy, cz)
-        half = r * 0.86
+        inner = r * 0.86
         for j in range(segs):
             a0 = 2 * math.pi * j / segs
             a1 = 2 * math.pi * (j + 1) / segs
-            q0 = (side, cy + half * math.sin(a0), cz + half * math.cos(a0))
-            q1 = (side, cy + half * math.sin(a1), cz + half * math.cos(a1))
-            tri = [center, q0, q1]
+            q0 = (side, cy + inner * math.sin(a0), cz + inner * math.cos(a0))
+            q1 = (side, cy + inner * math.sin(a1), cz + inner * math.cos(a1))
+            # fan winding must match the outward side or culling eats the disc
+            tri = [center, q1, q0] if outx > 0 else [center, q0, q1]
             n = (outx, 0, 0)
-            _emit_tris(tri, _uv_planar(tri, "rim", center, (0, 0, -outx), (0, 1, 0), half, half), n)
-
-def add_helmet(cx, cy, cz, r, rings, slices):
-    pts = {}
-    for i in range(rings + 1):
-        th = math.pi * i / rings
-        for j in range(slices):
-            ph = 2 * math.pi * j / slices
-            pts[(i, j)] = (cx + r * math.sin(th) * math.cos(ph),
-                           cy + r * math.cos(th),
-                           cz + r * math.sin(th) * math.sin(ph))
-    for i in range(rings):
-        for j in range(slices):
-            j2 = (j + 1) % slices
-            p = [pts[(i, j)], pts[(i, j2)], pts[(i + 1, j2)], pts[(i + 1, j)]]
-            outw = norm(sub(centroid(p), (cx, cy, cz)))
-            ph = 2 * math.pi * (j + 0.5) / slices
-            th = math.pi * (i + 0.5) / rings
-            up = norm((math.cos(th) * math.cos(ph), -math.sin(th), math.cos(th) * math.sin(ph)))
-            right = norm(cross(up, outw))
-            emit_face(p, "white", right, up, outw)
+            _emit_tris(tri, _uv_planar(tri, "rim", center, (0, 0, -outx), (0, 1, 0), inner, inner), n)
+            # sidewall annulus between rim edge and tread
+            w0 = (side, cy + r * math.sin(a0), cz + r * math.cos(a0))
+            w1 = (side, cy + r * math.sin(a1), cz + r * math.cos(a1))
+            wall = [q0, q1, w1, w0]
+            if dot(cross(sub(wall[1], wall[0]), sub(wall[2], wall[0])), n) < 0:
+                wall = wall[::-1]
+            tm = (a0 + a1) / 2
+            tang = (0, math.cos(tm), -math.sin(tm))
+            radial = (0, math.sin(tm), math.cos(tm))
+            _emit_tris(wall, _uv_planar(wall, "tire", center, tang, radial, r, r), n)
 
 def build():
     # monocoque: front (+z) to rear (-z), chamfered sections
@@ -257,30 +248,15 @@ def build():
             return "dark"
         return "glass"
     cockpit = [(z, chamfer_section(hw, yb, yt, ch)) for (z, hw, yb, yt, ch) in (
-        (8.0, 2.4, 8.4, 9.6, 0.4),
-        (6.6, 2.8, 8.5, 10.2, 0.45),
-        (5.5, 3.1, 8.5, 10.8, 0.5),
-        (3.0, 3.2, 8.55, 11.1, 0.5),
-        (1.0, 3.3, 8.6, 11.4, 0.5),
-        (-3.5, 3.1, 8.7, 11.1, 0.5),
-        (-6.5, 2.7, 8.8, 10.3, 0.4),
+        (8.0, 2.4, 8.4, 10.2, 0.4),
+        (6.6, 2.8, 8.5, 10.8, 0.45),
+        (5.5, 3.1, 8.5, 11.4, 0.5),
+        (3.0, 3.2, 8.55, 11.7, 0.5),
+        (1.0, 3.3, 8.6, 12.0, 0.5),
+        (-3.5, 3.1, 8.7, 11.7, 0.5),
+        (-6.5, 2.7, 8.8, 10.9, 0.4),
     )]
     add_loft(cockpit, cockpit_region, "glass", "glass", (0, 10.0))
-
-    # roll hoop + halo
-    add_box(0, 11.7, -6.8, 0.5, 1.3, 0.5, {k: "white" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
-    add_box(0, 12.4, -1.0, 0.35, 0.35, 5.0, {k: "white" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
-    for sx in (1, -1):
-        add_box(sx * 2.8, 10.9, 1.0, 0.35, 0.7, 0.35, {k: "white" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
-
-    add_helmet(0, 11.1, 1.0, 1.7, 10, 14)
-
-    # driver torso + arms
-    add_box(0, 9.4, -2.2, 1.5, 1.1, 1.6, {k: "white" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
-    add_box(1.7, 9.7, 0.6, 0.5, 0.5, 1.5, {k: "white" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
-    add_box(-1.7, 9.7, 0.6, 0.5, 0.5, 1.5, {k: "white" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
-    # steering wheel
-    add_box(0, 9.6, 2.6, 0.9, 0.9, 0.18, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
 
     # sidepods (lofted, chamfered)
     for sx in (1, -1):
@@ -350,8 +326,8 @@ def build():
 
     # wheels
     for sx in (1, -1):
-        add_wheel(sx * 9.0, 4.6, 12.6, 4.6, 1.45, 48)
-        add_wheel(sx * 9.4, 5.1, -11.8, 5.1, 1.7, 48)
+        add_wheel(sx * 9.0, 4.6, 12.6, 4.6, 1.45, 36)
+        add_wheel(sx * 9.4, 5.1, -11.8, 5.1, 1.7, 36)
 
 def write_obj():
     lines = ["# procedural race car for PEPit 3D engine", "mtllib racecar.mtl", "o racecar"]
