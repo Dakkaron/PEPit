@@ -178,6 +178,34 @@ TEST_CASE("engine3d: default 50% ambient shades an untextured cube to mid-grey",
     resetWorld3D();
 }
 
+TEST_CASE("engine3d: draws into the active buffer of a double-buffered display", "[engine3d]") {
+    resetWorld3D();
+    int16_t mesh = createMesh3DCube();
+    createEntity3D(mesh);
+
+    TFT_eSprite disp = TFT_eSprite(&tft);
+    disp.setColorDepth(16);
+    disp.createSprite(320, 240, 2);  // frames=2, like the firmware display sprite
+
+    const uint16_t* prevFb = nullptr;
+    for (int frame = 0; frame < 4; frame++) {
+        disp.fillSprite(0);
+        updateWorld3D(&disp);
+        drawWorld3D(&disp);
+        const uint16_t* fb = (const uint16_t*)disp.getPointer();
+        if (frame > 0)
+            CHECK(fb != prevFb);  // pushSpriteFast flipped the active buffer
+        int lit = 0;
+        for (int i = 0; i < 320 * 240; i++)
+            if (fb[i]) lit++;
+        CHECK(lit > 5000);  // the buffer about to be pushed holds this frame's scene
+        prevFb = fb;
+        disp.pushSpriteFast(0, 0);
+    }
+    disp.deleteSprite();
+    resetWorld3D();
+}
+
 TEST_CASE("engine3d: point light at camera fully lights the front face, range cuts it off", "[engine3d]") {
     resetWorld3D();
     ambientLight3D(0, 0, 0);

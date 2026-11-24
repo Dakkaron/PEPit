@@ -118,7 +118,10 @@ void* TFT_eSprite::createSprite(int16_t w, int16_t h, uint8_t frames)
 void* TFT_eSprite::getPointer(void)
 {
   if (!_created) return nullptr;
-  return _img8_1;
+  // Multi-frame sprites swap the active buffer (_img8/_img) with
+  // frameBuffer()/pushSpriteFast(); direct pixel access must follow the
+  // active buffer or writes land in a buffer that is not being pushed.
+  return _img8;
 }
 
 
