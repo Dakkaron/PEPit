@@ -1489,7 +1489,9 @@ static inline uint16_t sampleTexel3D(const uint16_t* tex, int32_t tw, int32_t th
     ty %= th;
     if (ty < 0) ty += th;
   }
-  return tex[ty * tw + tx];
+  // TFT_eSPI 16bpp sprite buffers hold RGB565 byteswapped (as stored by loadBmp
+  // and the sprite draw calls in gfxHandler) — unswap before channel math
+  return __builtin_bswap16(tex[ty * tw + tx]);
 }
 
 static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
@@ -1592,7 +1594,7 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
   uint16_t flat565 = 0;
   int32_t lightR5 = 31, lightG6 = 63, lightB5 = 31;
   if (mode == 0) {
-    flat565 = rgbTo5653D(t->flatColor);
+    flat565 = __builtin_bswap16(rgbTo5653D(t->flatColor));
   } else if (mode == 3) {
     lightR5 = ((t->flatColor >> 16) & 0xFF) >> 3;
     lightG6 = ((t->flatColor >> 8) & 0xFF) >> 2;
@@ -1650,7 +1652,8 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
           if (r8 < 0) r8 = 0; else if (r8 > 255) r8 = 255;
           if (g8 < 0) g8 = 0; else if (g8 > 255) g8 = 255;
           if (b8 < 0) b8 = 0; else if (b8 > 255) b8 = 255;
-          row[x] = (uint16_t)(((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3));
+          // framebuffer holds byte-swapped RGB565 words (TFT_eSPI convention)
+          row[x] = __builtin_bswap16((uint16_t)(((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3)));
           curR += dR;
           curG += dG;
           curB += dB;
@@ -1675,7 +1678,8 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
           uint32_t r5 = (((smp >> 11) & 31) * (uint32_t)lightR5) >> 5;
           uint32_t g6 = (((smp >> 5) & 63) * (uint32_t)lightG6) >> 6;
           uint32_t b5 = ((smp & 31) * (uint32_t)lightB5) >> 5;
-          row[x] = (uint16_t)((r5 << 11) | (g6 << 5) | b5);
+          // framebuffer holds byte-swapped RGB565 words (TFT_eSPI convention)
+          row[x] = __builtin_bswap16((uint16_t)((r5 << 11) | (g6 << 5) | b5));
           curU += dU;
           curV += dV;
         }
@@ -1721,7 +1725,8 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
           uint32_t r5 = (((smp >> 11) & 31) * (uint32_t)(r8 >> 3)) >> 5;
           uint32_t g6 = (((smp >> 5) & 63) * (uint32_t)(g8 >> 2)) >> 6;
           uint32_t b5 = ((smp & 31) * (uint32_t)(b8 >> 3)) >> 5;
-          row[x] = (uint16_t)((r5 << 11) | (g6 << 5) | b5);
+          // framebuffer holds byte-swapped RGB565 words (TFT_eSPI convention)
+          row[x] = __builtin_bswap16((uint16_t)((r5 << 11) | (g6 << 5) | b5));
           curR += dR;
           curG += dG;
           curB += dB;
