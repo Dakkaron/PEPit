@@ -311,6 +311,56 @@ TEST_CASE("engine3d: per-face UV winding keeps texture orientation consistent", 
     resetWorld3D();
 }
 
+TEST_CASE("engine3d: ngons and meshes over the historic caps load completely", "[engine3d]") {
+    // Regression for two silent-truncation bugs: face records with more than
+    // 16 corners were fan-triangulated from a fixed array, and meshes above
+    // the old 8192-vertex / 4096-face caps were cut mid-mesh. A synthetic
+    // model covers both without shipping a third-party asset.
+    std::string obj = "o bigmodel\n";
+    for (int i = 0; i < 2100; i++) {
+        float x = i;
+        obj += "v " + std::to_string(x) + " 0 0\n";
+        obj += "v " + std::to_string(x) + " 1 0\n";
+        obj += "v " + std::to_string(x + 1) + " 1 0.5\n";
+        obj += "v " + std::to_string(x + 1) + " 0 0.5\n";
+    }
+    int base = 1;
+    for (int i = 0; i < 2100; i++, base += 4) {
+        obj += "f " + std::to_string(base) + " " + std::to_string(base + 1) + " "
+             + std::to_string(base + 2) + " " + std::to_string(base + 3) + "\n";
+    }
+    // one 40-corner ngon, fan-triangulates to 38 faces
+    int ngonBase = base;
+    for (int k = 0; k < 40; k++) {
+        double a = 2.0 * M_PI * k / 40.0;
+        obj += "v " + std::to_string(3000 + 10 * cos(a)) + " 5 "
+             + std::to_string(5 * sin(a)) + "\n";
+    }
+    obj += "f";
+    for (int k = 0; k < 40; k++) obj += " " + std::to_string(ngonBase + k);
+    obj += "\n";
+
+    uint32_t expectedFaces = 2100u * 2 + 38u;
+    uint32_t expectedVerts = 2100u * 4 + 40u;
+    REQUIRE(expectedFaces > 4096);      // above the old face cap
+    REQUIRE(expectedVerts > 8192);      // above the old vertex cap
+
+    std::filesystem::path root = makeSdRoot("engine3d_bigmesh");
+    writeSdFile(root, "models/big.obj", obj);
+    resetWorld3D();
+
+    int16_t mesh = loadMesh3D(String("/models/big.obj"));
+    REQUIRE(mesh >= 0);
+    uint16_t verts = 0, faces = 0;
+    REQUIRE(getMeshStats3D(mesh, &verts, &faces));
+    INFO("loaded " << verts << " verts, " << faces << " faces; expected "
+         << expectedVerts << "/" << expectedFaces);
+    CHECK(faces == expectedFaces);
+    CHECK(verts == expectedVerts);
+
+    resetWorld3D();
+}
+
 TEST_CASE("engine3d: texture interpolation is perspective-correct", "[engine3d]") {
     std::filesystem::path root = makeSdRoot("engine3d_persp");
     writeSdFile(root, "models/quad.obj", TILTQUAD_OBJ);

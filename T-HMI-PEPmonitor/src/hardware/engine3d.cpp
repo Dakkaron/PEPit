@@ -329,6 +329,7 @@ typedef struct {
   uint32_t mergedCount, mergedCap;
   Face3D* faces; uint32_t faceCount, faceCap;
   HashEntry3D* hash; uint32_t hashCap, hashCount;
+  int32_t* cornerBuf; uint32_t cornerCap; // scratch corner list for one face record
   bool hasUV;
   bool overflowWarned;
 } ObjLoad3D;
@@ -507,9 +508,10 @@ static void parseObj3D(ObjLoad3D* ctx, char* buf, char* mtllibName) {
       }
     } else if (token[0] == 'f' && token[1] == 0) {
       token = nextObjToken3D();
-      int32_t corners[16];
-      int cornerCount = 0;
-      while (token && cornerCount < 16 &&
+      int32_t* corners = ctx->cornerBuf;
+      uint32_t cornerCap = ctx->cornerCap;
+      uint32_t cornerCount = 0;
+      while (token &&
              (isdigit((unsigned char)token[0]) || token[0] == '-' || token[0] == '+')) {
         int32_t vi = -1, vti = -1, vni = -1;
         bool hasVti = false, hasVni = false;
@@ -545,10 +547,19 @@ static void parseObj3D(ObjLoad3D* ctx, char* buf, char* mtllibName) {
         if (vti < 0) vti = -1;
         if (vni < 0) vni = -1;
         int32_t merged = getMergedVertex3D(ctx, vi, vti, vni);
-        if (merged >= 0) corners[cornerCount++] = merged;
+        if (merged >= 0) {
+          if (cornerCount >= cornerCap) {
+            uint32_t newCap = cornerCap ? cornerCap * 2 : 32;
+            int32_t* nc = (int32_t*)grow3D(ctx->cornerBuf, newCap * sizeof(int32_t));
+            if (!nc) break;  // out of memory: fan-triangulate the corners kept so far
+            ctx->cornerBuf = corners = nc;
+            ctx->cornerCap = cornerCap = newCap;
+          }
+          corners[cornerCount++] = merged;
+        }
         token = nextObjToken3D();
       }
-      for (int i = 1; i + 1 < cornerCount; i++) {
+      for (uint32_t i = 1; i + 1 < cornerCount; i++) {
         addFace3D(ctx, corners[0], corners[i], corners[i+1]);
       }
       // token already points at the next record
@@ -642,6 +653,7 @@ int16_t loadMesh3D(String path) {
   free(ctx.rawT);
   free(ctx.rawN);
   free(ctx.hash);
+  free(ctx.cornerBuf);
 
   bool needSmoothedNormals = false;
   for (uint32_t i = 0; i < ctx.mergedCount; i++) {
@@ -753,6 +765,13 @@ bool freeMesh3D(int16_t handle) {
       entities3D[ei].meshHandle = -1;
     }
   }
+  return true;
+}
+
+bool getMeshStats3D(int16_t handle, uint16_t* vertexCount, uint16_t* faceCount) {
+  if (handle < 0 || handle >= MESH3D_LIMIT || !meshes3D[handle].inUse) return false;
+  if (vertexCount) *vertexCount = meshes3D[handle].vertexCount;
+  if (faceCount) *faceCount = meshes3D[handle].faceCount;
   return true;
 }
 

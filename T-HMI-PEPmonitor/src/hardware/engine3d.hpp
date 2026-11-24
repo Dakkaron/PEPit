@@ -16,9 +16,9 @@
 #define LIGHT3D_LIMIT 8
 #define CAMERA3D_LIMIT 4
 
-#define MESH3D_MAX_VERTICES 8192
-#define MESH3D_MAX_FACES 4096
-#define WORLD3D_MAX_TRIANGLES 4096
+#define MESH3D_MAX_VERTICES 24576
+#define MESH3D_MAX_FACES 8192
+#define WORLD3D_MAX_TRIANGLES 8192
 
 #define LIGHT3D_TYPE_POINT 1
 #define LIGHT3D_TYPE_SPOT 2
@@ -33,6 +33,7 @@ int16_t createMesh3DCube();
 int16_t createMesh3DSphere(float radius, uint8_t segments);
 int16_t createMesh3DPlane(float width, float height);
 bool freeMesh3D(int16_t handle);
+bool getMeshStats3D(int16_t handle, uint16_t* vertexCount, uint16_t* faceCount);
 void setMeshColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b);
 void setMeshTexture3D(int16_t meshHandle, int16_t textureHandle);
 void setMeshFlipped3D(int16_t handle, bool flipped);
