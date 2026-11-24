@@ -108,6 +108,8 @@ typedef struct {
   const uint16_t* tex;    // null unless textured
   int16_t texW, texH, texMask;
   int16_t next;           // next triangle in the depth bucket
+  float zKey;             // average camera-space depth; bucketed in a second pass
+  int8_t orderOff;        // entity draw-order bias applied at bucketing time
   uint32_t flatColor;     // uniform color for modes 0 and 3, 0x00RRGGBB
   uint8_t vertexCount;    // 3 normally, 4 after near plane clipping
   uint8_t mode;           // 0 flat, 1 gouraud, 2 gouraud+texture, 3 texture uniform light
@@ -1313,7 +1315,11 @@ void updateWorld3D(DISPLAY_T* display) {
   bool dynamicLighting = activeLightCount > 0;
 
   memset(bucketHeads3D, 0xFF, sizeof(int16_t) * BUCKET3D_COUNT);
-  float bucketScale = (float)(BUCKET3D_COUNT - 1) / (cam->farPlane - cam->nearPlane);
+  // Bucket the sorted span of actually-drawn triangles rather than the
+  // camera's near..far range: with a large farPlane the bucket width exceeds
+  // the depth gap between adjacent surfaces, so small view rotations flip
+  // draw order and surfaces flicker against each other.
+  float zLo = 1e30f, zHi = -1e30f;
 
   for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
     Entity3D* e = &entities3D[ei];
@@ -1504,13 +1510,24 @@ void updateWorld3D(DISPLAY_T* display) {
       d->texMask = tex ? tex->mask : -1;
       d->mode = mode;
       d->flatColor = uniformColor;
-      int32_t bucket = (int32_t)((zAvg - cam->nearPlane) * bucketScale) + (int32_t)e->order * 32;
-      if (bucket < 0) bucket = 0;
-      else if (bucket >= BUCKET3D_COUNT) bucket = BUCKET3D_COUNT - 1;
-      d->next = bucketHeads3D[bucket];
-      bucketHeads3D[bucket] = (int16_t)drawCount3D;
+      d->zKey = zAvg;
+      d->orderOff = e->order;
+      if (zAvg < zLo) zLo = zAvg;
+      if (zAvg > zHi) zHi = zAvg;
       drawCount3D++;
     }
+  }
+
+  float span = zHi - zLo;
+  if (span < 1e-4f) span = 1e-4f;
+  float bucketScale = (float)(BUCKET3D_COUNT - 1) / span;
+  for (int32_t i = 0; i < drawCount3D; i++) {
+    TriDraw3D* d = &drawList3D[i];
+    int32_t bucket = (int32_t)((d->zKey - zLo) * bucketScale) + (int32_t)d->orderOff * 32;
+    if (bucket < 0) bucket = 0;
+    else if (bucket >= BUCKET3D_COUNT) bucket = BUCKET3D_COUNT - 1;
+    d->next = bucketHeads3D[bucket];
+    bucketHeads3D[bucket] = (int16_t)i;
   }
 }
 // ---------------------------------------------------------------------------

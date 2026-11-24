@@ -19,6 +19,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(HERE, "..", "SDCardContent", "games", "3ddemo", "models")
 
 TEX = 128
+ZLEN = 1.2  # stretch all z positions/box depths; wheel radii stay round
 
 # atlas rectangles: name -> (x0, y0, x1, y1) in pixels, y measured from top
 REGION = {
@@ -124,6 +125,7 @@ def emit_face(poly, region_name, right, up, outward):
     _emit_tris(poly, _uv_from_axes(poly, region_name, right, up), n)
 
 def add_box(cx, cy, cz, hx, hy, hz, regions):
+    cz, hz = cz * ZLEN, hz * ZLEN
     x0, x1 = cx - hx, cx + hx
     y0, y1 = cy - hy, cy + hy
     z0, z1 = cz - hz, cz + hz
@@ -146,6 +148,7 @@ def add_loft(stations, region_fn, cap_front, cap_rear, axis_pt):
     region_fn(outward_normal) -> region name. Grid UVs: u spans the loft
     front-to-back, v spans the section height (or width on top bands) so
     atlas features tile once across the whole surface."""
+    stations = [(z * ZLEN, sec) for (z, sec) in stations]
     rings = [[(x, y, z) for (x, y) in sec] for (z, sec) in stations]
     allPts = [p for ring in rings for p in ring]
     gR = (min(dot(p, (0, 0, -1.0)) for p in allPts),
@@ -183,6 +186,7 @@ def add_loft(stations, region_fn, cap_front, cap_rear, axis_pt):
                        (0, 0, float(outz)))
 
 def add_wheel(cx, cy, cz, r, half_w, segs):
+    cz *= ZLEN
     for k in range(segs):
         t0 = 2 * math.pi * k / segs
         t1 = 2 * math.pi * (k + 1) / segs
@@ -194,7 +198,9 @@ def add_wheel(cx, cy, cz, r, half_w, segs):
         outw = (0, math.sin(tm), math.cos(tm))
         tang = norm((0, math.cos(tm), -math.sin(tm)))
         emit_face([p10, p11, p01, p00], "tire", tang, (1, 0, 0), outw)
-    for side, outx in ((cx + half_w, 1), (cx - half_w, -1)):
+    # 0.02 outward offset keeps rim disc + sidewall strictly in
+    # front of the tread band's side boundary; coplanar faces painter-sort ties
+    for side, outx in ((cx + half_w + 0.02, 1), (cx - half_w - 0.02, -1)):
         center = (side, cy, cz)
         inner = r * 0.86
         for j in range(segs):
@@ -229,9 +235,17 @@ def build():
         (13.5, 2.4, 2.0, 5.4, 0.7),
         (11.4, 3.0, 1.8, 6.2, 0.8),
         (10.0, 3.5, 1.7, 7.0, 0.9),
+        # stations just behind the cockpit front (8.0) and its first band:
+        # split deck bands so no triangle's average depth ties the glass
+        # cap/band depths - equal averages make the painter sort flip with
+        # view angle (front cockpit flicker)
+        (8.35, 3.91, 1.62, 7.66, 0.93),
+        (6.95, 4.26, 1.5, 8.22, 0.98),
         (6.0, 4.5, 1.5, 8.6, 1.0),
         (1.0, 4.8, 1.5, 9.2, 1.0),
         (-4.0, 4.8, 1.5, 9.4, 1.0),
+        # same offset-splitting around the cockpit rear cap (-6.5)
+        (-6.85, 4.69, 1.57, 9.4, 1.0),
         (-9.0, 4.6, 1.6, 9.4, 1.0),
         (-11.5, 4.4, 1.7, 9.1, 0.95),
         (-13.0, 4.2, 1.8, 8.8, 0.9),
@@ -303,13 +317,13 @@ def build():
     add_box(0, 11.8, -14.7, 8.2, 0.3, 1.1,
             {"+y": "body", "-y": "dark", "+z": "body", "-z": "body", "+x": "white", "-x": "white"})
     for sx in (1, -1):
-        add_box(sx * 4.6, 9.45, -15.2, 0.35, 1.3, 0.5, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
-        add_box(sx * 8.7, 11.0, -15.5, 0.3, 1.6, 1.9,
+        add_box(sx * 4.6, 8.98, -15.2, 0.35, 0.75, 0.5, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
+        add_box(sx * 8.95, 11.0, -15.5, 0.3, 1.6, 1.9,
                 {"+x": "body", "-x": "body", "+y": "dark", "-y": "dark", "+z": "dark", "-z": "dark"})
 
     # diffuser fins
     for k in (-1, 0, 1):
-        add_box(k * 2.0, 1.2, -16.6, 0.25, 0.8, 1.6, {k2: "dark" for k2 in ("+x", "-x", "+y", "-y", "+z", "-z")})
+        add_box(k * 2.0, 0.75, -16.6, 0.25, 0.65, 1.6, {k2: "dark" for k2 in ("+x", "-x", "+y", "-y", "+z", "-z")})
 
     # mirrors
     for sx in (1, -1):
@@ -318,11 +332,12 @@ def build():
 
     # lights
     for sx in (1, -1):
-        z0 = 18.08
+        z0 = 18.08 * ZLEN
         emit_face([(sx * 0.45, 2.9, z0), (sx * 0.12, 2.9, z0),
                    (sx * 0.12, 3.7, z0), (sx * 0.45, 3.7, z0)],
                   "headlight", (-sx, 0, 0), (0, 1, 0), (0, 0, 1))
-    emit_face([(-1.4, 4.2, -17.55), (1.4, 4.2, -17.55), (1.4, 5.6, -17.55), (-1.4, 5.6, -17.55)],
+    zt = -17.55 * ZLEN
+    emit_face([(-1.4, 4.2, zt), (1.4, 4.2, zt), (1.4, 5.6, zt), (-1.4, 5.6, zt)],
               "tail", (1, 0, 0), (0, 1, 0), (0, 0, -1))
 
     # exhaust
@@ -331,8 +346,8 @@ def build():
     # suspension arms
     for sx in (1, -1):
         for (z, wr, wy) in ((12.6, 4.6, 4.6), (-11.8, 5.1, 5.1)):
-            add_box(sx * 6.7, wy + 1.2, z, 2.3, 0.3, 0.5, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
-            add_box(sx * 6.7, 1.6, z, 2.3, 0.3, 0.5, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
+            add_box(sx * 5.95, wy + 1.2, z, 1.5, 0.3, 0.5, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
+            add_box(sx * 5.95, 1.6, z, 1.5, 0.3, 0.5, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
 
     # wheels
     for sx in (1, -1):
