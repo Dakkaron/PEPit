@@ -23,6 +23,8 @@ add_executable(pepit_tests
     test_matrix.cpp
     test_engine3d.cpp
     test_groundtruth.cpp
+    test_game_3ddemo.cpp
+    test_engine3d_clipstress.cpp
     ${CMAKE_SOURCE_DIR}/third_party/Catch2/catch_amalgamated.cpp
 )
 
