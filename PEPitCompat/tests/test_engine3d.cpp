@@ -311,6 +311,59 @@ TEST_CASE("engine3d: per-face UV winding keeps texture orientation consistent", 
     resetWorld3D();
 }
 
+TEST_CASE("engine3d: procedural racecar model loads fully textured", "[engine3d]") {
+    // The repo-shipped racecar (tools/gen_racecar.py): every triangle of the
+    // OBJ must load, the mtl atlas must auto-attach, and the car must render
+    // from two opposite sides.
+    std::filesystem::path repoRoot = std::filesystem::path(__FILE__).parent_path()
+        .parent_path().parent_path();
+    std::filesystem::path models = repoRoot / "SDCardContent" / "games" / "3ddemo" / "models";
+    auto read = [](const std::filesystem::path& f) {
+        std::ifstream in(f, std::ios::binary);
+        REQUIRE(in);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+    std::string obj = read(models / "racecar.obj");
+    uint32_t fileTris = 0;
+    for (size_t pos = 0; (pos = obj.find("\nf ", pos)) != std::string::npos; pos++)
+        fileTris++;
+    REQUIRE(fileTris >= 1500);
+
+    std::filesystem::path root = makeSdRoot("engine3d_racecar");
+    writeSdFile(root, "models/racecar.obj", obj);
+    writeSdFile(root, "models/racecar.mtl", read(models / "racecar.mtl"));
+    writeSdFile(root, "models/racecar.bmp", read(models / "racecar.bmp"));
+    resetWorld3D();
+
+    int16_t mesh = loadMesh3D(String("/models/racecar.obj"));
+    REQUIRE(mesh >= 0);
+    uint16_t verts = 0, faces = 0;
+    REQUIRE(getMeshStats3D(mesh, &verts, &faces));
+    CHECK(faces == fileTris);
+
+    int16_t ent = createEntity3D(mesh);
+    REQUIRE(ent >= 0);
+    positionEntity3D(ent, 0, -4, 0);
+    positionCamera3D(0, 0, 12, -46);
+
+    TFT_eSprite disp = TFT_eSprite(&tft);
+    disp.setColorDepth(16);
+    disp.createSprite(320, 240);
+    for (int yaw : {90, -90}) {
+        rotateEntity3D(ent, 0, (float)yaw, 0);
+        disp.fillSprite(0);
+        updateWorld3D(&disp);
+        drawWorld3D(&disp);
+        const uint16_t* fb = (const uint16_t*)disp.getPointer();
+        int lit = 0;
+        for (int i = 0; i < 320 * 240; i++) if (fb[i]) lit++;
+        INFO("yaw " << yaw << ": lit pixels " << lit);
+        CHECK(lit > 4000);
+    }
+    disp.deleteSprite();
+    resetWorld3D();
+}
+
 TEST_CASE("engine3d: ngons and meshes over the historic caps load completely", "[engine3d]") {
     // Regression for two silent-truncation bugs: face records with more than
     // 16 corners were fan-triangulated from a fixed array, and meshes above
