@@ -85,6 +85,48 @@ function DrawRaceTunnel(x, y, w, roadYOffset, lastX, lastW) end
 function CalculateRoadProperties(y, distance, horizonY, baselineY, roadXOffset) return 0.0, 0.0, 0; end
 function ProjectRoadPointToScreen(roadX, roadZ, horizonY, baselineY, roadXOffset) return 0.0, 0.0, 0.0; end
 
+
+-- 3D engine (Blitz3D inspired), all handles are integers, -1 means failure
+POINTLIGHT = 1
+SPOTLIGHT = 2
+DIRECTIONALLIGHT = 4
+
+function LoadMesh(path) end
+function CreateCube() end
+function CreateSphere(radius, segments) end
+function CreatePlane(width, height) end
+function FreeMesh(meshHandle) end
+function SetMeshColor(meshHandle, r, g, b) end
+function LoadTexture(path) end
+function FreeTexture(textureHandle) end
+function SetMeshTexture(meshHandle, textureHandle) end
+function SetMeshFlipped(meshHandle, flipped) end
+function CreateEntity(meshHandle) end
+function FreeEntity(entityHandle) end
+function PositionEntity(entityHandle, x, y, z) end
+function RotateEntity(entityHandle, pitch, yaw, roll) end
+function TurnEntity(entityHandle, pitch, yaw, roll) end
+function ScaleEntity(entityHandle, sx, sy, sz) end
+function EntityColor(entityHandle, r, g, b) end
+function HideEntity(entityHandle, hidden) end
+function LinkEntity(childHandle, parentHandle) end
+function EntityOrder(entityHandle, order) end
+function CreateCamera() end
+function FreeCamera(cameraHandle) end
+function PositionCamera(cameraHandle, x, y, z) end
+function RotateCamera(cameraHandle, pitch, yaw, roll) end
+function TurnCamera(cameraHandle, pitch, yaw, roll) end
+function CameraZoom(cameraHandle, zoom) end
+function CameraRange(cameraHandle, near, far) end
+function AmbientLight(r, g, b) end
+function CreateLight(r, g, b, x, y, z, range, lightType) end
+function FreeLight(lightHandle) end
+function SetLightDirection(lightHandle, dx, dy, dz) end
+function SetLightCone(lightHandle, innerAngle, outerAngle) end
+function UpdateWorld() end
+function DrawWorld() end
+function FreeAll3D() end
+
 -- Injected variables (globals set by the host each frame)
 Ms = 0
 LeftHandedMode = false

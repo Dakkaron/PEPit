@@ -2,6 +2,7 @@
 #include "hardware/sdHandler.h"
 #include "hardware/gfxHandler.hpp"
 #include "hardware/higherLevelGfxHandler.hpp"
+#include "hardware/engine3d.hpp"
 #include "hardware/prefsHandler.h"
 #include "hardware/joystickHandler.h"
 
@@ -900,6 +901,207 @@ static void warnfoff (void *ud, const char *message, int tocont) {
   checkcontrol((lua_State *)ud, message, tocont);
 }
 
+// ---------------------------------------------------------------------------
+// 3D world wrappers (engine3d), function names modelled after Blitz3D
+// ---------------------------------------------------------------------------
+
+static uint8_t luaColorArg(lua_State* luaState, int32_t index) {
+  int32_t value = luaL_checkinteger(luaState, index);
+  if (value < 0) value = 0;
+  if (value > 255) value = 255;
+  return (uint8_t)value;
+}
+
+static int lua_wrapper_loadMesh(lua_State* luaState) {
+  String path = luaGamePath + luaL_checkstring(luaState, 1);
+  lua_pushinteger(luaState, loadMesh3D(path));
+  return 1;
+}
+
+static int lua_wrapper_createCube(lua_State* luaState) {
+  lua_pushinteger(luaState, createMesh3DCube());
+  return 1;
+}
+
+static int lua_wrapper_createSphere(lua_State* luaState) {
+  float radius = luaL_checknumber(luaState, 1);
+  int32_t segments = luaL_optinteger(luaState, 2, 12);
+  lua_pushinteger(luaState, createMesh3DSphere(radius, (uint8_t)segments));
+  return 1;
+}
+
+static int lua_wrapper_createPlane(lua_State* luaState) {
+  float width = luaL_checknumber(luaState, 1);
+  float height = luaL_checknumber(luaState, 2);
+  lua_pushinteger(luaState, createMesh3DPlane(width, height));
+  return 1;
+}
+
+static int lua_wrapper_freeMesh(lua_State* luaState) {
+  lua_pushboolean(luaState, freeMesh3D(luaL_checkinteger(luaState, 1)));
+  return 1;
+}
+
+static int lua_wrapper_setMeshColor(lua_State* luaState) {
+  setMeshColor3D(luaL_checkinteger(luaState, 1), luaColorArg(luaState, 2), luaColorArg(luaState, 3), luaColorArg(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_loadTexture(lua_State* luaState) {
+  String path = luaGamePath + luaL_checkstring(luaState, 1);
+  lua_pushinteger(luaState, loadTexture3D(path));
+  return 1;
+}
+
+static int lua_wrapper_freeTexture(lua_State* luaState) {
+  lua_pushboolean(luaState, freeTexture3D(luaL_checkinteger(luaState, 1)));
+  return 1;
+}
+
+static int lua_wrapper_setMeshTexture(lua_State* luaState) {
+  setMeshTexture3D(luaL_checkinteger(luaState, 1), luaL_checkinteger(luaState, 2));
+  return 0;
+}
+
+static int lua_wrapper_setMeshFlipped(lua_State* luaState) {
+  setMeshFlipped3D(luaL_checkinteger(luaState, 1), luaL_checkinteger(luaState, 2) != 0);
+  return 0;
+}
+
+static int lua_wrapper_createEntity(lua_State* luaState) {
+  lua_pushinteger(luaState, createEntity3D(luaL_checkinteger(luaState, 1)));
+  return 1;
+}
+
+static int lua_wrapper_freeEntity(lua_State* luaState) {
+  lua_pushboolean(luaState, freeEntity3D(luaL_checkinteger(luaState, 1)));
+  return 1;
+}
+
+static int lua_wrapper_positionEntity(lua_State* luaState) {
+  positionEntity3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3), luaL_checknumber(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_rotateEntity(lua_State* luaState) {
+  rotateEntity3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3), luaL_checknumber(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_turnEntity(lua_State* luaState) {
+  turnEntity3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3), luaL_checknumber(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_scaleEntity(lua_State* luaState) {
+  scaleEntity3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3), luaL_checknumber(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_entityColor(lua_State* luaState) {
+  entityColor3D(luaL_checkinteger(luaState, 1), luaColorArg(luaState, 2), luaColorArg(luaState, 3), luaColorArg(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_hideEntity(lua_State* luaState) {
+  hideEntity3D(luaL_checkinteger(luaState, 1), luaL_checkinteger(luaState, 2) != 0);
+  return 0;
+}
+
+static int lua_wrapper_linkEntity(lua_State* luaState) {
+  lua_pushboolean(luaState, linkEntity3D(luaL_checkinteger(luaState, 1), luaL_checkinteger(luaState, 2)));
+  return 1;
+}
+
+static int lua_wrapper_entityOrder(lua_State* luaState) {
+  entityOrder3D(luaL_checkinteger(luaState, 1), (int8_t)luaL_checkinteger(luaState, 2));
+  return 0;
+}
+
+static int lua_wrapper_createCamera(lua_State* luaState) {
+  lua_pushinteger(luaState, createCamera3D());
+  return 1;
+}
+
+static int lua_wrapper_freeCamera(lua_State* luaState) {
+  lua_pushboolean(luaState, freeCamera3D(luaL_checkinteger(luaState, 1)));
+  return 1;
+}
+
+static int lua_wrapper_positionCamera(lua_State* luaState) {
+  positionCamera3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3), luaL_checknumber(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_rotateCamera(lua_State* luaState) {
+  rotateCamera3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3), luaL_checknumber(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_turnCamera(lua_State* luaState) {
+  turnCamera3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3), luaL_checknumber(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_cameraZoom(lua_State* luaState) {
+  cameraZoom3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2));
+  return 0;
+}
+
+static int lua_wrapper_cameraRange(lua_State* luaState) {
+  cameraRange3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3));
+  return 0;
+}
+
+static int lua_wrapper_ambientLight(lua_State* luaState) {
+  ambientLight3D(luaColorArg(luaState, 1), luaColorArg(luaState, 2), luaColorArg(luaState, 3));
+  return 0;
+}
+
+static int lua_wrapper_createLight(lua_State* luaState) {
+  uint8_t r = luaColorArg(luaState, 1);
+  uint8_t g = luaColorArg(luaState, 2);
+  uint8_t b = luaColorArg(luaState, 3);
+  float x = luaL_checknumber(luaState, 4);
+  float y = luaL_checknumber(luaState, 5);
+  float z = luaL_checknumber(luaState, 6);
+  float range = luaL_optnumber(luaState, 7, 0);
+  int32_t type = luaL_optinteger(luaState, 8, LIGHT3D_TYPE_POINT);
+  lua_pushinteger(luaState, createLight3D(r, g, b, x, y, z, range, (uint8_t)type));
+  return 1;
+}
+
+static int lua_wrapper_freeLight(lua_State* luaState) {
+  lua_pushboolean(luaState, freeLight3D(luaL_checkinteger(luaState, 1)));
+  return 1;
+}
+
+static int lua_wrapper_setLightDirection(lua_State* luaState) {
+  setLightDirection3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3), luaL_checknumber(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_setLightCone(lua_State* luaState) {
+  setLightCone3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3));
+  return 0;
+}
+
+static int lua_wrapper_updateWorld(lua_State* luaState) {
+  updateWorld3D(luaDisplay);
+  return 0;
+}
+
+static int lua_wrapper_drawWorld(lua_State* luaState) {
+  drawWorld3D(luaDisplay);
+  return 0;
+}
+
+static int lua_wrapper_freeAll3D(lua_State* luaState) {
+  resetWorld3D();
+  return 0;
+}
+
+
 void initLua() {
   static bool bindingsInitiated = false;
   if (bindingsInitiated) {
@@ -999,6 +1201,47 @@ void initLua() {
                  "TRANSP_OFF="+String(TRANSP_OFF)+"\n"+\
                  "TRANSP_MASK="+String(TRANSP_MASK);
   lua_dostring(flags.c_str(), "init()");
+  lua_register(luaState, "LoadMesh", (lua_CFunction) &lua_wrapper_loadMesh);
+  lua_register(luaState, "CreateCube", (lua_CFunction) &lua_wrapper_createCube);
+  lua_register(luaState, "CreateSphere", (lua_CFunction) &lua_wrapper_createSphere);
+  lua_register(luaState, "CreatePlane", (lua_CFunction) &lua_wrapper_createPlane);
+  lua_register(luaState, "FreeMesh", (lua_CFunction) &lua_wrapper_freeMesh);
+  lua_register(luaState, "SetMeshColor", (lua_CFunction) &lua_wrapper_setMeshColor);
+  lua_register(luaState, "LoadTexture", (lua_CFunction) &lua_wrapper_loadTexture);
+  lua_register(luaState, "FreeTexture", (lua_CFunction) &lua_wrapper_freeTexture);
+  lua_register(luaState, "SetMeshTexture", (lua_CFunction) &lua_wrapper_setMeshTexture);
+  lua_register(luaState, "SetMeshFlipped", (lua_CFunction) &lua_wrapper_setMeshFlipped);
+  lua_register(luaState, "CreateEntity", (lua_CFunction) &lua_wrapper_createEntity);
+  lua_register(luaState, "FreeEntity", (lua_CFunction) &lua_wrapper_freeEntity);
+  lua_register(luaState, "PositionEntity", (lua_CFunction) &lua_wrapper_positionEntity);
+  lua_register(luaState, "RotateEntity", (lua_CFunction) &lua_wrapper_rotateEntity);
+  lua_register(luaState, "TurnEntity", (lua_CFunction) &lua_wrapper_turnEntity);
+  lua_register(luaState, "ScaleEntity", (lua_CFunction) &lua_wrapper_scaleEntity);
+  lua_register(luaState, "EntityColor", (lua_CFunction) &lua_wrapper_entityColor);
+  lua_register(luaState, "HideEntity", (lua_CFunction) &lua_wrapper_hideEntity);
+  lua_register(luaState, "LinkEntity", (lua_CFunction) &lua_wrapper_linkEntity);
+  lua_register(luaState, "EntityOrder", (lua_CFunction) &lua_wrapper_entityOrder);
+  lua_register(luaState, "CreateCamera", (lua_CFunction) &lua_wrapper_createCamera);
+  lua_register(luaState, "FreeCamera", (lua_CFunction) &lua_wrapper_freeCamera);
+  lua_register(luaState, "PositionCamera", (lua_CFunction) &lua_wrapper_positionCamera);
+  lua_register(luaState, "RotateCamera", (lua_CFunction) &lua_wrapper_rotateCamera);
+  lua_register(luaState, "TurnCamera", (lua_CFunction) &lua_wrapper_turnCamera);
+  lua_register(luaState, "CameraZoom", (lua_CFunction) &lua_wrapper_cameraZoom);
+  lua_register(luaState, "CameraRange", (lua_CFunction) &lua_wrapper_cameraRange);
+  lua_register(luaState, "AmbientLight", (lua_CFunction) &lua_wrapper_ambientLight);
+  lua_register(luaState, "CreateLight", (lua_CFunction) &lua_wrapper_createLight);
+  lua_register(luaState, "FreeLight", (lua_CFunction) &lua_wrapper_freeLight);
+  lua_register(luaState, "SetLightDirection", (lua_CFunction) &lua_wrapper_setLightDirection);
+  lua_register(luaState, "SetLightCone", (lua_CFunction) &lua_wrapper_setLightCone);
+  lua_register(luaState, "UpdateWorld", (lua_CFunction) &lua_wrapper_updateWorld);
+  lua_register(luaState, "DrawWorld", (lua_CFunction) &lua_wrapper_drawWorld);
+  lua_register(luaState, "FreeAll3D", (lua_CFunction) &lua_wrapper_freeAll3D);
+  lua_pushinteger(luaState, LIGHT3D_TYPE_POINT);
+  lua_setglobal(luaState, "POINTLIGHT");
+  lua_pushinteger(luaState, LIGHT3D_TYPE_SPOT);
+  lua_setglobal(luaState, "SPOTLIGHT");
+  lua_pushinteger(luaState, LIGHT3D_TYPE_DIRECTIONAL);
+  lua_setglobal(luaState, "DIRECTIONALLIGHT");
   bindingsInitiated = true;
 }
 

@@ -1,0 +1,7 @@
+Cls()
+TurnEntity(cube, 0, 0.04 * MsDelta, 0)
+PositionEntity(cube, 0, -10 + Pressure / 100, 0)
+UpdateWorld()
+DrawWorld()
+SetTextSize(1)
+DrawString("3D demo - blow to lift", 6, 228)
