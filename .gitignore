@@ -6,6 +6,8 @@
 *.lo
 *.o
 *.obj
+# Wavefront 3D model files used by Lua games are not compiler objects
+!SDCardContent/**/*.obj
 
 # Precompiled Headers
 *.gch
