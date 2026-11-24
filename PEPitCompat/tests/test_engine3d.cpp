@@ -164,10 +164,9 @@ TEST_CASE("engine3d: OBJ load auto-textures via mtllib map_Kd and renders textur
 
 TEST_CASE("engine3d: default 50% ambient shades an untextured cube to mid-grey", "[engine3d]") {
     resetWorld3D();
-    int16_t mesh = createMesh3DCube();  // unit cube, -1..1 on all axes
+    int16_t mesh = createMesh3DCube();  // 50-unit cube, -25..25 on all axes
     REQUIRE(mesh >= 0);
     int16_t cube = createEntity3D(mesh);
-    scaleEntity3D(cube, 25, 25, 25);
 
     Display3D d;
     d.render();
@@ -184,7 +183,6 @@ TEST_CASE("engine3d: point light at camera fully lights the front face, range cu
     ambientLight3D(0, 0, 0);
     int16_t mesh = createMesh3DCube();
     int16_t cube = createEntity3D(mesh);
-    scaleEntity3D(cube, 25, 25, 25);
 
     // range 0 == infinite (no attenuation); front face sits ~head-on to the
     // light at the camera, Gouraud corners pull the flat centre a bit below 255
@@ -210,7 +208,6 @@ TEST_CASE("engine3d: spot light respects cone — dark outside, lit when aimed a
     ambientLight3D(0, 0, 0);
     int16_t mesh = createMesh3DCube();
     int16_t cube = createEntity3D(mesh);
-    scaleEntity3D(cube, 25, 25, 25);
 
     int16_t spot = createLight3D(255, 255, 255, 0, 0, -100, 0, LIGHT3D_TYPE_SPOT);
     REQUIRE(spot >= 0);
@@ -240,7 +237,6 @@ TEST_CASE("engine3d: directional beam lights only faces it hits head-on", "[engi
 
     int16_t mesh = createMesh3DCube();
     int16_t cube = createEntity3D(mesh);
-    scaleEntity3D(cube, 25, 25, 25);
     positionCamera3D(0, 0, 120, -120);
     rotateCamera3D(0, -45, 0, 0);  // look straight down at the cube
 
@@ -259,7 +255,6 @@ TEST_CASE("engine3d: near-plane clipping keeps geometry in front and drops the r
     resetWorld3D();
     int16_t mesh = createMesh3DCube();
     int16_t cube = createEntity3D(mesh);
-    scaleEntity3D(cube, 25, 25, 25);
     // Camera looks down at the origin cube; its top-face triangles straddle a
     // near plane at 115 (camera-to-center distance is ~116.6).
     positionCamera3D(0, 0, 60, -100);
@@ -283,7 +278,6 @@ TEST_CASE("engine3d: entity entirely behind the camera is culled", "[engine3d]")
     resetWorld3D();
     int16_t mesh = createMesh3DCube();
     int16_t cube = createEntity3D(mesh);
-    scaleEntity3D(cube, 25, 25, 25);
     positionEntity3D(cube, 0, 0, -200);  // default camera sits at z=-100
 
     Display3D d;
@@ -322,8 +316,6 @@ TEST_CASE("engine3d: LinkEntity makes the child follow the parent transform", "[
     int16_t child = createEntity3D(mesh);
     REQUIRE(parent >= 0);
     REQUIRE(child >= 0);
-    scaleEntity3D(parent, 25, 25, 25);
-    scaleEntity3D(child, 25, 25, 25);
     positionEntity3D(parent, 0, 0, 0);
     positionEntity3D(child, -120, 0, 0);  // unlinked: off screen left
     REQUIRE(linkEntity3D(child, parent));

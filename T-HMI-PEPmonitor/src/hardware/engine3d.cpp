@@ -386,7 +386,7 @@ static HashEntry3D* hashSlot3D(ObjLoad3D* ctx, int32_t vi, int32_t vti, int32_t 
 }
 
 static int32_t getMergedVertex3D(ObjLoad3D* ctx, int32_t vi, int32_t vti, int32_t vni) {
-  if (vi < 0 || vi >= (int32_t)ctx->rawVCount) return -1;
+  if (vi < 0 || vi * 3 + 2 >= (int32_t)ctx->rawVCount) return -1;
   HashEntry3D* slot = hashSlot3D(ctx, vi, vti, vni);
   if (!slot) return -1;
   if (slot->vi != INT32_MIN) return slot->out;
@@ -413,7 +413,7 @@ static int32_t getMergedVertex3D(ObjLoad3D* ctx, int32_t vi, int32_t vti, int32_
   ctx->pos[idx].x = ctx->rawV[vi*3];
   ctx->pos[idx].y = ctx->rawV[vi*3+1];
   ctx->pos[idx].z = ctx->rawV[vi*3+2];
-  if (vni >= 0 && vni < (int32_t)ctx->rawNCount) {
+  if (vni >= 0 && vni * 3 + 2 < (int32_t)ctx->rawNCount) {
     ctx->nrm[idx].x = ctx->rawN[vni*3];
     ctx->nrm[idx].y = ctx->rawN[vni*3+1];
     ctx->nrm[idx].z = ctx->rawN[vni*3+2];
@@ -422,7 +422,7 @@ static int32_t getMergedVertex3D(ObjLoad3D* ctx, int32_t vi, int32_t vti, int32_
     ctx->nrm[idx].x = 0; ctx->nrm[idx].y = 0; ctx->nrm[idx].z = 0;
     ctx->hasNrm[idx] = 0;
   }
-  if (vti >= 0 && vti < (int32_t)ctx->rawTCount) {
+  if (vti >= 0 && vti * 2 + 1 < (int32_t)ctx->rawTCount) {
     // OBJ v origin is bottom left, texture rows start at the top
     ctx->uvs[idx*2] = ctx->rawT[vti*2];
     ctx->uvs[idx*2+1] = 1.0f - ctx->rawT[vti*2+1];
@@ -528,9 +528,19 @@ static void parseObj3D(ObjLoad3D* ctx, char* buf, char* mtllibName) {
             }
           }
         }
-        if (vi < 0) vi += ctx->rawVCount;
-        if (hasVti) { if (vti < 0) vti += ctx->rawTCount; } else vti = -1;
-        if (hasVni) { if (vni < 0) vni += ctx->rawNCount; } else vni = -1;
+        if (vi < 0) {
+          vi += (int32_t)ctx->rawVCount / 3;
+        } else if (vi > 0) {
+          vi--;  // OBJ face indices are 1-based
+        }
+        if (hasVti) {
+          if (vti < 0) vti += (int32_t)ctx->rawTCount / 2;
+          else if (vti > 0) vti--;
+        } else vti = -1;
+        if (hasVni) {
+          if (vni < 0) vni += (int32_t)ctx->rawNCount / 3;
+          else if (vni > 0) vni--;
+        } else vni = -1;
         if (vti < 0) vti = -1;
         if (vni < 0) vni = -1;
         int32_t merged = getMergedVertex3D(ctx, vi, vti, vni);
@@ -791,12 +801,12 @@ int16_t createMesh3DCube() {
   const uint16_t vc = 24, fc = 12;
   if (!setupPrimitiveMesh3D(m, vc, fc)) return -1;
   static const float quadPos[6][4][3] = {
-    {{1,1,-1},{1,-1,-1},{-1,-1,-1},{-1,1,-1}},
-    {{-1,-1,1},{1,-1,1},{1,1,1},{-1,1,1}},
-    {{1,-1,-1},{1,1,-1},{1,1,1},{1,-1,1}},
-    {{-1,1,-1},{-1,-1,-1},{-1,-1,1},{-1,1,1}},
-    {{-1,1,1},{1,1,1},{1,1,-1},{-1,1,-1}},
-    {{1,-1,1},{-1,-1,1},{-1,-1,-1},{1,-1,-1}}
+    {{25,25,-25},{25,-25,-25},{-25,-25,-25},{-25,25,-25}},
+    {{-25,-25,25},{25,-25,25},{25,25,25},{-25,25,25}},
+    {{25,-25,-25},{25,25,-25},{25,25,25},{25,-25,25}},
+    {{-25,25,-25},{-25,-25,-25},{-25,-25,25},{-25,25,25}},
+    {{-25,25,25},{25,25,25},{25,25,-25},{-25,25,-25}},
+    {{25,-25,25},{-25,-25,25},{-25,-25,-25},{25,-25,-25}}
   };
   static const float quadNrm[6][3] = {
     {0,0,-1},{0,0,1},{1,0,0},{-1,0,0},{0,1,0},{0,-1,0}

@@ -46,7 +46,6 @@ function SetTextDatum(datum) end
 function SetCursor(x, y) end
 function Print(s) end
 function Println(s) end
-function Cls() end
 
 -- Preferences (Persistent Storage)
 function PrefsSetString(key, value) end

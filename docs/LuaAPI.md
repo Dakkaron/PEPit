@@ -29,7 +29,7 @@ winding; if an imported model looks inside out, call `SetMeshFlipped`.
 LoadMesh(path)                     -- mesh handle; a mtllib material file is
                                    -- loaded automatically and its first map_Kd
                                    -- BMP texture is applied when available
-CreateCube()                       -- mesh handle, cube spanning -1..1 on all axes
+CreateCube()                       -- mesh handle, 50-unit Blitz3D-style cube, -25..25 on all axes
 CreateSphere(radius, segments)     -- mesh handle, segments defaults to 12
 CreatePlane(width, height)         -- mesh handle, flat XZ plane, normal +y
 FreeMesh(meshHandle)
@@ -93,7 +93,6 @@ AmbientLight(40, 40, 40)
 lamp = CreateLight(255, 240, 215, 90, 120, -80, 450, POINTLIGHT)
 
 function drawFrame()
-  Cls()
   TurnEntity(cube, 0, 1, 0)
   UpdateWorld()
   DrawWorld()
