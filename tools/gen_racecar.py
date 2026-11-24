@@ -248,30 +248,40 @@ def build():
             return "dark"
         return "glass"
     cockpit = [(z, chamfer_section(hw, yb, yt, ch)) for (z, hw, yb, yt, ch) in (
-        (8.0, 2.4, 8.4, 10.2, 0.4),
-        (6.6, 2.8, 8.5, 10.8, 0.45),
-        (5.5, 3.1, 8.5, 11.4, 0.5),
-        (3.0, 3.2, 8.55, 11.7, 0.5),
-        (1.0, 3.3, 8.6, 12.0, 0.5),
-        (-3.5, 3.1, 8.7, 11.7, 0.5),
-        (-6.5, 2.7, 8.8, 10.9, 0.4),
+        (8.0, 2.4, 8.25, 10.2, 0.4),
+        (6.6, 2.8, 8.8, 10.8, 0.45),
+        (5.5, 3.1, 9.1, 11.4, 0.5),
+        (3.0, 3.2, 9.4, 11.7, 0.5),
+        (1.0, 3.3, 9.65, 12.0, 0.5),
+        (-3.5, 3.1, 9.8, 11.7, 0.5),
+        (-6.5, 2.7, 9.85, 10.9, 0.4),
     )]
     add_loft(cockpit, cockpit_region, "glass", "glass", (0, 10.0))
 
-    # sidepods (lofted, chamfered)
+    # sidepods: lofted with a flat inner wall just clear of the body flank
+    # (penetrating surfaces would painter-z-fight against the tub side)
     for sx in (1, -1):
         def pod_region(n):
             if n[1] < -0.45 or n[0] * sx < -0.6:
                 return "dark"
             return "body"
+        def pod_section(inner, outer, yb, yt, ch):
+            return [(inner, yb), (outer - ch, yb), (outer, yb + ch),
+                    (outer, yt - ch), (outer - ch, yt), (inner, yt)]
         stations = []
-        for (z, hw, yb, yt, ch) in ((6.0, 1.9, 1.2, 5.6, 0.7), (-2.0, 1.9, 1.2, 5.6, 0.7), (-9.5, 1.7, 1.3, 5.3, 0.6)):
-            sec = [(x + sx * 6.5, y) for (x, y) in chamfer_section(hw, yb, yt, ch)]
+        for (z, yb, yt, ch) in ((6.0, 1.2, 5.6, 0.7), (-2.0, 1.2, 5.6, 0.7), (-9.5, 1.3, 5.3, 0.6)):
+            outer = 8.4 if z > -5 else 8.2
+            sec = pod_section(sx * 4.85, sx * outer, yb, yt, ch)
             stations.append((z, sec))
-        add_loft(stations, pod_region, "body", "dark", (sx * 6.5, 3.4))
+        add_loft(stations, pod_region, "body", "dark", (sx * 6.6, 3.4))
 
-    # floor plank
-    add_box(0, 1.3, -1.0, 6.2, 0.25, 12.0, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
+    # pod inlets flush with the pod top/front faces
+    for sx in (1, -1):
+        add_box(sx * 6.6, 6.5, 5.6, 1.4, 0.9, 0.4,
+                {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
+
+    # floor plank, clear below the tub bottom
+    add_box(0, 1.15, -1.0, 6.2, 0.25, 12.0, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
 
     # front wing + flap + endplates
     add_box(0, 0.8, 16.6, 8.6, 0.35, 1.7,
@@ -293,7 +303,7 @@ def build():
     add_box(0, 11.8, -14.7, 8.2, 0.3, 1.1,
             {"+y": "body", "-y": "dark", "+z": "body", "-z": "body", "+x": "white", "-x": "white"})
     for sx in (1, -1):
-        add_box(sx * 4.2, 9.0, -15.2, 0.35, 1.3, 0.5, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
+        add_box(sx * 4.6, 9.45, -15.2, 0.35, 1.3, 0.5, {k: "dark" for k in ("+x", "-x", "+y", "-y", "+z", "-z")})
         add_box(sx * 8.7, 11.0, -15.5, 0.3, 1.6, 1.9,
                 {"+x": "body", "-x": "body", "+y": "dark", "-y": "dark", "+z": "dark", "-z": "dark"})
 
