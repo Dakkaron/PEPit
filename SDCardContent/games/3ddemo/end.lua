@@ -1,4 +1,3 @@
-Cls()
 UpdateWorld()
 DrawWorld()
 SetTextSize(2)
