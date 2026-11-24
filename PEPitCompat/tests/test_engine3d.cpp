@@ -129,6 +129,15 @@ const char* CUBE_OBJ =
 
 const std::string CUBE_MTL = "newmtl bricks\nmap_Kd bricks.bmp\n";
 
+// Left half pure red, right half pure green: a correctly mapped face must
+// show BOTH clusters; a broken UV path tints the face from one texture column.
+void splitColor(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b) {
+    if (x < 32) { *r = 240; *g = 20; *b = 20; }
+    else { *r = 20; *g = 240; *b = 20; }
+}
+
+
+
 std::filesystem::path writeModelFixtures(const std::string& name) {
     std::filesystem::path root = makeSdRoot("engine3d_" + name);
     writeSdFile(root, "models/cube.obj", CUBE_OBJ);
@@ -158,6 +167,34 @@ TEST_CASE("engine3d: OBJ load auto-textures via mtllib map_Kd and renders textur
     CHECK(r > 60);
     CHECK(r >= g);
     CHECK(g >= b);
+
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: texture UVs span the full texture, not one column", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_uvsweep");
+    writeSdFile(root, "models/cube.obj", CUBE_OBJ);
+    writeSdFile(root, "models/cube.mtl", "newmtl split\nmap_Kd split.bmp\n");
+    writeSdFile(root, "models/split.bmp", makeBmp24(64, 64, splitColor));
+    resetWorld3D();
+
+    int16_t mesh = loadMesh3D(String("/models/cube.obj"));
+    REQUIRE(mesh >= 0);
+    REQUIRE(createEntity3D(mesh) >= 0);
+
+    Display3D d;
+    d.render();  // default camera looks at the front face head-on
+    int red = 0, green = 0;
+    for (int y = 55; y < 185; y++) {          // the 139px cube silhouette
+        for (int x = 90; x < 230; x++) {
+            int r, g, b;
+            Display3D::rgb(d.pixel(x, y), r, g, b);
+            if (r > g + 80 && r > b + 80) red++;
+            else if (g > r + 80 && g > b + 80) green++;
+        }
+    }
+    CHECK(red > 3000);
+    CHECK(green > 3000);
 
     resetWorld3D();
 }

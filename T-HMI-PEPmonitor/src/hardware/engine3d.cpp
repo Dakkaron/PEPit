@@ -1488,8 +1488,12 @@ void updateWorld3D(DISPLAY_T* display) {
 
 static inline uint16_t sampleTexel3D(const uint16_t* tex, int32_t tw, int32_t th,
     int32_t mask, int32_t uQ16, int32_t vQ16) {
-  int32_t tx = uQ16 >> 16;
-  int32_t ty = vQ16 >> 16;
+  // uvQ is normalized (1.0 == one full texture repeat, clamped to +-16 at
+  // load), so scale by the texture size before wrapping. Without the scale,
+  // u=0..1 would only ever hit texels 0..1 and faces get tinted by a single
+  // texture column.
+  int32_t tx = (uQ16 * tw) >> 16;
+  int32_t ty = (vQ16 * th) >> 16;
   if (mask >= 0) {
     tx &= mask;
     ty &= mask;
