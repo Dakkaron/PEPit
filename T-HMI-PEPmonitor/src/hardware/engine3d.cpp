@@ -52,12 +52,19 @@ typedef struct {
   uint32_t color;    // Gouraud color 0x00RRGGBB
 } ViewVertex3D;
 
+/* Stored vertex record: position and normal in one record so the update
+ * loop streams both from the same PSRAM cache lines per vertex instead of
+ * following two separate arrays. */
+typedef struct {
+  Vector3D pos;
+  Vector3D nrm;
+} MeshVertex3D;
+
 typedef struct {
   bool inUse;
   uint16_t vertexCount;
   uint16_t faceCount;
-  Vector3D* pos;
-  Vector3D* nrm;
+  MeshVertex3D* vtx;
   int32_t* uvQ; // Q16 uv pairs, null when the mesh has no texture coords
   Face3D* faces;
   uint8_t color[3];
@@ -328,8 +335,7 @@ static inline float fastInvSqrt3D(float x) {
 }
 
 static void freeMeshArrays3D(Mesh3D* m) {
-  if (m->pos) free(m->pos);
-  if (m->nrm) free(m->nrm);
+  if (m->vtx) free(m->vtx);
   if (m->uvQ) free(m->uvQ);
   if (m->faces) free(m->faces);
   if (m->vs) free(m->vs);
@@ -352,27 +358,27 @@ static int16_t allocMeshSlot3D() {
 }
 
 static void normalizeNormals3D(Mesh3D* m, const uint8_t* hasNrm) {
-  if (!m->nrm) return;
+  if (!m->vtx) return;
   // Faces must contribute their normal to merged vertices that have no OBJ normal
-  if (hasNrm && m->faces && m->pos) {
+  if (hasNrm && m->faces && m->vtx) {
     for (uint16_t fi = 0; fi < m->faceCount; fi++) {
       Face3D* f = &m->faces[fi];
       if (hasNrm[f->a] && hasNrm[f->b] && hasNrm[f->c]) continue;
-      Vector3D* p0 = &m->pos[f->a];
-      Vector3D* p1 = &m->pos[f->b];
-      Vector3D* p2 = &m->pos[f->c];
+      Vector3D* p0 = &m->vtx[f->a].pos;
+      Vector3D* p1 = &m->vtx[f->b].pos;
+      Vector3D* p2 = &m->vtx[f->c].pos;
       float e1x = p1->x - p0->x, e1y = p1->y - p0->y, e1z = p1->z - p0->z;
       float e2x = p2->x - p0->x, e2y = p2->y - p0->y, e2z = p2->z - p0->z;
       float nx = e1y*e2z - e1z*e2y;
       float ny = e1z*e2x - e1x*e2z;
       float nz = e1x*e2y - e1y*e2x;
-      if (!hasNrm[f->a]) { m->nrm[f->a].x += nx; m->nrm[f->a].y += ny; m->nrm[f->a].z += nz; }
-      if (!hasNrm[f->b]) { m->nrm[f->b].x += nx; m->nrm[f->b].y += ny; m->nrm[f->b].z += nz; }
-      if (!hasNrm[f->c]) { m->nrm[f->c].x += nx; m->nrm[f->c].y += ny; m->nrm[f->c].z += nz; }
+      if (!hasNrm[f->a]) { m->vtx[f->a].nrm.x += nx; m->vtx[f->a].nrm.y += ny; m->vtx[f->a].nrm.z += nz; }
+      if (!hasNrm[f->b]) { m->vtx[f->b].nrm.x += nx; m->vtx[f->b].nrm.y += ny; m->vtx[f->b].nrm.z += nz; }
+      if (!hasNrm[f->c]) { m->vtx[f->c].nrm.x += nx; m->vtx[f->c].nrm.y += ny; m->vtx[f->c].nrm.z += nz; }
     }
   }
   for (uint16_t vi = 0; vi < m->vertexCount; vi++) {
-    Vector3D* n = &m->nrm[vi];
+    Vector3D* n = &m->vtx[vi].nrm;
     float len = sqrtf(n->x*n->x + n->y*n->y + n->z*n->z);
     if (len > 1e-7f) {
       float inv = 1.0f / len;
@@ -389,7 +395,7 @@ static bool buildMeshScratch3D(Mesh3D* m) {
   float minX = 1e30f, minY = 1e30f, minZ = 1e30f;
   float maxX = -1e30f, maxY = -1e30f, maxZ = -1e30f;
   for (uint16_t vi = 0; vi < vc; vi++) {
-    Vector3D* p = &m->pos[vi];
+    Vector3D* p = &m->vtx[vi].pos;
     if (p->x < minX) minX = p->x;
     if (p->y < minY) minY = p->y;
     if (p->z < minZ) minZ = p->z;
@@ -402,7 +408,7 @@ static bool buildMeshScratch3D(Mesh3D* m) {
   m->boundsCenter.z = (minZ + maxZ) * 0.5f;
   float radius = 0;
   for (uint16_t vi = 0; vi < vc; vi++) {
-    Vector3D* p = &m->pos[vi];
+    Vector3D* p = &m->vtx[vi].pos;
     float dx = p->x - m->boundsCenter.x;
     float dy = p->y - m->boundsCenter.y;
     float dz = p->z - m->boundsCenter.z;
@@ -428,7 +434,7 @@ typedef struct {
   float* rawV; uint32_t rawVCount, rawVCap;
   float* rawT; uint32_t rawTCount, rawTCap;
   float* rawN; uint32_t rawNCount, rawNCap;
-  Vector3D* pos; Vector3D* nrm; float* uvs; uint8_t* hasNrm;
+  MeshVertex3D* vtx; float* uvs; uint8_t* hasNrm;
   uint32_t mergedCount, mergedCap;
   Face3D* faces; uint32_t faceCount, faceCap;
   HashEntry3D* hash; uint32_t hashCap, hashCount;
@@ -504,27 +510,26 @@ static int32_t getMergedVertex3D(ObjLoad3D* ctx, int32_t vi, int32_t vti, int32_
   }
   if (ctx->mergedCount >= ctx->mergedCap) {
     uint32_t newCap = ctx->mergedCap ? ctx->mergedCap * 2 : 64;
-    Vector3D* npos = (Vector3D*)grow3D(ctx->pos, newCap * sizeof(Vector3D));
-    Vector3D* nnrm = (Vector3D*)grow3D(ctx->nrm, newCap * sizeof(Vector3D));
+    MeshVertex3D* nvtx = (MeshVertex3D*)grow3D(ctx->vtx, newCap * sizeof(MeshVertex3D));
     float* nuvs = (float*)grow3D(ctx->uvs, newCap * 2 * sizeof(float));
     uint8_t* nnrmF = (uint8_t*)grow3D(ctx->hasNrm, newCap);
-    if (!npos || !nnrm || !nuvs || !nnrmF) return -1;
-    ctx->pos = npos; ctx->nrm = nnrm; ctx->uvs = nuvs; ctx->hasNrm = nnrmF;
+    if (!nvtx || !nuvs || !nnrmF) return -1;
+    ctx->vtx = nvtx; ctx->uvs = nuvs; ctx->hasNrm = nnrmF;
     ctx->mergedCap = newCap;
   }
   uint32_t idx = ctx->mergedCount;
   slot->vi = vi; slot->vti = vti; slot->vni = vni; slot->out = (int32_t)idx;
   ctx->hashCount++;
-  ctx->pos[idx].x = ctx->rawV[vi*3];
-  ctx->pos[idx].y = ctx->rawV[vi*3+1];
-  ctx->pos[idx].z = ctx->rawV[vi*3+2];
+  ctx->vtx[idx].pos.x = ctx->rawV[vi*3];
+  ctx->vtx[idx].pos.y = ctx->rawV[vi*3+1];
+  ctx->vtx[idx].pos.z = ctx->rawV[vi*3+2];
   if (vni >= 0 && vni * 3 + 2 < (int32_t)ctx->rawNCount) {
-    ctx->nrm[idx].x = ctx->rawN[vni*3];
-    ctx->nrm[idx].y = ctx->rawN[vni*3+1];
-    ctx->nrm[idx].z = ctx->rawN[vni*3+2];
+    ctx->vtx[idx].nrm.x = ctx->rawN[vni*3];
+    ctx->vtx[idx].nrm.y = ctx->rawN[vni*3+1];
+    ctx->vtx[idx].nrm.z = ctx->rawN[vni*3+2];
     ctx->hasNrm[idx] = 1;
   } else {
-    ctx->nrm[idx].x = 0; ctx->nrm[idx].y = 0; ctx->nrm[idx].z = 0;
+    ctx->vtx[idx].nrm.x = 0; ctx->vtx[idx].nrm.y = 0; ctx->vtx[idx].nrm.z = 0;
     ctx->hasNrm[idx] = 0;
   }
   if (vti >= 0 && vti * 2 + 1 < (int32_t)ctx->rawTCount) {
@@ -765,8 +770,7 @@ int16_t loadMesh3D(String path) {
 
   m->vertexCount = (uint16_t)ctx.mergedCount;
   m->faceCount = (uint16_t)ctx.faceCount;
-  m->pos = ctx.pos;
-  m->nrm = ctx.nrm;
+  m->vtx = ctx.vtx;
   m->faces = ctx.faces;
   if (ctx.hasUV && ctx.uvs) {
     m->uvQ = (int32_t*)heap_caps_malloc(sizeof(int32_t) * 2 * m->vertexCount, MALLOC_CAP_SPIRAM);
@@ -782,7 +786,7 @@ int16_t loadMesh3D(String path) {
     }
   }
   free(ctx.uvs);
-  if (!m->pos || !m->nrm || !m->faces || m->vertexCount == 0 || m->faceCount == 0) {
+  if (!m->vtx || !m->faces || m->vertexCount == 0 || m->faceCount == 0) {
     Serial.println("engine3d: no usable faces in model " + path);
     free(ctx.hasNrm);
     freeMeshArrays3D(m);
@@ -904,11 +908,10 @@ void setMeshFlipped3D(int16_t handle, bool flipped) {
 }
 
 static bool setupPrimitiveMesh3D(Mesh3D* m, uint16_t vc, uint16_t fc) {
-  m->pos = (Vector3D*)heap_caps_malloc(sizeof(Vector3D) * vc, MALLOC_CAP_SPIRAM);
-  m->nrm = (Vector3D*)heap_caps_malloc(sizeof(Vector3D) * vc, MALLOC_CAP_SPIRAM);
+  m->vtx = (MeshVertex3D*)heap_caps_malloc(sizeof(MeshVertex3D) * vc, MALLOC_CAP_SPIRAM);
   m->uvQ = (int32_t*)heap_caps_malloc(sizeof(int32_t) * 2 * vc, MALLOC_CAP_SPIRAM);
   m->faces = (Face3D*)heap_caps_malloc(sizeof(Face3D) * fc, MALLOC_CAP_SPIRAM);
-  if (!m->pos || !m->nrm || !m->uvQ || !m->faces) {
+  if (!m->vtx || !m->uvQ || !m->faces) {
     freeMeshArrays3D(m);
     return false;
   }
@@ -945,12 +948,12 @@ int16_t createMesh3DCube() {
   for (int fi = 0; fi < 6; fi++) {
     uint16_t base = fi * 4;
     for (int qi = 0; qi < 4; qi++) {
-      m->pos[base+qi].x = quadPos[fi][qi][0];
-      m->pos[base+qi].y = quadPos[fi][qi][1];
-      m->pos[base+qi].z = quadPos[fi][qi][2];
-      m->nrm[base+qi].x = quadNrm[fi][0];
-      m->nrm[base+qi].y = quadNrm[fi][1];
-      m->nrm[base+qi].z = quadNrm[fi][2];
+      m->vtx[base+qi].pos.x = quadPos[fi][qi][0];
+      m->vtx[base+qi].pos.y = quadPos[fi][qi][1];
+      m->vtx[base+qi].pos.z = quadPos[fi][qi][2];
+      m->vtx[base+qi].nrm.x = quadNrm[fi][0];
+      m->vtx[base+qi].nrm.y = quadNrm[fi][1];
+      m->vtx[base+qi].nrm.z = quadNrm[fi][2];
       m->uvQ[(base+qi)*2] = (int32_t)(quadUV[qi][0] * 65536.0f);
       m->uvQ[(base+qi)*2+1] = (int32_t)(quadUV[qi][1] * 65536.0f);
     }
@@ -979,17 +982,17 @@ int16_t createMesh3DSphere(float radius, uint8_t segments) {
     for (uint16_t j = 0; j <= S; j++) {
       float theta = (float)j * (2.0f * M_PI / (float)S);
       uint16_t idx = i * (S + 1) + j;
-      m->pos[idx].x = radius * sinPhi * cosf(theta);
-      m->pos[idx].y = radius * cosPhi;
-      m->pos[idx].z = radius * sinPhi * sinf(theta);
+      m->vtx[idx].pos.x = radius * sinPhi * cosf(theta);
+      m->vtx[idx].pos.y = radius * cosPhi;
+      m->vtx[idx].pos.z = radius * sinPhi * sinf(theta);
       if (sinPhi > 1e-6f) {
-        m->nrm[idx].x = sinPhi * cosf(theta);
-        m->nrm[idx].y = cosPhi;
-        m->nrm[idx].z = sinPhi * sinf(theta);
+        m->vtx[idx].nrm.x = sinPhi * cosf(theta);
+        m->vtx[idx].nrm.y = cosPhi;
+        m->vtx[idx].nrm.z = sinPhi * sinf(theta);
       } else {
-        m->nrm[idx].x = 0;
-        m->nrm[idx].y = cosPhi >= 0 ? 1 : -1;
-        m->nrm[idx].z = 0;
+        m->vtx[idx].nrm.x = 0;
+        m->vtx[idx].nrm.y = cosPhi >= 0 ? 1 : -1;
+        m->vtx[idx].nrm.z = 0;
       }
       m->uvQ[idx*2] = (int32_t)((float)j / (float)S * 65536.0f);
       m->uvQ[idx*2+1] = (int32_t)((float)i / (float)L * 65536.0f);
@@ -1019,12 +1022,12 @@ int16_t createMesh3DPlane(float width, float height) {
   if (!setupPrimitiveMesh3D(m, 4, 2)) return -1;
   float hw = width * 0.5f, hh = height * 0.5f;
   static const float cornerUV[4][2] = {{0,0},{1,0},{1,1},{0,1}};
-  m->pos[0] = {-hw, 0, hh};
-  m->pos[1] = {hw, 0, hh};
-  m->pos[2] = {hw, 0, -hh};
-  m->pos[3] = {-hw, 0, -hh};
+  m->vtx[0].pos = {-hw, 0, hh};
+  m->vtx[1].pos = {hw, 0, hh};
+  m->vtx[2].pos = {hw, 0, -hh};
+  m->vtx[3].pos = {-hw, 0, -hh};
   for (int i = 0; i < 4; i++) {
-    m->nrm[i] = {0, 1, 0};
+    m->vtx[i].nrm = {0, 1, 0};
     m->uvQ[i*2] = (int32_t)(cornerUV[i][0] * 65536.0f);
     m->uvQ[i*2+1] = (int32_t)(cornerUV[i][1] * 65536.0f);
   }
@@ -1907,7 +1910,8 @@ void updateWorld3D(DISPLAY_T* display) {
      */
     if (perf3DEnabled) perfSub3D = esp_timer_get_time();
     for (uint16_t vi = 0; vi < vertexCount; vi++) {
-      const Vector3D* p = &mesh->pos[vi];
+      const MeshVertex3D* mv = &mesh->vtx[vi];
+      const Vector3D* p = &mv->pos;
       float px = p->x * e->sx, py = p->y * e->sy, pz = p->z * e->sz;
       float vpX = c[0]*px + c[1]*py + c[2]*pz + tx;
       float vpY = c[3]*px + c[4]*py + c[5]*pz + ty;
@@ -1919,7 +1923,7 @@ void updateWorld3D(DISPLAY_T* display) {
         projectClipPoint3D(&v->x, projScale * v->iz, vpCx3D, vpCy3D, &v->sx, &v->sy);
       }
       if (dynamicLighting) {
-        const Vector3D* n = &mesh->nrm[vi];
+        const Vector3D* n = &mv->nrm;
         float nx = c[0]*n->x + c[1]*n->y + c[2]*n->z;
         float ny = c[3]*n->x + c[4]*n->y + c[5]*n->z;
         float nz = c[6]*n->x + c[7]*n->y + c[8]*n->z;
