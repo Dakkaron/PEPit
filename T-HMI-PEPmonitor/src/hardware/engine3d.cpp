@@ -39,6 +39,19 @@ typedef struct {
   uint16_t a, b, c;
 } Face3D;
 
+/*
+ * Per-vertex view-space scratch in one 28-byte record. The update loop writes
+ * it as a single PSRAM stream and the face loop's random vertex access then
+ * needs one cache line per vertex instead of one per scratch array: line
+ * transfers to PSRAM dominate both phases on the ESP32-S3.
+ */
+typedef struct {
+  float x, y, z;     // view-space position
+  float iz;          // 1/viewZ (fastRecip3D), reused by the face loop for texture coords
+  int32_t sx, sy;    // Q8 screen projection, valid when z >= near plane
+  uint32_t color;    // Gouraud color 0x00RRGGBB
+} ViewVertex3D;
+
 typedef struct {
   bool inUse;
   uint16_t vertexCount;
@@ -52,12 +65,7 @@ typedef struct {
   uint8_t flipped;
   Vector3D boundsCenter;
   float boundsRadius;
-  // Per-frame scratch buffers, sized to vertexCount
-  float* viewPos;   // 3 floats per vertex
-  float* invViewZ;  // 1/viewZ per vertex, reused by the face loop and the rasterizer
-  int32_t* scrX;    // Q8 projection for vertices in front of the near plane
-  int32_t* scrY;
-  uint32_t* scrColor; // Gouraud color per vertex, 0x00RRGGBB
+  ViewVertex3D* vs; // per-frame scratch, sized to vertexCount
 } Mesh3D;
 
 typedef struct {
@@ -276,11 +284,7 @@ static void freeMeshArrays3D(Mesh3D* m) {
   if (m->nrm) free(m->nrm);
   if (m->uvQ) free(m->uvQ);
   if (m->faces) free(m->faces);
-  if (m->viewPos) free(m->viewPos);
-  if (m->invViewZ) free(m->invViewZ);
-  if (m->scrX) free(m->scrX);
-  if (m->scrY) free(m->scrY);
-  if (m->scrColor) free(m->scrColor);
+  if (m->vs) free(m->vs);
   memset(m, 0, sizeof(Mesh3D));
 }
 
@@ -358,12 +362,8 @@ static bool buildMeshScratch3D(Mesh3D* m) {
     if (d2 > radius) radius = d2;
   }
   m->boundsRadius = sqrtf(radius);
-  m->viewPos = (float*)heap_caps_malloc(sizeof(float) * 3 * vc, MALLOC_CAP_SPIRAM);
-  m->invViewZ = (float*)heap_caps_malloc(sizeof(float) * vc, MALLOC_CAP_SPIRAM);
-  m->scrX = (int32_t*)heap_caps_malloc(sizeof(int32_t) * vc, MALLOC_CAP_SPIRAM);
-  m->scrY = (int32_t*)heap_caps_malloc(sizeof(int32_t) * vc, MALLOC_CAP_SPIRAM);
-  m->scrColor = (uint32_t*)heap_caps_malloc(sizeof(uint32_t) * vc, MALLOC_CAP_SPIRAM);
-  if (!m->viewPos || !m->invViewZ || !m->scrX || !m->scrY || !m->scrColor) return false;
+  m->vs = (ViewVertex3D*)heap_caps_malloc(sizeof(ViewVertex3D) * vc, MALLOC_CAP_SPIRAM);
+  if (!m->vs) return false;
   return true;
 }
 // ---------------------------------------------------------------------------
@@ -1476,15 +1476,14 @@ void updateWorld3D(DISPLAY_T* display) {
     for (uint16_t vi = 0; vi < vertexCount; vi++) {
       const Vector3D* p = &mesh->pos[vi];
       float px = p->x * e->sx, py = p->y * e->sy, pz = p->z * e->sz;
-      float* vp = &mesh->viewPos[vi*3];
-      vp[0] = c[0]*px + c[1]*py + c[2]*pz + tx;
-      vp[1] = c[3]*px + c[4]*py + c[5]*pz + ty;
-      float z = c[6]*px + c[7]*py + c[8]*pz + tz;
-      vp[2] = z;
-      if (z >= cam->nearPlane) {
-        float iz = fastRecip3D(z);
-        mesh->invViewZ[vi] = iz;   // the face loop needs the same 1/z for its texture coords
-        projectClipPoint3D(vp, projScale * iz, halfW, halfH, &mesh->scrX[vi], &mesh->scrY[vi]);
+      float vpX = c[0]*px + c[1]*py + c[2]*pz + tx;
+      float vpY = c[3]*px + c[4]*py + c[5]*pz + ty;
+      float vpZ = c[6]*px + c[7]*py + c[8]*pz + tz;
+      ViewVertex3D* v = &mesh->vs[vi];
+      v->x = vpX; v->y = vpY; v->z = vpZ;
+      if (vpZ >= cam->nearPlane) {
+        v->iz = fastRecip3D(vpZ);
+        projectClipPoint3D(&v->x, projScale * v->iz, halfW, halfH, &v->sx, &v->sy);
       }
       if (dynamicLighting) {
         const Vector3D* n = &mesh->nrm[vi];
@@ -1502,7 +1501,7 @@ void updateWorld3D(DISPLAY_T* display) {
               lb += l->b * ndl;
             }
           } else {
-            float ldx = l->vx - vp[0], ldy = l->vy - vp[1], ldz = l->vz - vp[2];
+            float ldx = l->vx - vpX, ldy = l->vy - vpY, ldz = l->vz - vpZ;
             float d2 = ldx*ldx + ldy*ldy + ldz*ldz;
             if (d2 >= l->rangeSq) continue;
             // dist only feeds an 8-bit light term and a cone test, so the approximate
@@ -1533,7 +1532,7 @@ void updateWorld3D(DISPLAY_T* display) {
         uint32_t cr = clamp3DI((int32_t)(lr * baseR), 0, 255);
         uint32_t cg = clamp3DI((int32_t)(lg * baseG), 0, 255);
         uint32_t cb = clamp3DI((int32_t)(lb * baseB), 0, 255);
-        mesh->scrColor[vi] = (cr << 16) | (cg << 8) | cb;
+        mesh->vs[vi].color = (cr << 16) | (cg << 8) | cb;
       }
     }
     if (perf3DEnabled) {
@@ -1556,23 +1555,23 @@ void updateWorld3D(DISPLAY_T* display) {
       uint16_t ib = mesh->flipped ? f->c : f->b;
       uint16_t ic = mesh->flipped ? f->b : f->c;
       if (ia >= vertexCount || ib >= vertexCount || ic >= vertexCount) continue;
-      const float* pa = &mesh->viewPos[ia*3];
-      const float* pb = &mesh->viewPos[ib*3];
-      const float* pc = &mesh->viewPos[ic*3];
-      float za = pa[2], zb = pb[2], zc = pc[2];
+      const ViewVertex3D* pa = &mesh->vs[ia];
+      const ViewVertex3D* pb = &mesh->vs[ib];
+      const ViewVertex3D* pc = &mesh->vs[ic];
+      float za = pa->z, zb = pb->z, zc = pc->z;
       if (za < cam->nearPlane && zb < cam->nearPlane && zc < cam->nearPlane) continue;
-      float e1x = pb[0]-pa[0], e1y = pb[1]-pa[1], e1z = pb[2]-pa[2];
-      float e2x = pc[0]-pa[0], e2y = pc[1]-pa[1], e2z = pc[2]-pa[2];
+      float e1x = pb->x-pa->x, e1y = pb->y-pa->y, e1z = pb->z-pa->z;
+      float e2x = pc->x-pa->x, e2y = pc->y-pa->y, e2z = pc->z-pa->z;
       float nx = e1y*e2z - e1z*e2y;
       float ny = e1z*e2x - e1x*e2z;
       float nz = e1x*e2y - e1y*e2x;
       // Front facing when the winding normal points towards the camera (origin)
-      if (nx*(pa[0]+pb[0]+pc[0]) + ny*(pa[1]+pb[1]+pc[1]) + nz*(pa[2]+pb[2]+pc[2]) >= 0.0f) continue;
+      if (nx*(pa->x+pb->x+pc->x) + ny*(pa->y+pb->y+pc->y) + nz*(pa->z+pb->z+pc->z) >= 0.0f) continue;
 
       TriDraw3D* d = &drawList3D[drawCount3D];
-      uint32_t colA = dynamicLighting ? mesh->scrColor[ia] : uniformColor;
-      uint32_t colB = dynamicLighting ? mesh->scrColor[ib] : uniformColor;
-      uint32_t colC = dynamicLighting ? mesh->scrColor[ic] : uniformColor;
+      uint32_t colA = dynamicLighting ? pa->color : uniformColor;
+      uint32_t colB = dynamicLighting ? pb->color : uniformColor;
+      uint32_t colC = dynamicLighting ? pc->color : uniformColor;
       int32_t uvA0 = uvQ ? uvQ[ia*2] : 0;
       int32_t uvA1 = uvQ ? uvQ[ia*2+1] : 0;
       int32_t uvB0 = uvQ ? uvQ[ib*2] : 0;
@@ -1582,10 +1581,10 @@ void updateWorld3D(DISPLAY_T* display) {
       float zAvg;
       if (za >= cam->nearPlane && zb >= cam->nearPlane && zc >= cam->nearPlane) {
         d->vertexCount = 3;
-        d->sx[0] = mesh->scrX[ia]; d->sy[0] = mesh->scrY[ia];
-        d->sx[1] = mesh->scrX[ib]; d->sy[1] = mesh->scrY[ib];
-        d->sx[2] = mesh->scrX[ic]; d->sy[2] = mesh->scrY[ic];
-        float izA = mesh->invViewZ[ia], izB = mesh->invViewZ[ib], izC = mesh->invViewZ[ic];
+        d->sx[0] = pa->sx; d->sy[0] = pa->sy;
+        d->sx[1] = pb->sx; d->sy[1] = pb->sy;
+        d->sx[2] = pc->sx; d->sy[2] = pc->sy;
+        float izA = pa->iz, izB = pb->iz, izC = pc->iz;
         d->ru[0] = uvA0 * izA; d->rv[0] = uvA1 * izA; d->rz[0] = izA;
         d->ru[1] = uvB0 * izB; d->rv[1] = uvB1 * izB; d->rz[1] = izB;
         d->ru[2] = uvC0 * izC; d->rv[2] = uvC1 * izC; d->rz[2] = izC;
@@ -1597,7 +1596,7 @@ void updateWorld3D(DISPLAY_T* display) {
         float clipPos[4][3];
         uint32_t clipCol[4];
         int32_t clipU[4], clipV[4];
-        uint8_t clipCount = clipTriangleNear3D(cam->nearPlane, pa, pb, pc,
+        uint8_t clipCount = clipTriangleNear3D(cam->nearPlane, &pa->x, &pb->x, &pc->x,
             colA, colB, colC, uvA0, uvA1, uvB0, uvB1, uvC0, uvC1,
             clipPos, clipCol, clipU, clipV);
         if (clipCount < 3) continue;
