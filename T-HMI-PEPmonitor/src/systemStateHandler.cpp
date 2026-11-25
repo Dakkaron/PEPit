@@ -20,7 +20,11 @@ void doSystemTasks() {
   buttonPwr.tick();
   buttonUsr.tick();
   joystickButtonTick();
-  vTaskDelay(1);
+  // No vTaskDelay here: the task watchdog only watches core 0's idle task
+  // (CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1 is off) and the Arduino loop
+  // task is not wdt-subscribed, while every background task that shares CPU
+  // (nimble_host, wifi, lwip, esp_timer) either lives on core 0 or preempts
+  // this one at higher priority. The 1ms sleep just taxed every game frame.
 }
 
 #ifdef INIT_MODE

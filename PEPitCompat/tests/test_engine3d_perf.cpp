@@ -90,7 +90,7 @@ TEST_CASE("engine3d perf: 3ddemo scene phase timings", "[perf][.disabled]") {
 
     TFT_eSprite disp = TFT_eSprite(&tft);
     disp.setColorDepth(16);
-    disp.createSprite(320, 240);
+    disp.createSprite(320, 240, 2); // double buffered, as on device: enables the blit pipeline
 
     const int FRAMES = 40;
     setWorld3DDebug3D(true);
@@ -99,7 +99,7 @@ TEST_CASE("engine3d perf: 3ddemo scene phase timings", "[perf][.disabled]") {
     int lit = 0;
     for (int f = 0; f < FRAMES; f++) {
         turnEntity3D(car, 0, 3.0f, 0);
-        disp.fillSprite(0);
+        beginWorld3DFill3D(&disp); // production frame start: skips the fill once the pipeline blank is armed
         auto t0 = std::chrono::steady_clock::now();
         updateWorld3D(&disp);
         auto t1 = std::chrono::steady_clock::now();
@@ -118,6 +118,12 @@ TEST_CASE("engine3d perf: 3ddemo scene phase timings", "[perf][.disabled]") {
     World3DPerf3D perf;
     getWorld3DPerf3D(&perf);
     quiesceWorld3DBlit3D();
+    // The last blit scheduled the pipeline blank of the next frame's draw
+    // target; after quiesce that buffer must be fully black again.
+    const uint16_t* nextTarget = (const uint16_t*)disp.frameBuffer(disp.frameBufferId());
+    bool blanked = nextTarget != nullptr;
+    for (int i = 0; blanked && i < 320 * 240; i++) if (nextTarget[i]) blanked = false;
+    CHECK(blanked);
     disp.deleteSprite();
     setWorld3DDebug3D(false);
     resetWorld3DPerf3D();

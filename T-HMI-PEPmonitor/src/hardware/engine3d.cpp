@@ -135,6 +135,9 @@ static int16_t* bucketHeads3D = nullptr;
 static int32_t drawCount3D = 0;
 static float ambient3D[3] = {0.5f, 0.5f, 0.5f};
 static bool world3DReady = false;
+// True while frames are rendered through drawWorld3D: enables the core 0
+// background blanking described in the pipelined blit section further down.
+static bool w3d3DFrameActive3D = false;
 // Slot 0 starts as an implicit camera so meshes render before the game makes
 // one; the first CreateCamera replaces it so game camera settings take effect.
 static bool implicitCamera3D = false;
@@ -1228,6 +1231,7 @@ void resetWorld3D() {
   memset(lights3D, 0, sizeof(lights3D));
   ambient3D[0] = 0.5f; ambient3D[1] = 0.5f; ambient3D[2] = 0.5f;
   drawCount3D = 0;
+  w3d3DFrameActive3D = false;
   setupDefaultCamera3D();
 }
 // ---------------------------------------------------------------------------
@@ -1414,20 +1418,41 @@ void reportWorld3DFrame3D(int32_t pushUs) {
  */
 static SemaphoreHandle_t w3dPushReady3D = nullptr;
 static SemaphoreHandle_t w3dPushDone3D = nullptr;
+static SemaphoreHandle_t w3dFillDone3D = nullptr;
+// Work drain: taken by a blit that must know the task consumed the previous
+// hand-off before overwriting the hand-off variables, given back by the task
+// once push and fill bookkeeping are finished.
+static SemaphoreHandle_t w3dWorkDone3D = nullptr;
 static TaskHandle_t w3dPushTask3DHandle = nullptr;
 static bool w3dPushPending3D = false;
 static bool w3dPipelineEnabled3D = true;
 static uint16_t* w3dPushNew3D = nullptr; // buffer holding the frame to display
 static int16_t w3dPushW3D = 0, w3dPushH3D = 0;
 static volatile int32_t w3dPushUs3D = 0;
+// Background blanking, run by the same core 0 task before each push: the
+// sprite buffer the rendering core draws into next is memsetting there while
+// core 1 transforms the frame. beginWorld3DFill3D() skips the synchronous
+// fillSprite when the buffer was scheduled, and barrierWorld3DFill3D() makes
+// every framebuffer writer wait for the memset before touching it, so games
+// still get a guaranteed blank slate at frame start.
+static uint16_t* w3dFillBuf3D = nullptr;
+static uint32_t w3dFillBytes3D = 0;
+static bool w3dFillWait3D = false;
 
 static void w3dPushTaskLoop3D(void*) {
   for (;;) {
     xSemaphoreTake(w3dPushReady3D, portMAX_DELAY);
+    uint16_t* fillBuf = w3dFillBuf3D; // latch the hand-off so later blits
+    int32_t fillBytes = w3dFillBytes3D; // cannot mutate this iteration's work
+    if (fillBuf) {
+      memset(fillBuf, 0, fillBytes); // RGB565 black
+      xSemaphoreGive(w3dFillDone3D);
+    }
     int64_t t0 = esp_timer_get_time();
     tft.pushRect(0, 0, w3dPushW3D, w3dPushH3D, w3dPushNew3D);
     w3dPushUs3D = (int32_t)(esp_timer_get_time() - t0);
     xSemaphoreGive(w3dPushDone3D);
+    xSemaphoreGive(w3dWorkDone3D); // hand-off variables are safe to rewrite
   }
 }
 
@@ -1435,7 +1460,9 @@ static void w3dPushTaskLoop3D(void*) {
 static bool w3dPipelineReady3D() {  if (w3dPushTask3DHandle) return true;
   w3dPushReady3D = xSemaphoreCreateBinary();
   w3dPushDone3D = xSemaphoreCreateBinary();
-  if (!w3dPushReady3D || !w3dPushDone3D) return false;
+  w3dFillDone3D = xSemaphoreCreateBinary();
+  w3dWorkDone3D = xSemaphoreCreateBinary();
+  if (!w3dPushReady3D || !w3dPushDone3D || !w3dFillDone3D || !w3dWorkDone3D) return false;
   if (xTaskCreatePinnedToCore(w3dPushTaskLoop3D, "w3dblit", 8192, nullptr, 1,
                               &w3dPushTask3DHandle, 0) != pdPASS) {
     w3dPushTask3DHandle = nullptr;
@@ -1446,10 +1473,32 @@ static bool w3dPipelineReady3D() {  if (w3dPushTask3DHandle) return true;
 
 // Wait out a pipelined push so direct TFT writes cannot race with it.
 void quiesceWorld3DBlit3D() {
+  barrierWorld3DFill3D();
   if (w3dPushPending3D) {
     xSemaphoreTake(w3dPushDone3D, portMAX_DELAY);
-    w3dPushPending3D = false;
+    xSemaphoreTake(w3dWorkDone3D, portMAX_DELAY); // consume the drain too, so
+    w3dPushPending3D = false;                     // no stale token outlives us
   }
+}
+
+// Wait until the core 0 task has finished blanking the frame buffer that
+// this frame will draw into. Cheap flag check when no fill is scheduled.
+void barrierWorld3DFill3D() {
+  if (w3dFillWait3D) {
+    xSemaphoreTake(w3dFillDone3D, portMAX_DELAY);
+    w3dFillWait3D = false;
+  }
+}
+
+// Frame start for full-screen game loops, in place of fillSprite(TFT_BLACK).
+// When the pipelined task already blanked (or is about to blank) the buffer
+// this frame draws into, the synchronous fill is skipped and the barrier
+// orders the writes; otherwise the buffer is filled here, as before.
+void beginWorld3DFill3D(DISPLAY_T* display) {
+  if (!display || !display->created()) return;
+  if (w3dFillWait3D && w3dFillBuf3D == (uint16_t*)display->getPointer()) return;
+  barrierWorld3DFill3D();
+  display->fillSprite(TFT_BLACK);
 }
 
 // Switch between pipelined and synchronous blit for on-device perf A/B
@@ -1472,9 +1521,23 @@ void blitWorld3DFrame3D(DISPLAY_T* display) {
   bool pipelined = false;
   int8_t drawn = display->frameBufferId();
   if (w3dPipelineEnabled3D && drawn && w3dPipelineReady3D()) {
-    if (w3dPushPending3D) xSemaphoreTake(w3dPushDone3D, portMAX_DELAY);
+    if (w3dPushPending3D) {
+      // Commit wait: the displayed buffer must be fully pushed before it is
+      // redrawn, and the task must have consumed the previous hand-off
+      // variables before this blit rewrites them.
+      xSemaphoreTake(w3dPushDone3D, portMAX_DELAY);
+      xSemaphoreTake(w3dWorkDone3D, portMAX_DELAY);
+    }
     w3dPushNew3D = (uint16_t*)display->frameBuffer(drawn);
-    display->frameBuffer(drawn == 2 ? 1 : 2); // next frame's draw target
+    uint16_t* nextTarget = (uint16_t*)display->frameBuffer(drawn == 2 ? 1 : 2);
+    if (w3d3DFrameActive3D) {
+      w3dFillBuf3D = nextTarget;
+      w3dFillBytes3D = (uint32_t)display->width() * (uint32_t)display->height() * 2;
+      w3dFillWait3D = true;
+    } else {
+      w3dFillBuf3D = nullptr;
+      w3dFillWait3D = false;
+    }
     w3dPushW3D = display->width();
     w3dPushH3D = display->height();
     w3dPushPending3D = true;
@@ -2104,6 +2167,8 @@ void drawWorld3D(DISPLAY_T* display) {
     Serial.println("engine3d: display sprite has no pixel buffer!");
     return;
   }
+  barrierWorld3DFill3D(); // rasterizer is the first writer of this frame's buffer
+  w3d3DFrameActive3D = true;
   for (int32_t bucket = BUCKET3D_COUNT - 1; bucket >= 0; bucket--) {
     int16_t idx = bucketHeads3D[bucket];
     while (idx >= 0) {

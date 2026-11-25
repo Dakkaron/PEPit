@@ -24,6 +24,22 @@ static SemaphoreHandle_t resetMutex = xSemaphoreCreateMutex();
 static adc_oneshot_unit_handle_t adc1Handle;
 static adc_cali_handle_t adcCalibration;
 
+// Battery polling lives in a core 0 task: the ADC conversion busy-waits for
+// its result, and drawSystemStats only needs fresh millivolts a few times a
+// second, not once per rendered frame on the core that rasterizes the game.
+static TaskHandle_t batteryMonitorTaskHandle = nullptr;
+static volatile uint32_t cachedBatteryMillivolts = 0;
+
+static void batteryMonitorTask(void*) {
+  float averaged = readBatteryVoltage();
+  cachedBatteryMillivolts = (uint32_t)averaged;
+  for (;;) {
+    vTaskDelay(500); // CONFIG_FREERTOS_HZ=1000: 500 ticks = 500 ms
+    averaged = 0.95f*averaged + 0.05f*readBatteryVoltage();
+    cachedBatteryMillivolts = (uint32_t)averaged;
+  }
+}
+
 static void initializeBatteryAdc() {
     adc_oneshot_unit_init_cfg_t unitConfig{};
     unitConfig.unit_id = ADC_UNIT_1;
@@ -47,6 +63,10 @@ static void initializeBatteryAdc() {
 
 void initializePowerHandler() {
     initializeBatteryAdc();
+    if (xTaskCreatePinnedToCore(batteryMonitorTask, "battmon", 4096, nullptr, 1,
+                                &batteryMonitorTaskHandle, 0) != pdPASS) {
+        batteryMonitorTaskHandle = nullptr; // out of memory: fall back to inline reads
+    }
 }
 
 /**
@@ -65,6 +85,7 @@ uint32_t readBatteryVoltage() {
  * Returns the voltage in mV
  */
 uint32_t readBatteryVoltageAveraged() {
+    if (batteryMonitorTaskHandle) return cachedBatteryMillivolts;
     static float averagedVoltage = readBatteryVoltage();
     averagedVoltage = 0.95*averagedVoltage + 0.05*readBatteryVoltage();
     return (uint32_t)averagedVoltage;

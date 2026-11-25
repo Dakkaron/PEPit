@@ -55,6 +55,11 @@ static String findScriptRedirectPath(char* input) {
 String lua_dofile(const String path, bool dontCache) {
   static char* script[10];
   static String cachedPath[10];
+  // Caching stores the compiled chunk as a registry reference instead of the
+  // source text: frames then call the prototype directly instead of running
+  // luaL_dostring, which re-parses the whole script on every call.
+  static int compiledRef[10] = {LUA_NOREF, LUA_NOREF, LUA_NOREF, LUA_NOREF, LUA_NOREF,
+                                LUA_NOREF, LUA_NOREF, LUA_NOREF, LUA_NOREF, LUA_NOREF};
   String result;
   int cacheSlot = -1;
   if (luaCacheGameCode && !dontCache) {
@@ -81,6 +86,10 @@ String lua_dofile(const String path, bool dontCache) {
           if (script[cacheSlot] != nullptr) {
             free(script[cacheSlot]);
           }
+          if (compiledRef[cacheSlot] != LUA_NOREF) {
+            luaL_unref(luaState, LUA_REGISTRYINDEX, compiledRef[cacheSlot]);
+            compiledRef[cacheSlot] = LUA_NOREF;
+          }
           script[cacheSlot] = readFileToNewPSBuffer(path.c_str());
           cachedPath[cacheSlot] = path;
           if (script[cacheSlot] == nullptr) {
@@ -99,6 +108,15 @@ String lua_dofile(const String path, bool dontCache) {
         }
         script[i] = script[i+1];
         cachedPath[i] = cachedPath[i+1];
+        compiledRef[i] = compiledRef[i+1]; // registry refs are slot independent
+      }
+      if (script[9] != nullptr) {
+        free(script[9]);
+        script[9] = nullptr;
+      }
+      if (compiledRef[9] != LUA_NOREF) {
+        luaL_unref(luaState, LUA_REGISTRYINDEX, compiledRef[9]);
+        compiledRef[9] = LUA_NOREF;
       }
       cacheSlot = 9;
       script[cacheSlot] = readFileToNewPSBuffer(path.c_str());
@@ -108,6 +126,61 @@ String lua_dofile(const String path, bool dontCache) {
         return result;
       }
     }
+    if (compiledRef[cacheSlot] != LUA_NOREF) {
+      // Compiled chunk hit: push the stored prototype and call it. This is
+      // what every repeated game frame pays for.
+      lua_rawgeti(luaState, LUA_REGISTRYINDEX, compiledRef[cacheSlot]);
+      if (lua_pcall(luaState, 0, LUA_MULTRET, 0)) {
+        result = "# lua error:\n" + String(lua_tostring(luaState, -1));
+        lua_pop(luaState, 1);
+        Serial.println("Error in lua file "+path+": " + result);
+        if (luaStrictMode) {
+          checkFailWithMessage("Error in lua file "+path+": " + result);
+        }
+      }
+      return result;
+    }
+    if (script[cacheSlot] == nullptr) {
+      // Path cached by an earlier load or compile failure: retry from disk.
+      script[cacheSlot] = readFileToNewPSBuffer(path.c_str());
+      if (script[cacheSlot] == nullptr) {
+        result = "Failed to load lua script "+path;
+        return result;
+      }
+    }
+    String redirectPath = findScriptRedirectPath(script[cacheSlot]);
+    if (!redirectPath.isEmpty()) {
+      result = lua_dofile(redirectPath);
+      free(script[cacheSlot]);
+      script[cacheSlot] = nullptr;
+      return result;
+    }
+    if (luaL_loadstring(luaState, script[cacheSlot])) {
+      result = "# lua error:\n" + String(lua_tostring(luaState, -1));
+      lua_pop(luaState, 1);
+      Serial.println("Error in lua file "+path+": " + result);
+      if (luaStrictMode) {
+        checkFailWithMessage("Error in lua file "+path+": " + result);
+      }
+      free(script[cacheSlot]);
+      script[cacheSlot] = nullptr;
+      return result;
+    }
+    // Chunk on the stack -> registry reference; the source text is no longer
+    // needed. A failed compile would leave NOREF, so the next frame retries.
+    compiledRef[cacheSlot] = luaL_ref(luaState, LUA_REGISTRYINDEX);
+    free(script[cacheSlot]);
+    script[cacheSlot] = nullptr;
+    lua_rawgeti(luaState, LUA_REGISTRYINDEX, compiledRef[cacheSlot]);
+    if (lua_pcall(luaState, 0, LUA_MULTRET, 0)) {
+      result = "# lua error:\n" + String(lua_tostring(luaState, -1));
+      lua_pop(luaState, 1);
+      Serial.println("Error in lua file "+path+": " + result);
+      if (luaStrictMode) {
+        checkFailWithMessage("Error in lua file "+path+": " + result);
+      }
+    }
+    return result;
   } else {
     //Serial.println("Caching disabled");
     // Slot 0 is shared with the cache — release whatever pair it held before
@@ -324,6 +397,7 @@ static bool isHandleValid(int32_t handle) {
 }
 
 static int lua_wrapper_drawSprite(lua_State* luaState) {
+  barrierWorld3DFill3D();
   //Serial.print("Draw sprite ");
   int16_t handle = luaL_checkinteger(luaState, 1);
   //Serial.println(handle);
@@ -467,6 +541,7 @@ static int lua_wrapper_mode7WorldToScreen(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawString(lua_State* luaState) {
+  barrierWorld3DFill3D();
   String str = luaL_checkstring(luaState, 1);
   str.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
                          // unicode table, so ¶ is used as a stand-in for € to save space.
@@ -486,6 +561,7 @@ static int lua_wrapper_drawString(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawRect(lua_State* luaState) {
+  barrierWorld3DFill3D();
   int16_t x = luaL_checknumber(luaState, 1);
   int16_t y = luaL_checknumber(luaState, 2);
   int16_t w = luaL_checknumber(luaState, 3);
@@ -496,6 +572,7 @@ static int lua_wrapper_drawRect(lua_State* luaState) {
 }
 
 static int lua_wrapper_fillRect(lua_State* luaState) {
+  barrierWorld3DFill3D();
   int16_t x = luaL_checknumber(luaState, 1);
   int16_t y = luaL_checknumber(luaState, 2);
   int16_t w = luaL_checknumber(luaState, 3);
@@ -506,6 +583,7 @@ static int lua_wrapper_fillRect(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawCircle(lua_State* luaState) {
+  barrierWorld3DFill3D();
   int16_t x = luaL_checknumber(luaState, 1);
   int16_t y = luaL_checknumber(luaState, 2);
   int16_t r = luaL_checknumber(luaState, 3);
@@ -515,6 +593,7 @@ static int lua_wrapper_drawCircle(lua_State* luaState) {
 }
 
 static int lua_wrapper_fillCircle(lua_State* luaState) {
+  barrierWorld3DFill3D();
   int16_t x = luaL_checknumber(luaState, 1);
   int16_t y = luaL_checknumber(luaState, 2);
   int16_t r = luaL_checknumber(luaState, 3);
@@ -524,6 +603,7 @@ static int lua_wrapper_fillCircle(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawLine(lua_State* luaState) {
+  barrierWorld3DFill3D();
   int16_t x0 = luaL_checknumber(luaState, 1);
   int16_t y0 = luaL_checknumber(luaState, 2);
   int16_t x1 = luaL_checknumber(luaState, 3);
@@ -534,6 +614,7 @@ static int lua_wrapper_drawLine(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawFastHLine(lua_State* luaState) {
+  barrierWorld3DFill3D();
   int16_t x = luaL_checknumber(luaState, 1);
   int16_t y = luaL_checknumber(luaState, 2);
   int16_t w = luaL_checknumber(luaState, 3);
@@ -543,6 +624,7 @@ static int lua_wrapper_drawFastHLine(lua_State* luaState) {
 }
 
 static int lua_wrapper_drawFastVLine(lua_State* luaState) {
+  barrierWorld3DFill3D();
   int16_t x = luaL_checknumber(luaState, 1);
   int16_t y = luaL_checknumber(luaState, 2);
   int16_t h = luaL_checknumber(luaState, 3);
@@ -552,6 +634,7 @@ static int lua_wrapper_drawFastVLine(lua_State* luaState) {
 }
 
 static int lua_wrapper_fillSprite(lua_State* luaState) {
+  barrierWorld3DFill3D();
   uint16_t color = luaL_checknumber(luaState, 1);
   luaDisplay->fillScreen(color);
   return 0;
@@ -583,6 +666,7 @@ static int lua_wrapper_setCursor(lua_State* luaState) {
 }
 
 static int lua_wrapper_print(lua_State* luaState) {
+  barrierWorld3DFill3D();
   String s = luaL_checkstring(luaState, 1);
   s.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
                        // unicode table, so ¶ is used as a stand-in for € to save space.
@@ -591,6 +675,7 @@ static int lua_wrapper_print(lua_State* luaState) {
 }
 
 static int lua_wrapper_println(lua_State* luaState) {
+  barrierWorld3DFill3D();
   String s = luaL_checkstring(luaState, 1);
   s.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
                        // unicode table, so ¶ is used as a stand-in for € to save space.

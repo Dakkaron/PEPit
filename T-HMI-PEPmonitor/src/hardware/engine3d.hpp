@@ -106,6 +106,10 @@ void reportWorld3DFrame3D(int32_t pushUs);
 void blitWorld3DFrame3D(DISPLAY_T* display);
 void quiesceWorld3DBlit3D();
 void setWorld3DPipeline3D(bool enabled);
+// Frame-start blanking: begin replaces fillSprite in pipelined game loops,
+// barrier orders any writer against the core 0 background memset.
+void beginWorld3DFill3D(DISPLAY_T* display);
+void barrierWorld3DFill3D();
 // Accumulates time spent outside the 3D pipeline (pressure sensor reads) for the perf line
 void addWorld3DSensorUs3D(int32_t us);
 

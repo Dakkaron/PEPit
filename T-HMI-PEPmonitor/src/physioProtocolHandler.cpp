@@ -186,6 +186,7 @@ inline static bool isInhalationTask() {
 }
 
 static void drawManometerModeDisplay() {
+  quiesceWorld3DBlit3D(); // pending 3D-frame pipeline work would race with these direct writes
   spr.fillSprite(TFT_BLACK);
   if (isTrampolineTask()) {
     if (jumpData.msLeft > 0) {
@@ -241,6 +242,7 @@ static void drawManometerModeDisplay() {
 }
 
 static void drawInhalationDisplay() {
+  quiesceWorld3DBlit3D(); // pending 3D-frame pipeline work would race with these direct writes
   spr.fillSprite(TFT_BLACK);
   String errorMessage;
   drawInhalationGame(&spr, &blowData, &errorMessage);
@@ -283,7 +285,7 @@ static void drawInhaleExhaleIcons(BlowData* blowData) {
 }
 
 static void drawPEPDisplay() {
-  spr.fillSprite(TFT_BLACK);
+  beginWorld3DFill3D(&spr);
   String errorMessage;
   switch (blowData.taskType) {
     case PROFILE_TASK_TYPE_LONGBLOWS:
@@ -295,6 +297,7 @@ static void drawPEPDisplay() {
     case PROFILE_TASK_TYPE_INHALATIONPEP:
       drawInhalationBlowGame(&spr, &blowData, &errorMessage);break;
   }
+  barrierWorld3DFill3D(); // HUD writes below target the same buffer
   drawProgressBar(&spr, blowData.currentlyBlowing ? (100 * (blowData.ms - blowData.blowStartMs) / blowData.targetDurationMs) : 0, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
   checkFailWithMessage(errorMessage);
   
@@ -325,10 +328,11 @@ static void drawPEPDisplay() {
 }
 
 static void drawTrampolineDisplay() {
-  spr.fillSprite(TFT_BLACK);
+  beginWorld3DFill3D(&spr);
   String errorMessage;
   drawTrampolineGame(&spr, &jumpData, &errorMessage);
   checkFailWithMessage(errorMessage);
+  barrierWorld3DFill3D(); // HUD writes below target the same buffer
   if (jumpData.msLeft > 0) {
     drawProgressBar(&spr, (100L*(jumpData.totalTime-jumpData.msLeft))/jumpData.totalTime, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
     spr.setTextSize(2);
@@ -527,6 +531,7 @@ static void drawFinished() {
 }
 
 void displayPhysioRotateScreen() {
+  quiesceWorld3DBlit3D(); // direct TFT writes below must not race with a pipelined push
   if (profileData.taskChangeImagePath[currentTask].isEmpty() && profileData.taskChangeMessage[currentTask].isEmpty()) {
     return;
   }
