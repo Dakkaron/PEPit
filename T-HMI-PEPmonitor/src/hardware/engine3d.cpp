@@ -150,6 +150,9 @@ static World3DPerf3D perf3D = {};
 static World3DPerf3D perf3DReportBase3D = {};
 static uint32_t perf3DReportMs3D = 0;
 
+// Blit mode reported in the perf line ("full" pipelined, "sync" diff push)
+static const char* w3dBlitMode3D = "sync";
+
 static void setupDefaultCamera3D() {
   memset(cameras3D, 0, sizeof(cameras3D));
   cameras3D[0].inUse = true;
@@ -1358,9 +1361,10 @@ void reportWorld3DFrame3D(int32_t pushUs) {
   perf3DReportBase3D = perf3D;
   double f = d.frames ? (double)d.frames : 1.0;
   double windowMs = (double)(now - perf3DReportMs3D + 1000) / 1000.0;
-  Serial.printf("engine3d perf: %.1f fps  update=%.2fms  draw=%.2fms  blit=%.2fms"
+  Serial.printf("engine3d perf: %.1f fps  update=%.2fms  draw=%.2fms  blit=%.2fms(%s)"
                 "  update parts: xf=%.2f face=%.2f bucket=%.2f\n",
                 f / windowMs, d.updateUs / 1000.0 / f, d.drawUs / 1000.0 / f, d.pushUs / 1000.0 / f,
+                w3dBlitMode3D,
                 d.xfUs / 1000.0 / f, d.faceUs / 1000.0 / f, d.bucketUs / 1000.0 / f);
   Serial.printf("engine3d perf: verts=%.0f  tris=%.0f  clipped=%.0f  spans=%.0f  px=%.0f (per frame)\n",
                 d.vertsTransformed / f, d.trisSubmitted / f, d.trisClipped / f, d.spans / f, d.pixels / f);
@@ -1368,23 +1372,24 @@ void reportWorld3DFrame3D(int32_t pushUs) {
 }
 
 /*
- * Pipelined display blit. The TFT diff push costs ~15ms of 8-bit parallel
- * bus time for a full screen no matter which core issues it, so a task
- * pinned to core 0 pushes the frame that was just rendered while the game
- * core rasterizes the next frame into the sprite's other frame buffer. The
- * two cores never touch the same buffer in the same frame, and the ESP32-S3
+ * Pipelined display blit. Pushing a full screen costs ~15ms of 8-bit
+ * parallel bus time no matter which core issues it, so a task pinned to
+ * core 0 pushes the frame that was just rendered while the game core
+ * rasterizes the next frame into the sprite's other frame buffer. The two
+ * cores never touch the same buffer in the same frame, and the ESP32-S3
  * MMU/cache is shared between both cores, so handing over PSRAM buffers
- * needs no cache maintenance. The diff-push invariant (the back buffer must
- * equal what the TFT currently displays) holds because every push, pipelined
- * or synchronous, sends the just-drawn buffer compared against the buffer
- * that the previous push already put on screen.
+ * needs no cache maintenance. The pipelined push is a plain full push: a
+ * diff push would re-read the 153KB back buffer from PSRAM every frame,
+ * competing with the rendering core on the shared bus, and dynamic frames
+ * rarely skip enough runs for the diff to recover that cost. Screens that
+ * are not full-frame game loops are never pipelined and keep the
+ * synchronous diff push.
  */
 static SemaphoreHandle_t w3dPushReady3D = nullptr;
 static SemaphoreHandle_t w3dPushDone3D = nullptr;
 static TaskHandle_t w3dPushTask3DHandle = nullptr;
 static bool w3dPushPending3D = false;
 static uint16_t* w3dPushNew3D = nullptr; // buffer holding the frame to display
-static uint16_t* w3dPushOld3D = nullptr; // buffer matching what the TFT shows
 static int16_t w3dPushW3D = 0, w3dPushH3D = 0;
 static volatile int32_t w3dPushUs3D = 0;
 
@@ -1392,10 +1397,7 @@ static void w3dPushTaskLoop3D(void*) {
   for (;;) {
     xSemaphoreTake(w3dPushReady3D, portMAX_DELAY);
     int64_t t0 = esp_timer_get_time();
-    bool oldSwap = tft.getSwapBytes();
-    tft.setSwapBytes(false);
-    tft.pushImageFast(0, 0, w3dPushW3D, w3dPushH3D, w3dPushNew3D, w3dPushOld3D);
-    tft.setSwapBytes(oldSwap);
+    tft.pushRect(0, 0, w3dPushW3D, w3dPushH3D, w3dPushNew3D);
     w3dPushUs3D = (int32_t)(esp_timer_get_time() - t0);
     xSemaphoreGive(w3dPushDone3D);
   }
@@ -1427,9 +1429,9 @@ void quiesceWorld3DBlit3D() {
 // the display sprite is double-buffered, the plain synchronous sprite push
 // otherwise. Reports the frame to the perf counters when debug logging is
 // on, including the blit time the push task measured (or the synchronous
-// push time). TFT_eSPI::pushImageFast holds a bus mutex, so a synchronous
-// push from another context waits for an in-flight pipelined push instead of
-// interleaving with it.
+// push time). TFT_eSPI::pushImage and pushImageFast hold a bus mutex, so a
+// synchronous push from another context waits for an in-flight pipelined
+// push instead of interleaving with it.
 void blitWorld3DFrame3D(DISPLAY_T* display) {
   if (!display || !display->created()) return;
   int64_t perfT0 = perf3DEnabled ? esp_timer_get_time() : 0;
@@ -1437,17 +1439,18 @@ void blitWorld3DFrame3D(DISPLAY_T* display) {
   int8_t drawn = display->frameBufferId();
   if (drawn && w3dPipelineReady3D()) {
     if (w3dPushPending3D) xSemaphoreTake(w3dPushDone3D, portMAX_DELAY);
-    int8_t shown = drawn == 2 ? 1 : 2;
     w3dPushNew3D = (uint16_t*)display->frameBuffer(drawn);
-    w3dPushOld3D = (uint16_t*)display->frameBuffer(shown); // next frame's draw target
+    display->frameBuffer(drawn == 2 ? 1 : 2); // next frame's draw target
     w3dPushW3D = display->width();
     w3dPushH3D = display->height();
     w3dPushPending3D = true;
     xSemaphoreGive(w3dPushReady3D);
     pipelined = true;
+    w3dBlitMode3D = "full";
   } else {
     quiesceWorld3DBlit3D();
     display->pushSpriteFast(0, 0);
+    w3dBlitMode3D = "sync";
   }
   if (perf3DEnabled) {
     reportWorld3DFrame3D(pipelined ? w3dPushUs3D : (int32_t)(esp_timer_get_time() - perfT0));

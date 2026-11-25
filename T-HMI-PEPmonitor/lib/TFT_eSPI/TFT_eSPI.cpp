@@ -1443,12 +1443,19 @@ void TFT_eSPI::pushRect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *da
 }
 
 
+#include <mutex>
+
+// Serialises full-screen pushes between the engine3d core 0 push task and
+// sprite pushes issued by the core that rendered the frame.
+static std::mutex tftBusMutex;
+
 /***************************************************************************************
 ** Function name:           pushImage
 ** Description:             plot 16-bit colour sprite or image onto TFT
 ***************************************************************************************/
 void TFT_eSPI::pushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data)
 {
+  std::lock_guard<std::mutex> busLock(tftBusMutex);
   PI_CLIP;
 
   begin_tft_write();
@@ -1536,12 +1543,6 @@ void TFT_eSPI::pushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *d
 ** Function name:           pushImageFast
 ** Description:             plot 16-bit sprite or image with 1 colour being transparent
 ***************************************************************************************/
-#include <mutex>
-
-// Serialises full-screen pushes between the engine3d core 0 push task and
-// sprite pushes issued by the core that rendered the frame.
-static std::mutex tftBusMutex;
-
 void TFT_eSPI::pushImageFast(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *dataNew, uint16_t *dataOld)
 {
   std::lock_guard<std::mutex> busLock(tftBusMutex);
