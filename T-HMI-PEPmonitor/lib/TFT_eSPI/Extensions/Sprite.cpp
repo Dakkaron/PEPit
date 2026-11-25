@@ -315,6 +315,16 @@ int8_t TFT_eSprite::frameBufferId(void)
   return _img8 == _img8_2 ? 2 : 1;
 }
 
+/***************************************************************************************
+** Function name:           setPsram
+** Description:             Choose whether the next createSprite() allocates in
+                            PSRAM (default) or internal RAM
+***************************************************************************************/
+void TFT_eSprite::setPsram(bool enable)
+{
+  _psram_enable = enable;
+}
+
 
 /***************************************************************************************
 ** Function name:           setColorDepth

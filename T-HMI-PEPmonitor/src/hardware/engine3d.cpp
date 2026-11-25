@@ -773,9 +773,16 @@ int16_t loadTexture3D(String path) {
     TFT_eSprite* s = &textureSprites3D[i];
     if (s->created()) s->deleteSprite();
     s->setColorDepth(16);
-    if (!loadBmp(s, path)) {
-      Serial.println("engine3d: failed to load texture " + path);
-      return -1;
+    // Rasterizer texture sampling is random access: texture pixel buffers
+    // live in internal RAM so that traffic never touches the PSRAM bus the
+    // mesh streams and the core 0 blit task already saturate.
+    s->setPsram(false);
+    if (!loadBmp(s, path) && !s->created()) {
+      s->setPsram(true); // internal heap exhausted: fall back to PSRAM
+      if (!loadBmp(s, path)) {
+        Serial.println("engine3d: failed to load texture " + path);
+        return -1;
+      }
     }
     const uint16_t* pixels = (const uint16_t*)s->getPointer();
     int16_t w = s->width();
