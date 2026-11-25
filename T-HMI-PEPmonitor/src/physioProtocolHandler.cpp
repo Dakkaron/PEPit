@@ -321,13 +321,7 @@ static void drawPEPDisplay() {
   }
 
   doSystemTasks();
-  if (systemConfig.debugLogRender3D) {
-    int64_t pushStartUs = esp_timer_get_time();
-    spr.pushSpriteFast(0, 0);
-    reportWorld3DFrame3D((int32_t)(esp_timer_get_time() - pushStartUs));
-  } else {
-    spr.pushSpriteFast(0, 0);
-  }
+  blitWorld3DFrame3D(&spr);
 }
 
 static void drawTrampolineDisplay() {
@@ -393,6 +387,7 @@ static void handleLogExecutions() {
 }
 
 static void drawFinished() {
+  quiesceWorld3DBlit3D(); // menu paths below write the TFT directly
   static uint32_t winscreenTimeout = 0;
   static String winScreenPath = "";
   if (winscreenTimeout == 0) { // Only runs on first execution

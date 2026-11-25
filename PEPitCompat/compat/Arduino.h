@@ -512,10 +512,16 @@ typedef int UBaseType_t;
 typedef void* TaskHandle_t;
 typedef void* SemaphoreHandle_t;
 
-// FreeRTOS mutex stubs (no real contention on Linux — always succeed)
+#define pdPASS 1
+#define pdFAIL 0
+#define portMAX_DELAY 0xFFFFFFFFu
+
+// FreeRTOS mutex handles stay contention-free stubs; binary semaphores are
+// real because the engine3d blit pipeline synchronizes on them.
+SemaphoreHandle_t xSemaphoreCreateBinary(void);
 inline SemaphoreHandle_t xSemaphoreCreateMutex() { return reinterpret_cast<void*>(1); }
-inline BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, uint32_t ticks) { (void)sem; (void)ticks; return 1; }
-inline BaseType_t xSemaphoreGive(SemaphoreHandle_t sem) { (void)sem; return 1; }
+BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, uint32_t ticks);
+BaseType_t xSemaphoreGive(SemaphoreHandle_t sem);
 
 void yield();
 void vTaskDelay(uint32_t ticks);

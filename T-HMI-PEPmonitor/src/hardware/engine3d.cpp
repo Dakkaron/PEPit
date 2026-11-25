@@ -1367,6 +1367,91 @@ void reportWorld3DFrame3D(int32_t pushUs) {
   perf3DReportMs3D = now + 1000;
 }
 
+/*
+ * Pipelined display blit. The TFT diff push costs ~15ms of 8-bit parallel
+ * bus time for a full screen no matter which core issues it, so a task
+ * pinned to core 0 pushes the frame that was just rendered while the game
+ * core rasterizes the next frame into the sprite's other frame buffer. The
+ * two cores never touch the same buffer in the same frame, and the ESP32-S3
+ * MMU/cache is shared between both cores, so handing over PSRAM buffers
+ * needs no cache maintenance. The diff-push invariant (the back buffer must
+ * equal what the TFT currently displays) holds because every push, pipelined
+ * or synchronous, sends the just-drawn buffer compared against the buffer
+ * that the previous push already put on screen.
+ */
+static SemaphoreHandle_t w3dPushReady3D = nullptr;
+static SemaphoreHandle_t w3dPushDone3D = nullptr;
+static TaskHandle_t w3dPushTask3DHandle = nullptr;
+static bool w3dPushPending3D = false;
+static bool w3dDrawn3D = false;      // drawWorld3D put triangles in the draw list
+static uint16_t* w3dPushNew3D = nullptr; // buffer holding the frame to display
+static uint16_t* w3dPushOld3D = nullptr; // buffer matching what the TFT shows
+static int16_t w3dPushW3D = 0, w3dPushH3D = 0;
+static volatile int32_t w3dPushUs3D = 0;
+
+static void w3dPushTaskLoop3D(void*) {
+  for (;;) {
+    xSemaphoreTake(w3dPushReady3D, portMAX_DELAY);
+    int64_t t0 = esp_timer_get_time();
+    bool oldSwap = tft.getSwapBytes();
+    tft.setSwapBytes(false);
+    tft.pushImageFast(0, 0, w3dPushW3D, w3dPushH3D, w3dPushNew3D, w3dPushOld3D);
+    tft.setSwapBytes(oldSwap);
+    w3dPushUs3D = (int32_t)(esp_timer_get_time() - t0);
+    xSemaphoreGive(w3dPushDone3D);
+  }
+}
+
+// Created on the first pipelined frame so games that never use 3D pay nothing.
+static bool w3dPipelineReady3D() {
+  if (w3dPushTask3DHandle) return true;
+  w3dPushReady3D = xSemaphoreCreateBinary();
+  w3dPushDone3D = xSemaphoreCreateBinary();
+  if (!w3dPushReady3D || !w3dPushDone3D) return false;
+  if (xTaskCreatePinnedToCore(w3dPushTaskLoop3D, "w3dblit", 8192, nullptr, 1,
+                              &w3dPushTask3DHandle, 0) != pdPASS) {
+    w3dPushTask3DHandle = nullptr;
+    return false;
+  }
+  return true;
+}
+
+// Wait out a pipelined push so direct TFT writes cannot race with it.
+void quiesceWorld3DBlit3D() {
+  if (w3dPushPending3D) {
+    xSemaphoreTake(w3dPushDone3D, portMAX_DELAY);
+    w3dPushPending3D = false;
+  }
+}
+
+// End-of-frame display push: pipelined for frames that drew 3D into a
+// double-buffered sprite, the plain sprite push otherwise. Reports the frame
+// to the perf counters when debug logging is on, including the blit time the
+// push task measured (or the synchronous push time).
+void blitWorld3DFrame3D(DISPLAY_T* display) {
+  if (!display || !display->created()) return;
+  int64_t perfT0 = perf3DEnabled ? esp_timer_get_time() : 0;
+  bool pipelined = false;
+  int8_t drawn = display->frameBufferId();
+  if (drawn && w3dDrawn3D && w3dPipelineReady3D()) {
+    if (w3dPushPending3D) xSemaphoreTake(w3dPushDone3D, portMAX_DELAY);
+    int8_t shown = drawn == 2 ? 1 : 2;
+    w3dPushNew3D = (uint16_t*)display->frameBuffer(drawn);
+    w3dPushOld3D = (uint16_t*)display->frameBuffer(shown); // next frame's draw target
+    w3dPushW3D = display->width();
+    w3dPushH3D = display->height();
+    w3dPushPending3D = true;
+    xSemaphoreGive(w3dPushReady3D);
+    pipelined = true;
+  } else {
+    quiesceWorld3DBlit3D();
+    display->pushSpriteFast(0, 0);
+  }
+  if (perf3DEnabled) {
+    reportWorld3DFrame3D(pipelined ? w3dPushUs3D : (int32_t)(esp_timer_get_time() - perfT0));
+  }
+}
+
 void updateWorld3D(DISPLAY_T* display) {
   if (!ensureWorld3D()) return;
   int64_t perfT0 = perf3DEnabled ? esp_timer_get_time() : 0;
@@ -1980,6 +2065,7 @@ void drawWorld3D(DISPLAY_T* display) {
     Serial.println("engine3d: display sprite has no pixel buffer!");
     return;
   }
+  w3dDrawn3D = drawCount3D > 0;
   for (int32_t bucket = BUCKET3D_COUNT - 1; bucket >= 0; bucket--) {
     int16_t idx = bucketHeads3D[bucket];
     while (idx >= 0) {

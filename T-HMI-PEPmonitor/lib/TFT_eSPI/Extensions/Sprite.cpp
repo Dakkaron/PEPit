@@ -304,6 +304,17 @@ void* TFT_eSprite::frameBuffer(int8_t f)
   return _img8;
 }
 
+/***************************************************************************************
+** Function name:           frameBufferId
+** Description:             Which frame buffer is receiving drawing right now:
+                            1 or 2, or 0 when the sprite is not double buffered
+***************************************************************************************/
+int8_t TFT_eSprite::frameBufferId(void)
+{
+  if (!_created || _img8_2 == _img8_1) return 0;
+  return _img8 == _img8_2 ? 2 : 1;
+}
+
 
 /***************************************************************************************
 ** Function name:           setColorDepth

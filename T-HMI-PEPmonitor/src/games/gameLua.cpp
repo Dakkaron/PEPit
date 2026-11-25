@@ -1104,6 +1104,7 @@ static int lua_wrapper_drawWorld(lua_State* luaState) {
 }
 
 static int lua_wrapper_freeAll3D(lua_State* luaState) {
+  quiesceWorld3DBlit3D();
   resetWorld3D();
   return 0;
 }

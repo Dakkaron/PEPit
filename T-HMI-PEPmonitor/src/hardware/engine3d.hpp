@@ -97,4 +97,10 @@ void resetWorld3DPerf3D();
 // Call once per rendered frame with the time the display push took, in microseconds
 void reportWorld3DFrame3D(int32_t pushUs);
 
+// End-of-frame display push: pipelines the blit to core 0 when the frame drew
+// 3D into a double-buffered sprite, otherwise the synchronous sprite push.
+// quiesce waits out an in-flight push before code that writes the TFT directly.
+void blitWorld3DFrame3D(DISPLAY_T* display);
+void quiesceWorld3DBlit3D();
+
 #endif /*__ENGINE3D_H__*/

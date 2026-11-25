@@ -107,15 +107,17 @@ TEST_CASE("engine3d perf: 3ddemo scene phase timings", "[perf][.disabled]") {
         auto t2 = std::chrono::steady_clock::now();
         updateMs += std::chrono::duration<double, std::milli>(t1 - t0).count();
         drawMs += std::chrono::duration<double, std::milli>(t2 - t1).count();
-        // The device measures its own blit; the shim does not represent it.
-        reportWorld3DFrame3D(0);
+        // blit exercises the production frame-end path: on device it pipelines
+        // the push to the core 0 task; on host the shim runs it on a thread.
         const uint16_t* fb = (const uint16_t*)disp.getPointer();
+        blitWorld3DFrame3D(&disp);
         lit = 0;
         for (int i = 0; i < 320 * 240; i++) if (fb[i]) lit++;
     }
 
     World3DPerf3D perf;
     getWorld3DPerf3D(&perf);
+    quiesceWorld3DBlit3D();
     disp.deleteSprite();
     setWorld3DDebug3D(false);
     resetWorld3DPerf3D();
@@ -136,6 +138,7 @@ TEST_CASE("engine3d perf: 3ddemo scene phase timings", "[perf][.disabled]") {
 
     CHECK(lit > 3000);
     CHECK(perf.frames == (uint32_t)FRAMES);
+    CHECK(perf.pushUs > 0);                    // the pipelined push task measured its runs
     int64_t partsUs = (int64_t)perf.xfUs + perf.faceUs + perf.bucketUs;
     // sub-phase timers must partition updateUs (plus timer-call slack)
     CHECK(partsUs <= (int64_t)perf.updateUs + 5 * FRAMES * 1000);

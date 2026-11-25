@@ -127,3 +127,48 @@ TaskHandle_t xTaskGetCurrentTaskHandle() {
 
 // Note: vTaskDelay is implemented in arduino.cpp (usleep wrapper)
 // Note: yield() is implemented in arduino.cpp (1ms usleep)
+
+// ============================================================
+// Binary semaphores — FreeRTOS-compatible counting-limited-to-1
+// semantics, used by the engine3d pipelined blit.
+// ============================================================
+
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
+
+struct CompatBinarySemaphore {
+    std::mutex mtx;
+    std::condition_variable cv;
+    int count = 0;
+};
+
+SemaphoreHandle_t xSemaphoreCreateBinary(void) {
+    return new CompatBinarySemaphore();
+}
+
+BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, uint32_t ticks) {
+    if (!sem || sem == reinterpret_cast<SemaphoreHandle_t>(1)) return 1; // mutex stub handle
+    auto* s = static_cast<CompatBinarySemaphore*>(sem);
+    std::unique_lock<std::mutex> lk(s->mtx);
+    if (ticks == 0) return s->count > 0 ? (--s->count, 1) : 0;
+    if (ticks == portMAX_DELAY) {
+        s->cv.wait(lk, [s] { return s->count > 0; });
+        --s->count;
+        return 1;
+    }
+    bool ok = s->cv.wait_for(lk, std::chrono::milliseconds(ticks), [s] { return s->count > 0; });
+    if (ok) { --s->count; return 1; }
+    return 0;
+}
+
+BaseType_t xSemaphoreGive(SemaphoreHandle_t sem) {
+    if (!sem || sem == reinterpret_cast<SemaphoreHandle_t>(1)) return 1; // mutex stub handle
+    auto* s = static_cast<CompatBinarySemaphore*>(sem);
+    {
+        std::lock_guard<std::mutex> lk(s->mtx);
+        if (s->count == 0) s->count = 1; // FreeRTOS binary semaphores clamp at 1
+    }
+    s->cv.notify_one();
+    return 1;
+}
