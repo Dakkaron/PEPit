@@ -90,6 +90,8 @@ typedef struct {
   uint32_t trisClipped;
   uint32_t spans;        // scanline spans filled
   uint32_t pixels;       // pixels written by the rasterizer
+  int32_t gapUs;         // core 0 time spent gap-filling uncovered pixels
+  uint32_t gapPx;        // gap-filled pixels per window
   uint32_t frames;       // frames reported since the last reset
 } World3DPerf3D;
 
@@ -106,10 +108,31 @@ void reportWorld3DFrame3D(int32_t pushUs);
 void blitWorld3DFrame3D(DISPLAY_T* display);
 void quiesceWorld3DBlit3D();
 void setWorld3DPipeline3D(bool enabled);
-// Frame-start blanking: begin replaces fillSprite in pipelined game loops,
-// barrier orders any writer against the core 0 background memset.
+// Frame start for full-screen game loops, replacing fillSprite(TFT_BLACK).
+// In mask mode (3D frames on the pipelined double-buffered sprite) it only
+// clears the coverage mask; the core 0 blit task then memsets just the
+// uncovered gaps of every frame buffer right before pushing it, so no frame
+// is ever displayed or drawn on with stale pixels. Without mask mode it
+// performs the plain full-screen fill.
 void beginWorld3DFill3D(DISPLAY_T* display);
+// Writers that do not go through begin/barrier (HUD code, Lua draw wrappers)
+// call this before touching the frame buffer: in mask mode it black-fills the
+// region's currently uncovered pixels and marks the region as drawn, so the
+// gap fill never erases the 2D content that lands on top of it. Outside mask
+// mode it only waits out a pending pipelined background fill.
 void barrierWorld3DFill3D();
+void claimFramebufferRect3D(DISPLAY_T* display, int16_t x, int16_t y, int16_t w, int16_t h);
+// Claim the text metrics box of a drawString/print call anchored at (x, y).
+void claimTextRect3D(DISPLAY_T* display, const char* text, int16_t x, int16_t y);
+// FillSprite semantics in mask mode (see engine3d.cpp). Returns false when
+// the display is not mask-mode and the caller must fill the sprite itself.
+bool fillFramebufferMasked3D(DISPLAY_T* display, uint16_t color);
+// True while begin/claim mask bookkeeping is active for this framebuffer.
+bool world3DMaskMode3D(DISPLAY_T* display);
+// Render window for UpdateWorld/DrawWorld (default: whole display). The
+// camera axis hits the viewport center; projection scale stays fixed, so the
+// windowed image is the full-screen image just offset to the viewport.
+void setWorld3DViewport3D(int16_t x, int16_t y, int16_t w, int16_t h);
 // Accumulates time spent outside the 3D pipeline (pressure sensor reads) for the perf line
 void addWorld3DSensorUs3D(int32_t us);
 

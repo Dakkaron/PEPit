@@ -111,21 +111,30 @@ TEST_CASE("engine3d perf: 3ddemo scene phase timings", "[perf][.disabled]") {
         // the push to the core 0 task; on host the shim runs it on a thread.
         const uint16_t* fb = (const uint16_t*)disp.getPointer();
         blitWorld3DFrame3D(&disp);
+        quiesceWorld3DBlit3D(); // host: wait for the task so the fb read sees the gap fill
         lit = 0;
         for (int i = 0; i < 320 * 240; i++) if (fb[i]) lit++;
     }
 
     World3DPerf3D perf;
     getWorld3DPerf3D(&perf);
+    // Blank-slate guarantee in mask mode: there is no fill-ahead of the next
+    // buffer anymore, blanking happens inside each buffer right before it is
+    // pushed. So an empty frame that reuses a buffer still full of scene
+    // pixels must push a fully black screen.
+    setWorld3DDebug3D(false);
+    const uint16_t* reused = (const uint16_t*)disp.getPointer();
+    bool sceneLeft = false;
+    for (int i = 0; !sceneLeft && i < 320 * 240; i++) if (reused[i]) sceneLeft = true;
+    CHECK(sceneLeft); // sanity: the reused buffer really is dirty
+    beginWorld3DFill3D(&disp);
+    blitWorld3DFrame3D(&disp);
     quiesceWorld3DBlit3D();
-    // The last blit scheduled the pipeline blank of the next frame's draw
-    // target; after quiesce that buffer must be fully black again.
-    const uint16_t* nextTarget = (const uint16_t*)disp.frameBuffer(disp.frameBufferId());
-    bool blanked = nextTarget != nullptr;
-    for (int i = 0; blanked && i < 320 * 240; i++) if (nextTarget[i]) blanked = false;
+    const uint16_t* pushed = (const uint16_t*)disp.frameBuffer(disp.frameBufferId() == 1 ? 2 : 1);
+    bool blanked = pushed != nullptr;
+    for (int i = 0; blanked && i < 320 * 240; i++) if (pushed[i]) blanked = false;
     CHECK(blanked);
     disp.deleteSprite();
-    setWorld3DDebug3D(false);
     resetWorld3DPerf3D();
 
     double frames = (double)FRAMES;

@@ -145,6 +145,47 @@ static bool implicitCamera3D = false;
 static uint16_t* fb3D = nullptr;
 static int32_t fbW3D = 0, fbH3D = 0;
 
+// Mask-mode coverage bookkeeping (design: pipelined blit section further down)
+static bool w3dMaskActive3D = false;
+static uint32_t* w3dDrawMask3D = nullptr; // mask of the current draw target
+
+/* Render viewport: a sub-rectangle of the display that UpdateWorld/DrawWorld
+ * project into. The camera axis hits the viewport center, and the projection
+ * scale stays tied to the full display height, so the world image is the same
+ * one the full-screen projection produces, just windowed: moving a viewport
+ * of unchanged size shifts the picture by the same amount. Anything outside
+ * the viewport is neither projected, depth-sorted, nor rasterized; the
+ * coverage-mask gap fill blacks those rows like any other untouched pixel. */
+static int16_t vpX3D = 0, vpY3D = 0, vpW3D = 0, vpH3D = 0; // requested; w/h 0 = whole display
+static int16_t vpL3D = 0, vpT3D = 0, vpR3D = 0, vpB3D = 0; // resolved, right/bottom exclusive
+static float vpCx3D = 0, vpCy3D = 0;                       // resolved center
+
+void setWorld3DViewport3D(int16_t x, int16_t y, int16_t w, int16_t h) {
+  vpX3D = x;
+  vpY3D = y;
+  vpW3D = w;
+  vpH3D = h;
+}
+
+static void resolveViewport3D(int32_t sw, int32_t sh) {
+  int32_t x = vpX3D, y = vpY3D, w = vpW3D, h = vpH3D;
+  if (w <= 0 || h <= 0) { x = 0; y = 0; w = sw; h = sh; }
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  if (x >= sw) x = sw - 1;
+  if (y >= sh) y = sh - 1;
+  if (x + w > sw) w = sw - x;
+  if (y + h > sh) h = sh - y;
+  if (w < 1) w = 1;
+  if (h < 1) h = 1;
+  vpL3D = x;
+  vpT3D = y;
+  vpR3D = x + w;
+  vpB3D = y + h;
+  vpCx3D = x + w * 0.5f;
+  vpCy3D = y + h * 0.5f;
+}
+
 // Phase timings and workload counters. They only cost anything while the
 // debugLogRender3D system config flag turns them on; the game loop reports the
 // frame through reportWorld3DFrame3D() once the sprite has been pushed.
@@ -1232,6 +1273,9 @@ void resetWorld3D() {
   ambient3D[0] = 0.5f; ambient3D[1] = 0.5f; ambient3D[2] = 0.5f;
   drawCount3D = 0;
   w3d3DFrameActive3D = false;
+  w3dMaskActive3D = false;
+  w3dDrawMask3D = nullptr;
+  setWorld3DViewport3D(0, 0, 0, 0); // viewport is a per-game setting
   setupDefaultCamera3D();
 }
 // ---------------------------------------------------------------------------
@@ -1319,16 +1363,16 @@ static uint8_t clipTriangleNear3D(float nearPlane,
 // scale carries projScale * (1/viewZ): the divide is hoisted to the callers, which
 // need 1/z for their texture coordinates anyway. Callers only project vertices at
 // or beyond the near plane, so scale is always finite.
-static void projectClipPoint3D(const float* viewPos, float scale, float halfW, float halfH,
+static void projectClipPoint3D(const float* viewPos, float scale, float cx, float cy,
     int32_t* outX, int32_t* outY) {
-  float sxf = halfW + viewPos[0] * scale;
-  float syf = halfH - viewPos[1] * scale;
+  float sxf = viewPos[0] * scale;
+  float syf = viewPos[1] * scale;
   if (sxf > 1024.0f) sxf = 1024.0f;
   else if (sxf < -1024.0f) sxf = -1024.0f;
   if (syf > 1024.0f) syf = 1024.0f;
   else if (syf < -1024.0f) syf = -1024.0f;
-  *outX = (int32_t)(sxf * 256.0f);
-  *outY = (int32_t)(syf * 256.0f);
+  *outX = (int32_t)((cx + sxf) * 256.0f);
+  *outY = (int32_t)((cy - syf) * 256.0f);
 }
 
 void setWorld3DDebug3D(bool enabled) {
@@ -1383,6 +1427,8 @@ void reportWorld3DFrame3D(int32_t pushUs) {
   d.frames -= perf3DReportBase3D.frames;
   d.sensorUs -= perf3DReportBase3D.sensorUs;
   d.frameUs -= perf3DReportBase3D.frameUs;
+  d.gapUs -= perf3DReportBase3D.gapUs;
+  d.gapPx -= perf3DReportBase3D.gapPx;
   perf3DReportBase3D = perf3D;
   double f = d.frames ? (double)d.frames : 1.0;
   double windowMs = (double)(now - perf3DReportMs3D + 1000) / 1000.0;
@@ -1392,13 +1438,13 @@ void reportWorld3DFrame3D(int32_t pushUs) {
   double otherMs = frameMs - d.updateUs / 1000.0 / f - d.drawUs / 1000.0 / f;
   if (strcmp(w3dBlitMode3D, "sync") == 0) otherMs -= d.pushUs / 1000.0 / f;
   Serial.printf("engine3d perf: %.1f fps  update=%.2fms  draw=%.2fms  blit=%.2fms(%s)"
-                "  other=%.2fms  update parts: xf=%.2f face=%.2f bucket=%.2f\n",
+                "  other=%.2fms  gap=%.2fms  update parts: xf=%.2f face=%.2f bucket=%.2f\n",
                 f / windowMs, d.updateUs / 1000.0 / f, d.drawUs / 1000.0 / f, d.pushUs / 1000.0 / f,
-                w3dBlitMode3D, otherMs,
+                w3dBlitMode3D, otherMs, d.gapUs / 1000.0 / f,
                 d.xfUs / 1000.0 / f, d.faceUs / 1000.0 / f, d.bucketUs / 1000.0 / f);
-  Serial.printf("engine3d perf: verts=%.0f  tris=%.0f  clipped=%.0f  spans=%.0f  px=%.0f  sensor=%.2fms (per frame)\n",
+  Serial.printf("engine3d perf: verts=%.0f  tris=%.0f  clipped=%.0f  spans=%.0f  px=%.0f  gappx=%.0f  sensor=%.2fms (per frame)\n",
                 d.vertsTransformed / f, d.trisSubmitted / f, d.trisClipped / f, d.spans / f, d.pixels / f,
-                d.sensorUs / 1000.0 / f);
+                d.gapPx / f, d.sensorUs / 1000.0 / f);
   perf3DReportMs3D = now + 1000;
 }
 
@@ -1429,21 +1475,118 @@ static bool w3dPipelineEnabled3D = true;
 static uint16_t* w3dPushNew3D = nullptr; // buffer holding the frame to display
 static int16_t w3dPushW3D = 0, w3dPushH3D = 0;
 static volatile int32_t w3dPushUs3D = 0;
-// Background blanking, run by the same core 0 task before each push: the
-// sprite buffer the rendering core draws into next is memsetting there while
-// core 1 transforms the frame. beginWorld3DFill3D() skips the synchronous
-// fillSprite when the buffer was scheduled, and barrierWorld3DFill3D() makes
-// every framebuffer writer wait for the memset before touching it, so games
-// still get a guaranteed blank slate at frame start.
+// Background blanking via coverage masks. Each double-buffer frame has a
+// 1-bit-per-pixel mask: the rasterizer sets bits as it writes spans, 2D
+// writers claim rects before drawing, and the core 0 task memsets every
+// unmasked run of the buffer right before pushing it. A frame buffer that
+// is pushed is therefore fully valid (drawn pixels + black gaps) without
+// core 1 ever memsetting the 153KB buffer, and core 0 only touches the
+// uncovered remainder (~35KB for a typical 3D scene instead of 153KB).
+static uint32_t* w3dMask3D[2] = {nullptr, nullptr};
+static int16_t w3dMaskWords3D = 0;
+static int16_t w3dMaskRows3D = 0;
+static int16_t w3dMaskWidth3D = 0;
+static uint32_t w3dMaskTail3D = 0; // valid pixel bits in the last word of a row
+static bool w3dMaskValid3D = false;
+static uint16_t* w3dGapBuf3D = nullptr;  // buffer whose gaps this push fills first
+static const uint32_t* w3dGapMask3D = nullptr;
+static DISPLAY_T* w3dMaskDisplay3D = nullptr;
+static int8_t w3dMaskFrameId3D = 0;
+// Legacy pipelined blanking (core 0 memsets the whole next buffer) stays as
+// the fallback whenever the mask mode is not in effect.
 static uint16_t* w3dFillBuf3D = nullptr;
 static uint32_t w3dFillBytes3D = 0;
 static bool w3dFillWait3D = false;
 
+static inline uint32_t maskRange3D(int32_t lo, int32_t hi) {
+  if (lo <= 0 && hi >= 31) return 0xFFFFFFFFu;
+  return (((1u << (hi - lo + 1)) - 1u) << lo);
+}
+
+// Memset every run of zero bits in one mask word (pixels start at fbRow);
+// returns the number of pixels filled.
+static uint32_t gapFillWord3D(uint16_t* fbRow, uint32_t uncovered) {
+  uint32_t filled = 0;
+  while (uncovered) {
+    int32_t b = __builtin_ctz(uncovered);
+    uint32_t v = uncovered >> b;
+    int32_t len = (v == 0xFFFFFFFFu) ? 32 : __builtin_ctz(~v);
+    memset(fbRow + b, 0, (size_t)len * 2);
+    uncovered &= ~(len >= 32 ? 0xFFFFFFFFu : (((1u << len) - 1u) << b));
+    filled += (uint32_t)len;
+  }
+  return filled;
+}
+
+// Mark the pixels a rasterizer span wrote; the gap fill will skip them.
+static inline void markSpanMask3D(int32_t row, int32_t x0, int32_t x1) {
+  uint32_t* m = w3dDrawMask3D + row * w3dMaskWords3D;
+  int32_t w0 = x0 >> 5, w1 = x1 >> 5;
+  if (w0 == w1) {
+    m[w0] |= maskRange3D(x0 & 31, x1 & 31);
+  } else {
+    m[w0] |= maskRange3D(x0 & 31, 31);
+    for (int32_t w = w0 + 1; w < w1; w++) m[w] = 0xFFFFFFFFu;
+    m[w1] |= maskRange3D(0, x1 & 31);
+  }
+}
+
+static uint32_t gapFill3D(uint16_t* buf, const uint32_t* mask) {
+  uint32_t filled = 0;
+  for (int32_t row = 0; row < w3dMaskRows3D; row++) {
+    const uint32_t* mrow = mask + row * w3dMaskWords3D;
+    uint16_t* fbRow = buf + row * (int32_t)w3dMaskWidth3D;
+    for (int32_t wi = 0; wi < w3dMaskWords3D; wi++) {
+      uint32_t valid = (wi + 1 == w3dMaskWords3D) ? w3dMaskTail3D : 0xFFFFFFFFu;
+      uint32_t uncovered = valid & ~mrow[wi];
+      if (uncovered) filled += gapFillWord3D(fbRow + (wi << 5), uncovered);
+    }
+  }
+  return filled;
+}
+
+static bool ensureMask3D(int32_t w, int32_t h) {
+  int16_t words = (int16_t)((w + 31) >> 5);
+  if (w3dMaskValid3D && w3dMaskWords3D == words && w3dMaskRows3D == h) return true;
+  for (int i = 0; i < 2; i++) {
+    heap_caps_free(w3dMask3D[i]);
+    w3dMask3D[i] = nullptr;
+  }
+  w3dMaskValid3D = false;
+  size_t bytes = (size_t)words * h * 4;
+  w3dMask3D[0] = (uint32_t*)heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  w3dMask3D[1] = (uint32_t*)heap_caps_malloc(bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!w3dMask3D[0] || !w3dMask3D[1]) {
+    heap_caps_free(w3dMask3D[0]);
+    heap_caps_free(w3dMask3D[1]);
+    w3dMask3D[0] = w3dMask3D[1] = nullptr;
+    return false;
+  }
+  memset(w3dMask3D[0], 0, bytes);
+  memset(w3dMask3D[1], 0, bytes);
+  w3dMaskWords3D = words;
+  w3dMaskRows3D = (int16_t)h;
+  w3dMaskWidth3D = (int16_t)w;
+  w3dMaskTail3D = (w & 31) ? ((1u << (w & 31)) - 1u) : 0xFFFFFFFFu;
+  w3dMaskValid3D = true;
+  return true;
+}
+
 static void w3dPushTaskLoop3D(void*) {
   for (;;) {
     xSemaphoreTake(w3dPushReady3D, portMAX_DELAY);
-    uint16_t* fillBuf = w3dFillBuf3D; // latch the hand-off so later blits
-    int32_t fillBytes = w3dFillBytes3D; // cannot mutate this iteration's work
+    uint16_t* gapBuf = w3dGapBuf3D; // latch the hand-off so later blits
+    const uint32_t* gapMask = w3dGapMask3D; // cannot mutate this iteration's work
+    uint16_t* fillBuf = w3dFillBuf3D;
+    uint32_t fillBytes = w3dFillBytes3D;
+    if (gapBuf) {
+      int64_t gapT0 = perf3DEnabled ? esp_timer_get_time() : 0;
+      uint32_t filled = gapFill3D(gapBuf, gapMask);
+      if (perf3DEnabled) {
+        perf3D.gapUs += (int32_t)(esp_timer_get_time() - gapT0);
+        perf3D.gapPx += filled;
+      }
+    }
     if (fillBuf) {
       memset(fillBuf, 0, fillBytes); // RGB565 black
       xSemaphoreGive(w3dFillDone3D);
@@ -1479,10 +1622,13 @@ void quiesceWorld3DBlit3D() {
     xSemaphoreTake(w3dWorkDone3D, portMAX_DELAY); // consume the drain too, so
     w3dPushPending3D = false;                     // no stale token outlives us
   }
+  w3dMaskActive3D = false;
+  w3dDrawMask3D = nullptr;
 }
 
-// Wait until the core 0 task has finished blanking the frame buffer that
-// this frame will draw into. Cheap flag check when no fill is scheduled.
+// Wait until the core 0 task has finished its legacy full-buffer fill of the
+// frame buffer this frame will draw into. Mask mode never fills on core 0
+// ahead of time, so there the check is a flag test.
 void barrierWorld3DFill3D() {
   if (w3dFillWait3D) {
     xSemaphoreTake(w3dFillDone3D, portMAX_DELAY);
@@ -1490,15 +1636,105 @@ void barrierWorld3DFill3D() {
   }
 }
 
+static inline uint32_t* currentDrawMask3D(DISPLAY_T* display) {
+  if (!w3dMaskActive3D || !display || display != w3dMaskDisplay3D) return nullptr;
+  int8_t fid = display->frameBufferId();
+  if (fid != w3dMaskFrameId3D || fid < 1 || fid > 2) return nullptr;
+  return w3dMask3D[fid - 1];
+}
+
+bool world3DMaskMode3D(DISPLAY_T* display) {
+  return currentDrawMask3D(display) != nullptr;
+}
+
 // Frame start for full-screen game loops, in place of fillSprite(TFT_BLACK).
-// When the pipelined task already blanked (or is about to blank) the buffer
-// this frame draws into, the synchronous fill is skipped and the barrier
-// orders the writes; otherwise the buffer is filled here, as before.
+// In mask mode the frame buffers are never wiped whole: clearing this draw
+// target's coverage mask is the whole "clear", and the core 0 task memsets
+// the uncovered pixels of each buffer right before pushing it. Without mask
+// mode this keeps the previous behavior (pipelined background fill of the
+// next buffer, or a synchronous fill here).
 void beginWorld3DFill3D(DISPLAY_T* display) {
   if (!display || !display->created()) return;
-  if (w3dFillWait3D && w3dFillBuf3D == (uint16_t*)display->getPointer()) return;
   barrierWorld3DFill3D();
+  if (w3dPipelineEnabled3D && display->frameBufferId() && w3dPipelineReady3D()
+      && ensureMask3D(display->width(), display->height())) {
+    memset(w3dMask3D[display->frameBufferId() - 1], 0,
+           (size_t)w3dMaskWords3D * w3dMaskRows3D * 4);
+    w3dMaskDisplay3D = display;
+    w3dMaskFrameId3D = display->frameBufferId();
+    w3dMaskActive3D = true;
+    w3dDrawMask3D = w3dMask3D[display->frameBufferId() - 1];
+    return;
+  }
+  w3dMaskActive3D = false;
+  w3dDrawMask3D = nullptr;
+  if (w3dFillWait3D && w3dFillBuf3D == (uint16_t*)display->getPointer()) return;
   display->fillSprite(TFT_BLACK);
+}
+
+// 2D writers on the framebuffer call this BEFORE drawing: the region's still
+// uncovered pixels are blacked and the region is marked covered, so the
+// pending gap fill can neither leave stale pixels in the region nor erase
+// what the 2D write is about to paint there. Outside mask mode it is a no-op.
+void claimFramebufferRect3D(DISPLAY_T* display, int16_t x, int16_t y, int16_t w, int16_t h) {
+  uint32_t* mask = currentDrawMask3D(display);
+  if (!mask || w <= 0 || h <= 0) return;
+  int32_t x0 = x, y0 = y, x1 = (int32_t)x + w, y1 = (int32_t)y + h;
+  if (x0 < 0) x0 = 0;
+  if (y0 < 0) y0 = 0;
+  if (x1 > (int32_t)w3dMaskWidth3D) x1 = w3dMaskWidth3D;
+  if (y1 > (int32_t)w3dMaskRows3D) y1 = w3dMaskRows3D;
+  if (x0 >= x1 || y0 >= y1) return;
+  uint16_t* fb = (uint16_t*)display->getPointer();
+  int32_t w0 = x0 >> 5, w1 = (x1 - 1) >> 5;
+  for (int32_t row = y0; row < y1; row++) {
+    uint32_t* mrow = mask + row * w3dMaskWords3D;
+    uint16_t* fbRow = fb + row * (int32_t)w3dMaskWidth3D;
+    for (int32_t wi = w0; wi <= w1; wi++) {
+      uint32_t valid = (wi + 1 == w3dMaskWords3D) ? w3dMaskTail3D : 0xFFFFFFFFu;
+      int32_t lo = x0 - (wi << 5); if (lo < 0) lo = 0;
+      int32_t hi = x1 - 1 - (wi << 5); if (hi > 31) hi = 31;
+      uint32_t bits = valid & maskRange3D(lo, hi);
+      uint32_t uncovered = bits & ~mrow[wi];
+      if (uncovered) gapFillWord3D(fbRow + (wi << 5), uncovered);
+      mrow[wi] |= bits;
+    }
+  }
+}
+
+// FillSprite semantics for a mask-mode framebuffer: black only needs the
+// mask cleared (the gap fill will black every untouched pixel at push time);
+// any other colour must really paint the buffer and then mark it fully
+// covered so the gap fill leaves it alone. Returns true when mask mode
+// handled the call, false when the caller has to fill itself.
+bool fillFramebufferMasked3D(DISPLAY_T* display, uint16_t color) {
+  uint32_t* mask = currentDrawMask3D(display);
+  if (!mask) return false;
+  if (color == TFT_BLACK) {
+    memset(mask, 0, (size_t)w3dMaskWords3D * w3dMaskRows3D * 4);
+    return true;
+  }
+  display->fillScreen(color);
+  memset(mask, 0xFF, (size_t)w3dMaskWords3D * w3dMaskRows3D * 4);
+  return true;
+}
+
+// Claim the rectangle a drawString/print call at (x, y) can paint, honoring
+// the current text datum; over-claiming is safe, it only costs memset.
+void claimTextRect3D(DISPLAY_T* display, const char* text, int16_t x, int16_t y) {
+  if (!world3DMaskMode3D(display)) return;
+  int32_t tw = display->textWidth(text);
+  if (tw <= 0) tw = (int32_t)strlen(text) * (display->textsize * 6 + 1);
+  int32_t th = display->fontHeight();
+  if (th <= 0) th = 8 * display->textsize;
+  uint8_t datum = display->getTextDatum();
+  int32_t hx = datum % 3, vy = datum / 3;
+  int32_t x0 = x - hx * (tw + 1) / 2;
+  int32_t x1 = x + (2 - hx) * (tw + 1) / 2;
+  int32_t y0 = y - vy * (th + 1) / 2;
+  int32_t y1 = y + (2 - vy) * (th + 1) / 2;
+  claimFramebufferRect3D(display, (int16_t)x0, (int16_t)y0,
+                         (int16_t)(x1 - x0 + 2), (int16_t)(y1 - y0 + 2));
 }
 
 // Switch between pipelined and synchronous blit for on-device perf A/B
@@ -1529,9 +1765,16 @@ void blitWorld3DFrame3D(DISPLAY_T* display) {
       xSemaphoreTake(w3dWorkDone3D, portMAX_DELAY);
     }
     w3dPushNew3D = (uint16_t*)display->frameBuffer(drawn);
-    uint16_t* nextTarget = (uint16_t*)display->frameBuffer(drawn == 2 ? 1 : 2);
-    if (w3d3DFrameActive3D) {
-      w3dFillBuf3D = nextTarget;
+    display->frameBuffer(drawn == 2 ? 1 : 2); // next frame draws into the other buffer
+    if (w3dMaskActive3D && display == w3dMaskDisplay3D
+        && display->width() == w3dMaskWidth3D && display->height() == w3dMaskRows3D
+        && w3dMaskFrameId3D == drawn) {
+      w3dGapBuf3D = w3dPushNew3D; // blank the untouched pixels of the buffer
+      w3dGapMask3D = w3dMask3D[drawn - 1]; // we are about to display, on core 0
+      w3dFillBuf3D = nullptr;
+      w3dFillWait3D = false;
+    } else if (w3d3DFrameActive3D) {
+      w3dFillBuf3D = (uint16_t*)display->getPointer();
       w3dFillBytes3D = (uint32_t)display->width() * (uint32_t)display->height() * 2;
       w3dFillWait3D = true;
     } else {
@@ -1572,13 +1815,16 @@ void updateWorld3D(DISPLAY_T* display) {
   if (cam->nearPlane < 0.01f) cam->nearPlane = 0.01f;
   if (cam->farPlane <= cam->nearPlane) cam->farPlane = cam->nearPlane + 100.0f;
   if (cam->zoom < 0.01f) cam->zoom = 0.01f;
-  float screenW = (float)display->width();
+  resolveViewport3D(display->width(), display->height());
   float screenH = (float)display->height();
-  float halfW = screenW * 0.5f;
-  float halfH = screenH * 0.5f;
+  // Fixed projection scale relative to the viewport center: the same world
+  // point projects to the same pixel offset no matter where the viewport sits,
+  // so moving a viewport of unchanged size shifts the image by exactly that
+  // offset; resizing it crops or reveals, never zooms. The frustum window is
+  // then the viewport's angular extent at this scale.
   float projScale = cam->zoom * screenH * PROJ3D_FACTOR;
-  float tanHalfX = halfW / projScale;
-  float tanHalfY = halfH / projScale;
+  float tanHalfX = (vpR3D - vpL3D) * 0.5f / projScale;
+  float tanHalfY = (vpB3D - vpT3D) * 0.5f / projScale;
 
   Mat3 camRot, basis;
   mat3FromEuler3D(cam->pitch, cam->yaw, cam->roll, &camRot);
@@ -1670,7 +1916,7 @@ void updateWorld3D(DISPLAY_T* display) {
       v->x = vpX; v->y = vpY; v->z = vpZ;
       if (vpZ >= cam->nearPlane) {
         v->iz = fastRecip3D(vpZ);
-        projectClipPoint3D(&v->x, projScale * v->iz, halfW, halfH, &v->sx, &v->sy);
+        projectClipPoint3D(&v->x, projScale * v->iz, vpCx3D, vpCy3D, &v->sx, &v->sy);
       }
       if (dynamicLighting) {
         const Vector3D* n = &mesh->nrm[vi];
@@ -1754,6 +2000,19 @@ void updateWorld3D(DISPLAY_T* display) {
       float nz = e1x*e2y - e1y*e2x;
       // Front facing when the winding normal points towards the camera (origin)
       if (nx*(pa->x+pb->x+pc->x) + ny*(pa->y+pb->y+pc->y) + nz*(pa->z+pb->z+pc->z) >= 0.0f) continue;
+      /* Screen bbox reject, only on the unclipped fast path: perspective maps
+       * a triangle that stays behind the near plane exactly onto the triangle
+       * of its projected vertices, so an entirely outside bbox cannot re-enter
+       * the viewport through near-plane clipping later. */
+      if (za >= cam->nearPlane && zb >= cam->nearPlane && zc >= cam->nearPlane) {
+        int32_t sminx = pa->sx, smaxx = pa->sx, sminy = pa->sy, smaxy = pa->sy;
+        if (pb->sx < sminx) sminx = pb->sx; else if (pb->sx > smaxx) smaxx = pb->sx;
+        if (pc->sx < sminx) sminx = pc->sx; else if (pc->sx > smaxx) smaxx = pc->sx;
+        if (pb->sy < sminy) sminy = pb->sy; else if (pb->sy > smaxy) smaxy = pb->sy;
+        if (pc->sy < sminy) sminy = pc->sy; else if (pc->sy > smaxy) smaxy = pc->sy;
+        if (smaxx <= (vpL3D << 8) || sminx >= (vpR3D << 8)
+            || smaxy <= (vpT3D << 8) || sminy >= (vpB3D << 8)) continue;
+      }
 
       TriDraw3D* d = &drawList3D[drawCount3D];
       uint32_t colA = dynamicLighting ? pa->color : uniformColor;
@@ -1791,7 +2050,7 @@ void updateWorld3D(DISPLAY_T* display) {
         zAvg = 0.0f;
         for (uint8_t ci = 0; ci < clipCount; ci++) {
           float izc = fastRecip3D(clipPos[ci][2]);
-          projectClipPoint3D(clipPos[ci], projScale * izc, halfW, halfH, &d->sx[ci], &d->sy[ci]);
+          projectClipPoint3D(clipPos[ci], projScale * izc, vpCx3D, vpCy3D, &d->sx[ci], &d->sy[ci]);
           d->ru[ci] = clipU[ci] * izc;
           d->rv[ci] = clipV[ci] * izc;
           d->rz[ci] = izc;
@@ -1904,9 +2163,9 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
   }
   if (y2 - y0 <= 0) return;
   int32_t syStart = (y0 + 255) >> 8;
-  if (syStart < 0) syStart = 0;
+  if (syStart < vpT3D) syStart = vpT3D;
   int32_t syEnd = y2 >> 8;
-  if (syEnd >= fbH3D) syEnd = fbH3D - 1;
+  if (syEnd >= vpB3D) syEnd = vpB3D - 1;
   if (syStart > syEnd) return;
 
   bool wantColor = (mode == 1 || mode == 2);
@@ -2032,9 +2291,9 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
     int32_t xR = bIsLeft ? xA : xB;
 
     int32_t px0 = (xL + 255) >> 8;
-    if (px0 < 0) px0 = 0;
+    if (px0 < vpL3D) px0 = vpL3D;
     int32_t px1 = xR >> 8;
-    if (px1 >= fbW3D) px1 = fbW3D - 1;
+    if (px1 >= vpR3D) px1 = vpR3D - 1;
     if (px0 > px1) continue;
     uint16_t* row = fb3D + sy * fbW3D;
     int32_t span = xR - xL;
@@ -2045,6 +2304,7 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
       perf3D.spans++;
       perf3D.pixels += (uint32_t)(px1 - px0 + 1);
     }
+    if (w3dDrawMask3D) markSpanMask3D(sy, px0, px1);
 
     switch (mode) {
       case 0: {
@@ -2167,6 +2427,8 @@ void drawWorld3D(DISPLAY_T* display) {
     Serial.println("engine3d: display sprite has no pixel buffer!");
     return;
   }
+  resolveViewport3D(fbW3D, fbH3D); // raster clip must match the update's projection
+  w3dDrawMask3D = currentDrawMask3D(display);
   barrierWorld3DFill3D(); // rasterizer is the first writer of this frame's buffer
   w3d3DFrameActive3D = true;
   for (int32_t bucket = BUCKET3D_COUNT - 1; bucket >= 0; bucket--) {

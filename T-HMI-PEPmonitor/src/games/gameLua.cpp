@@ -1,4 +1,5 @@
 #include "gameLua.h"
+#include "constants.h"
 #include "hardware/sdHandler.h"
 #include "hardware/gfxHandler.hpp"
 #include "hardware/higherLevelGfxHandler.hpp"
@@ -421,6 +422,31 @@ static int lua_wrapper_drawSprite(lua_State* luaState) {
   if (!isHandleValid(handle)) {
     return 0;
   }
+  { // Claim the screen box this draw can paint so the gap fill leaves it alone.
+    float sw, sh;
+    if (frame < 0) { sw = sprites[handle].width(); sh = sprites[handle].height(); }
+    else { sw = spriteMetadata[handle].frameW; sh = spriteMetadata[handle].frameH; }
+    float fx0, fy0, fx1, fy1;
+    if (angle == 0.0f) {
+      fx0 = tPos.x; fy0 = tPos.y;
+      fx1 = tPos.x + sw * fabsf(scale.x); fy1 = tPos.y + sh * fabsf(scale.y);
+    } else { // matches the Matrix2D used by drawSpriteTransformed
+      float c = cosf(angle), s = sinf(angle);
+      float us[4] = {0, sw * scale.x, sw * scale.x, 0};
+      float vs[4] = {0, 0, sh * scale.y, sh * scale.y};
+      fx0 = fy0 = fx1 = fy1 = 0;
+      for (int i = 0; i < 4; i++) {
+        float rx = us[i] * c - vs[i] * s + tPos.x;
+        float ry = us[i] * s + vs[i] * c + tPos.y;
+        if (i == 0 || rx < fx0) fx0 = rx;
+        if (i == 0 || rx > fx1) fx1 = rx;
+        if (i == 0 || ry < fy0) fy0 = ry;
+        if (i == 0 || ry > fy1) fy1 = ry;
+      }
+    }
+    claimFramebufferRect3D(luaDisplay, (int16_t)floorf(fx0) - 1, (int16_t)floorf(fy0) - 1,
+                           (int16_t)ceilf(fx1 - fx0) + 2, (int16_t)ceilf(fy1 - fy0) + 2);
+  }
   int32_t maskingColor = spriteMetadata[handle].maskingColor;
   flags |= TRANSP_MASK;
   //Serial.printf("handle=%d, scaleX=%f, scaleY=%f, angle=%f, frame=%d, flags=%d, alpha=%f\n", handle, scale.x, scale.y, angle, frame, flags, alpha);
@@ -515,6 +541,11 @@ static int lua_wrapper_drawMode7(lua_State* luaState) {
   float horizonHeight = luaL_checknumber(luaState, 7);
   float startY = luaL_checknumber(luaState, 8);
   float endY = luaL_checknumber(luaState, 9);
+  barrierWorld3DFill3D();
+  float minY = startY < endY ? startY : endY;
+  float maxY = startY < endY ? endY : startY;
+  claimFramebufferRect3D(luaDisplay, 0, (int16_t)floorf(minY) - 1, luaDisplay->width(),
+                         (int16_t)ceilf(maxY - minY) + 3);
   drawMode7(luaDisplay, &sprites[textureHandle], &cameraPos, cameraHeight, yawAngle, zoom, horizonHeight, startY, endY);
   return 0;
 }
@@ -552,6 +583,7 @@ static int lua_wrapper_drawString(lua_State* luaState) {
   char* token = strtok(s, "\n");
   int32_t fontHeight = luaDisplay->fontHeight();
   while (token != NULL) {
+    claimTextRect3D(luaDisplay, token, x, y);
     luaDisplay->drawString(token, x, y);
     y += fontHeight;
     token = strtok(NULL, "\n");
@@ -567,6 +599,10 @@ static int lua_wrapper_drawRect(lua_State* luaState) {
   int16_t w = luaL_checknumber(luaState, 3);
   int16_t h = luaL_checknumber(luaState, 4);
   uint16_t color = luaL_checknumber(luaState, 5);
+  claimFramebufferRect3D(luaDisplay, x - 1, y - 1, w + 2, 3);
+  claimFramebufferRect3D(luaDisplay, x - 1, y + h - 2, w + 2, 3);
+  claimFramebufferRect3D(luaDisplay, x - 1, y - 1, 3, h + 2);
+  claimFramebufferRect3D(luaDisplay, x + w - 2, y - 1, 3, h + 2);
   luaDisplay->drawRect(x, y, w, h, color);
   return 0;
 }
@@ -578,6 +614,7 @@ static int lua_wrapper_fillRect(lua_State* luaState) {
   int16_t w = luaL_checknumber(luaState, 3);
   int16_t h = luaL_checknumber(luaState, 4);
   uint16_t color = luaL_checknumber(luaState, 5);
+  claimFramebufferRect3D(luaDisplay, x, y, w, h);
   luaDisplay->fillRect(x, y, w, h, color);
   return 0;
 }
@@ -588,6 +625,7 @@ static int lua_wrapper_drawCircle(lua_State* luaState) {
   int16_t y = luaL_checknumber(luaState, 2);
   int16_t r = luaL_checknumber(luaState, 3);
   uint16_t color = luaL_checknumber(luaState, 4);
+  claimFramebufferRect3D(luaDisplay, x - r - 1, y - r - 1, 2 * r + 3, 2 * r + 3);
   luaDisplay->drawCircle(x, y, r, color);
   return 0;
 }
@@ -598,6 +636,7 @@ static int lua_wrapper_fillCircle(lua_State* luaState) {
   int16_t y = luaL_checknumber(luaState, 2);
   int16_t r = luaL_checknumber(luaState, 3);
   uint16_t color = luaL_checknumber(luaState, 4);
+  claimFramebufferRect3D(luaDisplay, x - r - 1, y - r - 1, 2 * r + 3, 2 * r + 3);
   luaDisplay->fillCircle(x, y, r, color);
   return 0;
 }
@@ -609,6 +648,9 @@ static int lua_wrapper_drawLine(lua_State* luaState) {
   int16_t x1 = luaL_checknumber(luaState, 3);
   int16_t y1 = luaL_checknumber(luaState, 4);
   uint16_t color = luaL_checknumber(luaState, 5);
+  int16_t rx0 = x0 < x1 ? x0 : x1, rx1 = x0 < x1 ? x1 : x0;
+  int16_t ry0 = y0 < y1 ? y0 : y1, ry1 = y0 < y1 ? y1 : y0;
+  claimFramebufferRect3D(luaDisplay, rx0 - 1, ry0 - 1, rx1 - rx0 + 2, ry1 - ry0 + 2);
   luaDisplay->drawLine(x0, y0, x1, y1, color);
   return 0;
 }
@@ -619,6 +661,7 @@ static int lua_wrapper_drawFastHLine(lua_State* luaState) {
   int16_t y = luaL_checknumber(luaState, 2);
   int16_t w = luaL_checknumber(luaState, 3);
   uint16_t color = luaL_checknumber(luaState, 4);
+  claimFramebufferRect3D(luaDisplay, x - 1, y - 1, w + 2, 3);
   luaDisplay->drawFastHLine(x, y, w, color);
   return 0;
 }
@@ -629,6 +672,7 @@ static int lua_wrapper_drawFastVLine(lua_State* luaState) {
   int16_t y = luaL_checknumber(luaState, 2);
   int16_t h = luaL_checknumber(luaState, 3);
   uint16_t color = luaL_checknumber(luaState, 4);
+  claimFramebufferRect3D(luaDisplay, x - 1, y - 1, 3, h + 2);
   luaDisplay->drawFastVLine(x, y, h, color);
   return 0;
 }
@@ -636,7 +680,7 @@ static int lua_wrapper_drawFastVLine(lua_State* luaState) {
 static int lua_wrapper_fillSprite(lua_State* luaState) {
   barrierWorld3DFill3D();
   uint16_t color = luaL_checknumber(luaState, 1);
-  luaDisplay->fillScreen(color);
+  if (!fillFramebufferMasked3D(luaDisplay, color)) luaDisplay->fillScreen(color);
   return 0;
 }
 
@@ -665,11 +709,24 @@ static int lua_wrapper_setCursor(lua_State* luaState) {
   return 0;
 }
 
+static void claimPrintRect(DISPLAY_T* d, const String& s) {
+  if (!world3DMaskMode3D(d)) return;
+  int16_t x = d->getCursorX();
+  int16_t y = d->getCursorY();
+  claimTextRect3D(d, s.c_str(), x, y);
+  int32_t tw = d->textWidth(s.c_str());
+  if (tw <= 0) tw = (int32_t)s.length() * (d->textsize * 6 + 1);
+  if (x + tw > d->width()) { // wrapped remainder paints the next line
+    claimFramebufferRect3D(d, 0, y, d->width(), d->fontHeight() * 2 + 2);
+  }
+}
+
 static int lua_wrapper_print(lua_State* luaState) {
   barrierWorld3DFill3D();
   String s = luaL_checkstring(luaState, 1);
   s.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
                        // unicode table, so ¶ is used as a stand-in for € to save space.
+  claimPrintRect(luaDisplay, s);
   luaDisplay->print(s);
   return 0;
 }
@@ -679,6 +736,7 @@ static int lua_wrapper_println(lua_State* luaState) {
   String s = luaL_checkstring(luaState, 1);
   s.replace("€", "¶"); // Substitute € for ¶, because the € sign is very far down the
                        // unicode table, so ¶ is used as a stand-in for € to save space.
+  claimPrintRect(luaDisplay, s);
   luaDisplay->println(s);
   return 0;
 }
@@ -1188,6 +1246,15 @@ static int lua_wrapper_drawWorld(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_setViewport(lua_State* luaState) {
+  int32_t x = luaL_checkinteger(luaState, 1);
+  int32_t y = luaL_checkinteger(luaState, 2);
+  int32_t w = luaL_checkinteger(luaState, 3);
+  int32_t h = luaL_checkinteger(luaState, 4);
+  setWorld3DViewport3D(x, y, w, h);
+  return 0;
+}
+
 static int lua_wrapper_freeAll3D(lua_State* luaState) {
   quiesceWorld3DBlit3D();
   resetWorld3D();
@@ -1328,6 +1395,7 @@ void initLua() {
   lua_register(luaState, "SetLightCone", (lua_CFunction) &lua_wrapper_setLightCone);
   lua_register(luaState, "UpdateWorld", (lua_CFunction) &lua_wrapper_updateWorld);
   lua_register(luaState, "DrawWorld", (lua_CFunction) &lua_wrapper_drawWorld);
+  lua_register(luaState, "SetViewport", (lua_CFunction) &lua_wrapper_setViewport);
   lua_register(luaState, "FreeAll3D", (lua_CFunction) &lua_wrapper_freeAll3D);
   lua_pushinteger(luaState, LIGHT3D_TYPE_POINT);
   lua_setglobal(luaState, "POINTLIGHT");
@@ -1343,6 +1411,9 @@ void initGames_lua(String gamePath, GameConfig* pGameConfig, String* errorMessag
   readGameConfig(gamePath, &gameConfig, errorMessage);
   setWorld3DDebug3D(systemConfig.debugLogRender3D);
   setWorld3DPipeline3D(systemConfig.renderPipeline3D);
+  // Games default to the area not covered by system UI and the pressure/time
+  // bars; a game can change it with SetViewport(x, y, w, h).
+  setWorld3DViewport3D(0, 21, SCREEN_WIDTH, SCREEN_HEIGHT - 72);
   initLua();
   String variablesString = "Ms="+String(millis())+"\n"+\
                     "LeftHandedMode="+String(systemConfig.leftHandMode ? "true\n" : "false\n");

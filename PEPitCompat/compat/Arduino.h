@@ -352,11 +352,14 @@ long random(long min, long max);
 // ============================================================
 
 #define MALLOC_CAP_SPIRAM 0
+#define MALLOC_CAP_INTERNAL 0
+#define MALLOC_CAP_8BIT 0
 #define MALLOC_CAP_DMA 0
 #define MALLOC_CAP_DEFAULT 0
 
 inline void* heap_caps_malloc(size_t size, int caps) { return malloc(size); }
 inline void* heap_caps_realloc(void* ptr, size_t size, int caps) { return realloc(ptr, size); }
+inline void heap_caps_free(void* ptr) { free(ptr); }
 
 // ============================================================
 // ESP32 Attributes (no-op on Linux)

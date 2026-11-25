@@ -13,6 +13,7 @@
 #include "systemStateHandler.h"
 #include "hardware/wifiHandler.h"
 #include "joystickHandler.h"
+#include "hardware/engine3d.hpp"
 
 #define GFXFF 1
 #define MYFONT5x7 &Font5x7Fixed
@@ -725,6 +726,7 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
 }
 
 static void drawProgressBarCommon(DISPLAY_T* display, uint16_t percent, uint16_t greenOffset, int16_t x, int16_t y, int16_t w, int16_t h) {
+  claimFramebufferRect3D(display, x - 1, y - 1, w + 2, h + 2);
   display->drawRect(x, y, w, h, TFT_WHITE);
 
   uint16_t fillWidth = (w * percent) / 100;
@@ -778,6 +780,7 @@ void printShaded(DISPLAY_T* display, String text, uint8_t shadeStrength, uint16_
 void printShaded(DISPLAY_T* display, String text, uint8_t shadeStrength, uint16_t textColor, uint16_t shadeColor) {
   int16_t x = display->getCursorX();
   int16_t y = display->getCursorY();
+  claimTextRect3D(display, text.c_str(), x, y);
   display->setTextColor(shadeColor);
   for (int16_t xOffset = -(int8_t)shadeStrength; xOffset<=shadeStrength; xOffset+=2) {
     for (int16_t yOffset = -(int8_t)shadeStrength; yOffset<=shadeStrength; yOffset+=2) {
@@ -1161,6 +1164,7 @@ static void initSystemStatsSprites() {
 // Draws battery icon, battery voltage, FPS
 void drawSystemStats() {
   initSystemStatsSprites();
+  claimFramebufferRect3D(&spr, 0, 0, 120, 26); // battery/wifi icons and the stat texts
   static int32_t lowBatteryCount = -1;
   static uint32_t lowBatteryWarningCount = 0;
   static uint32_t lastMs = millis();
@@ -1181,6 +1185,7 @@ void drawSystemStats() {
     lowBatteryWarningCount = 0;
   }
   if (lowBatteryWarningCount>100 && batteryVoltage<BATTERY_LOW_WARNING_VOLTAGE && (ms/1000)&0x01) {
+    claimFramebufferRect3D(&spr, 143, 109, 50, 50);
     systemStatsSprites[0].pushToSprite(&spr, 144, 110, 0x0000);
   }
   if (batteryVoltage<BATTERY_LOW_SHUTDOWN_VOLTAGE) {

@@ -278,8 +278,10 @@ static void drawInhaleExhaleIcons(BlowData* blowData) {
     loadBmp(&exhaleIcon, EXHALE_ICON_PATH);
   }
   if (blowData->negativePressure) {
+    claimFramebufferRect3D(&spr, PRESSURE_BAR_X + PRESSURE_BAR_WIDTH - 33, PRESSURE_BAR_Y - 33, 34, 34);
     inhaleIcon.pushToSprite(&spr, PRESSURE_BAR_X + PRESSURE_BAR_WIDTH - 32, PRESSURE_BAR_Y - 32, 0xf81f);
   } else {
+    claimFramebufferRect3D(&spr, PRESSURE_BAR_X + PRESSURE_BAR_WIDTH - 33, PRESSURE_BAR_Y - 33, 34, 34);
     exhaleIcon.pushToSprite(&spr, PRESSURE_BAR_X + PRESSURE_BAR_WIDTH - 32, PRESSURE_BAR_Y - 32, 0xf81f);
   }
 }
@@ -318,6 +320,7 @@ static void drawPEPDisplay() {
   if (blowData.taskType == PROFILE_TASK_TYPE_INHALATIONPEP) {
     drawInhaleExhaleIcons(&blowData);
     if (blowData.blowCount >= blowData.totalBlowCount) {
+      claimFramebufferRect3D(&spr, 239, 209, 82, 32);
       spr.fillRect(240, 210, 80, 30, TFT_BLUE);
       spr.drawString("Fertig", 255, 220);
     }
@@ -334,12 +337,14 @@ static void drawTrampolineDisplay() {
   checkFailWithMessage(errorMessage);
   barrierWorld3DFill3D(); // HUD writes below target the same buffer
   if (jumpData.msLeft > 0) {
+    claimFramebufferRect3D(&spr, PRESSURE_BAR_X - 1, PRESSURE_BAR_Y - 15, PRESSURE_BAR_WIDTH + 2, 15); // count text above the bar
     drawProgressBar(&spr, (100L*(jumpData.totalTime-jumpData.msLeft))/jumpData.totalTime, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
     spr.setTextSize(2);
     spr.drawString(String(jumpData.jumpCount) + "/" + String(jumpData.highscore), PRESSURE_BAR_X + 20, PRESSURE_BAR_Y - 14);
     spr.setCursor(100, 5);
     spr.setTextSize(3);
     int32_t secondsLeft = _max(0, jumpData.msLeft/1000);
+    claimFramebufferRect3D(&spr, 99, 4, 102, 26); // mm:ss timer at top center
     spr.print(secondsLeft / 60);
     spr.print(":");
     if ((secondsLeft % 60) < 10) {
