@@ -1383,7 +1383,6 @@ static SemaphoreHandle_t w3dPushReady3D = nullptr;
 static SemaphoreHandle_t w3dPushDone3D = nullptr;
 static TaskHandle_t w3dPushTask3DHandle = nullptr;
 static bool w3dPushPending3D = false;
-static bool w3dDrawn3D = false;      // drawWorld3D put triangles in the draw list
 static uint16_t* w3dPushNew3D = nullptr; // buffer holding the frame to display
 static uint16_t* w3dPushOld3D = nullptr; // buffer matching what the TFT shows
 static int16_t w3dPushW3D = 0, w3dPushH3D = 0;
@@ -1424,16 +1423,19 @@ void quiesceWorld3DBlit3D() {
   }
 }
 
-// End-of-frame display push: pipelined for frames that drew 3D into a
-// double-buffered sprite, the plain sprite push otherwise. Reports the frame
-// to the perf counters when debug logging is on, including the blit time the
-// push task measured (or the synchronous push time).
+// End-of-frame display push for full-screen game loops: pipelined whenever
+// the display sprite is double-buffered, the plain synchronous sprite push
+// otherwise. Reports the frame to the perf counters when debug logging is
+// on, including the blit time the push task measured (or the synchronous
+// push time). TFT_eSPI::pushImageFast holds a bus mutex, so a synchronous
+// push from another context waits for an in-flight pipelined push instead of
+// interleaving with it.
 void blitWorld3DFrame3D(DISPLAY_T* display) {
   if (!display || !display->created()) return;
   int64_t perfT0 = perf3DEnabled ? esp_timer_get_time() : 0;
   bool pipelined = false;
   int8_t drawn = display->frameBufferId();
-  if (drawn && w3dDrawn3D && w3dPipelineReady3D()) {
+  if (drawn && w3dPipelineReady3D()) {
     if (w3dPushPending3D) xSemaphoreTake(w3dPushDone3D, portMAX_DELAY);
     int8_t shown = drawn == 2 ? 1 : 2;
     w3dPushNew3D = (uint16_t*)display->frameBuffer(drawn);
@@ -2065,7 +2067,6 @@ void drawWorld3D(DISPLAY_T* display) {
     Serial.println("engine3d: display sprite has no pixel buffer!");
     return;
   }
-  w3dDrawn3D = drawCount3D > 0;
   for (int32_t bucket = BUCKET3D_COUNT - 1; bucket >= 0; bucket--) {
     int16_t idx = bucketHeads3D[bucket];
     while (idx >= 0) {

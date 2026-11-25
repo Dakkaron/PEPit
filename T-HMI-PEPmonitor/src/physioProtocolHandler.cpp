@@ -344,7 +344,7 @@ static void drawTrampolineDisplay() {
     spr.print(secondsLeft % 60);
   }
   doSystemTasks();
-  spr.pushSpriteFast(0, 0);
+  blitWorld3DFrame3D(&spr);
 }
 
 static void handleLogExecutions() {
