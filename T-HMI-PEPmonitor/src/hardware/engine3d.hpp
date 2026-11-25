@@ -80,6 +80,9 @@ typedef struct {
   int32_t updateUs;      // microseconds spent transforming/lighting/sorting last frame
   int32_t drawUs;        // microseconds spent rasterizing last frame
   int32_t pushUs;        // microseconds spent pushing the frame buffer to the TFT
+  int32_t xfUs;          // updateUs breakdown: vertex transform + projection + lighting
+  int32_t faceUs;        // updateUs breakdown: face cull/clip/draw-list submit
+  int32_t bucketUs;      // updateUs breakdown: depth bucket sort
   uint32_t vertsTransformed;
   uint32_t trisSubmitted;
   uint32_t trisClipped;

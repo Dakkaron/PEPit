@@ -54,7 +54,6 @@ typedef struct {
   float boundsRadius;
   // Per-frame scratch buffers, sized to vertexCount
   float* viewPos;   // 3 floats per vertex
-  float* viewNrm;   // 3 floats per vertex
   float* invViewZ;  // 1/viewZ per vertex, reused by the face loop and the rasterizer
   int32_t* scrX;    // Q8 projection for vertices in front of the near plane
   int32_t* scrY;
@@ -278,7 +277,6 @@ static void freeMeshArrays3D(Mesh3D* m) {
   if (m->uvQ) free(m->uvQ);
   if (m->faces) free(m->faces);
   if (m->viewPos) free(m->viewPos);
-  if (m->viewNrm) free(m->viewNrm);
   if (m->invViewZ) free(m->invViewZ);
   if (m->scrX) free(m->scrX);
   if (m->scrY) free(m->scrY);
@@ -361,12 +359,11 @@ static bool buildMeshScratch3D(Mesh3D* m) {
   }
   m->boundsRadius = sqrtf(radius);
   m->viewPos = (float*)heap_caps_malloc(sizeof(float) * 3 * vc, MALLOC_CAP_SPIRAM);
-  m->viewNrm = (float*)heap_caps_malloc(sizeof(float) * 3 * vc, MALLOC_CAP_SPIRAM);
   m->invViewZ = (float*)heap_caps_malloc(sizeof(float) * vc, MALLOC_CAP_SPIRAM);
   m->scrX = (int32_t*)heap_caps_malloc(sizeof(int32_t) * vc, MALLOC_CAP_SPIRAM);
   m->scrY = (int32_t*)heap_caps_malloc(sizeof(int32_t) * vc, MALLOC_CAP_SPIRAM);
   m->scrColor = (uint32_t*)heap_caps_malloc(sizeof(uint32_t) * vc, MALLOC_CAP_SPIRAM);
-  if (!m->viewPos || !m->viewNrm || !m->invViewZ || !m->scrX || !m->scrY || !m->scrColor) return false;
+  if (!m->viewPos || !m->invViewZ || !m->scrX || !m->scrY || !m->scrColor) return false;
   return true;
 }
 // ---------------------------------------------------------------------------
@@ -1341,6 +1338,7 @@ void resetWorld3DPerf3D() {
 void reportWorld3DFrame3D(int32_t pushUs) {
   if (!perf3DEnabled) return;
   perf3D.frames++;
+  perf3D.pushUs += pushUs;
   uint32_t now = millis();
   if (perf3DReportMs3D == 0) { perf3DReportMs3D = now + 1000; return; }
   if (now < perf3DReportMs3D) return;
@@ -1348,6 +1346,9 @@ void reportWorld3DFrame3D(int32_t pushUs) {
   d.updateUs -= perf3DReportBase3D.updateUs;
   d.drawUs -= perf3DReportBase3D.drawUs;
   d.pushUs -= perf3DReportBase3D.pushUs;
+  d.xfUs -= perf3DReportBase3D.xfUs;
+  d.faceUs -= perf3DReportBase3D.faceUs;
+  d.bucketUs -= perf3DReportBase3D.bucketUs;
   d.vertsTransformed -= perf3DReportBase3D.vertsTransformed;
   d.trisSubmitted -= perf3DReportBase3D.trisSubmitted;
   d.trisClipped -= perf3DReportBase3D.trisClipped;
@@ -1358,8 +1359,10 @@ void reportWorld3DFrame3D(int32_t pushUs) {
   double f = d.frames ? (double)d.frames : 1.0;
   double windowMs = (double)(now - perf3DReportMs3D + 1000) / 1000.0;
   Serial.printf("engine3d perf: %.1f fps  update=%.2fms  draw=%.2fms  blit=%.2fms"
-                "  verts=%.0f  tris=%.0f  clipped=%.0f  spans=%.0f  px=%.0f (per frame)\n",
+                "  update parts: xf=%.2f face=%.2f bucket=%.2f\n",
                 f / windowMs, d.updateUs / 1000.0 / f, d.drawUs / 1000.0 / f, d.pushUs / 1000.0 / f,
+                d.xfUs / 1000.0 / f, d.faceUs / 1000.0 / f, d.bucketUs / 1000.0 / f);
+  Serial.printf("engine3d perf: verts=%.0f  tris=%.0f  clipped=%.0f  spans=%.0f  px=%.0f (per frame)\n",
                 d.vertsTransformed / f, d.trisSubmitted / f, d.trisClipped / f, d.spans / f, d.pixels / f);
   perf3DReportMs3D = now + 1000;
 }
@@ -1367,6 +1370,7 @@ void reportWorld3DFrame3D(int32_t pushUs) {
 void updateWorld3D(DISPLAY_T* display) {
   if (!ensureWorld3D()) return;
   int64_t perfT0 = perf3DEnabled ? esp_timer_get_time() : 0;
+  int64_t perfSub3D = perfT0;
   drawCount3D = 0;
   if (!display || !display->created()) {
     Serial.println("engine3d: updateWorld called with an invalid display!");
@@ -1454,7 +1458,21 @@ void updateWorld3D(DISPLAY_T* display) {
       if (fabsf(ccy) > (ccz - boundsRadius) * tanHalfY + boundsRadius) continue;
     }
 
-    // Transform all vertices to view space and project those in front of the near plane
+    uint32_t baseR = ((uint32_t)e->color[0] * mesh->color[0] + 128) / 255;
+    uint32_t baseG = ((uint32_t)e->color[1] * mesh->color[1] + 128) / 255;
+    uint32_t baseB = ((uint32_t)e->color[2] * mesh->color[2] + 128) / 255;
+    uint32_t uniformR = clamp3DI((int32_t)(ambient3D[0] * baseR + 0.5f), 0, 255);
+    uint32_t uniformG = clamp3DI((int32_t)(ambient3D[1] * baseG + 0.5f), 0, 255);
+    uint32_t uniformB = clamp3DI((int32_t)(ambient3D[2] * baseB + 0.5f), 0, 255);
+    uint32_t uniformColor = (uniformR << 16) | (uniformG << 8) | uniformB;
+
+    /*
+     * One fused pass transforms, projects and lights each vertex. These
+     * scratch arrays are PSRAM streams far larger than the ESP32-S3 data
+     * cache, so running the passes as separate loops reloads nearly every
+     * vertex from PSRAM a second time.
+     */
+    if (perf3DEnabled) perfSub3D = esp_timer_get_time();
     for (uint16_t vi = 0; vi < vertexCount; vi++) {
       const Vector3D* p = &mesh->pos[vi];
       float px = p->x * e->sx, py = p->y * e->sy, pz = p->z * e->sz;
@@ -1468,26 +1486,11 @@ void updateWorld3D(DISPLAY_T* display) {
         mesh->invViewZ[vi] = iz;   // the face loop needs the same 1/z for its texture coords
         projectClipPoint3D(vp, projScale * iz, halfW, halfH, &mesh->scrX[vi], &mesh->scrY[vi]);
       }
-    }
-    if (perf3DEnabled) perf3D.vertsTransformed += vertexCount;
-
-    uint32_t baseR = ((uint32_t)e->color[0] * mesh->color[0] + 128) / 255;
-    uint32_t baseG = ((uint32_t)e->color[1] * mesh->color[1] + 128) / 255;
-    uint32_t baseB = ((uint32_t)e->color[2] * mesh->color[2] + 128) / 255;
-    uint32_t uniformR = clamp3DI((int32_t)(ambient3D[0] * baseR + 0.5f), 0, 255);
-    uint32_t uniformG = clamp3DI((int32_t)(ambient3D[1] * baseG + 0.5f), 0, 255);
-    uint32_t uniformB = clamp3DI((int32_t)(ambient3D[2] * baseB + 0.5f), 0, 255);
-    uint32_t uniformColor = (uniformR << 16) | (uniformG << 8) | uniformB;
-
-    if (dynamicLighting) {
-      for (uint16_t vi = 0; vi < vertexCount; vi++) {
+      if (dynamicLighting) {
         const Vector3D* n = &mesh->nrm[vi];
         float nx = c[0]*n->x + c[1]*n->y + c[2]*n->z;
         float ny = c[3]*n->x + c[4]*n->y + c[5]*n->z;
         float nz = c[6]*n->x + c[7]*n->y + c[8]*n->z;
-        float* vn = &mesh->viewNrm[vi*3];
-        vn[0] = nx; vn[1] = ny; vn[2] = nz;
-        const float* vp = &mesh->viewPos[vi*3];
         float lr = ambient3D[0], lg = ambient3D[1], lb = ambient3D[2];
         for (int8_t la = 0; la < activeLightCount; la++) {
           const Light3D* l = &lights3D[activeLights[la]];
@@ -1533,7 +1536,11 @@ void updateWorld3D(DISPLAY_T* display) {
         mesh->scrColor[vi] = (cr << 16) | (cg << 8) | cb;
       }
     }
-
+    if (perf3DEnabled) {
+      perf3D.vertsTransformed += vertexCount;
+      perf3D.xfUs += (int32_t)(esp_timer_get_time() - perfSub3D);
+      perfSub3D = esp_timer_get_time();
+    }
     const int32_t* uvQ = mesh->uvQ;
     const Texture3D* tex = nullptr;
     if (mesh->textureHandle >= 0 && mesh->textureHandle < TEXTURE3D_LIMIT &&
@@ -1623,6 +1630,7 @@ void updateWorld3D(DISPLAY_T* display) {
       }
       drawCount3D++;
     }
+    if (perf3DEnabled) { perf3D.faceUs += (int32_t)(esp_timer_get_time() - perfSub3D); perfSub3D = esp_timer_get_time(); }
   }
 
   float span = zHi - zLo;
@@ -1636,7 +1644,11 @@ void updateWorld3D(DISPLAY_T* display) {
     d->next = bucketHeads3D[bucket];
     bucketHeads3D[bucket] = (int16_t)i;
   }
-  if (perf3DEnabled) perf3D.updateUs += (int32_t)(esp_timer_get_time() - perfT0);
+  if (perf3DEnabled) {
+    int64_t perfT1 = esp_timer_get_time();
+    perf3D.bucketUs += (int32_t)(perfT1 - perfSub3D);
+    perf3D.updateUs += (int32_t)(perfT1 - perfT0);
+  }
 }
 // ---------------------------------------------------------------------------
 // Rasterizer: integer span filling with Gouraud shading (screen-space) and

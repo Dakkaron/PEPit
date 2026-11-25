@@ -125,8 +125,9 @@ TEST_CASE("engine3d perf: 3ddemo scene phase timings", "[perf][.disabled]") {
     printf("  host wall time  update=%.3f ms  draw=%.3f ms  total=%.3f ms  -> %.1f fps\n",
            updateMs / frames, drawMs / frames, (updateMs + drawMs) / frames,
            1000.0 * frames / (updateMs + drawMs));
-    printf("  engine timing   update=%.3f ms  draw=%.3f ms\n",
-           perf.updateUs / 1000.0 / frames, perf.drawUs / 1000.0 / frames);
+    printf("  engine timing   update=%.3f ms (xf=%.3f face=%.3f bucket=%.3f)  draw=%.3f ms\n",
+           perf.updateUs / 1000.0 / frames, perf.xfUs / 1000.0 / frames,
+           perf.faceUs / 1000.0 / frames, perf.bucketUs / 1000.0 / frames, perf.drawUs / 1000.0 / frames);
     printf("  workload        verts=%.0f  tris=%.0f  clipped=%.0f  spans=%.0f  px=%.0f (per frame)\n",
            perf.vertsTransformed / frames, perf.trisSubmitted / frames, perf.trisClipped / frames,
            perf.spans / frames, perf.pixels / frames);
@@ -135,6 +136,10 @@ TEST_CASE("engine3d perf: 3ddemo scene phase timings", "[perf][.disabled]") {
 
     CHECK(lit > 3000);
     CHECK(perf.frames == (uint32_t)FRAMES);
+    int64_t partsUs = (int64_t)perf.xfUs + perf.faceUs + perf.bucketUs;
+    // sub-phase timers must partition updateUs (plus timer-call slack)
+    CHECK(partsUs <= (int64_t)perf.updateUs + 5 * FRAMES * 1000);
+    CHECK(partsUs >= 0);
     CHECK(perf.trisSubmitted > 1000);
     CHECK(perf.spans > perf.trisSubmitted);      // every triangle covers several scanlines
     CHECK(perf.pixels > perf.spans);             // every span covers several pixels
