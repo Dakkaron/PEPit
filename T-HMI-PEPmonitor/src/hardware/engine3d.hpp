@@ -75,4 +75,23 @@ void updateWorld3D(DISPLAY_T* display);
 // ...and rasterizes it with Gouraud shading and optional affine texture mapping
 void drawWorld3D(DISPLAY_T* display);
 
+// Perf instrumentation for the render pipeline (see updateWorld3D/drawWorld3D)
+typedef struct {
+  int32_t updateUs;      // microseconds spent transforming/lighting/sorting last frame
+  int32_t drawUs;        // microseconds spent rasterizing last frame
+  int32_t pushUs;        // microseconds spent pushing the frame buffer to the TFT
+  uint32_t vertsTransformed;
+  uint32_t trisSubmitted;
+  uint32_t trisClipped;
+  uint32_t spans;        // scanline spans filled
+  uint32_t pixels;       // pixels written by the rasterizer
+  uint32_t frames;       // frames reported since the last reset
+} World3DPerf3D;
+
+void setWorld3DDebug3D(bool enabled);
+void getWorld3DPerf3D(World3DPerf3D* out);
+void resetWorld3DPerf3D();
+// Call once per rendered frame with the time the display push took, in microseconds
+void reportWorld3DFrame3D(int32_t pushUs);
+
 #endif /*__ENGINE3D_H__*/

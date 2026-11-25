@@ -16,6 +16,7 @@ struct SystemConfig {
   bool simulateInhalation;
   bool debugLogBlowPressure;
   bool debugLogTrampoline;
+  bool debugLogRender3D;
   bool logExecutions;
   int32_t timezoneOffset;
   bool leftHandMode;

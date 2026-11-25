@@ -1,6 +1,7 @@
 #include "engine3d.hpp"
 #include "hardware/sdHandler.h"
 #include <esp_heap_caps.h>
+#include <esp_timer.h>
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -54,6 +55,7 @@ typedef struct {
   // Per-frame scratch buffers, sized to vertexCount
   float* viewPos;   // 3 floats per vertex
   float* viewNrm;   // 3 floats per vertex
+  float* invViewZ;  // 1/viewZ per vertex, reused by the face loop and the rasterizer
   int32_t* scrX;    // Q8 projection for vertices in front of the near plane
   int32_t* scrY;
   uint32_t* scrColor; // Gouraud color per vertex, 0x00RRGGBB
@@ -132,6 +134,14 @@ static bool implicitCamera3D = false;
 
 static uint16_t* fb3D = nullptr;
 static int32_t fbW3D = 0, fbH3D = 0;
+
+// Phase timings and workload counters. They only cost anything while the
+// debugLogRender3D system config flag turns them on; the game loop reports the
+// frame through reportWorld3DFrame3D() once the sprite has been pushed.
+static bool perf3DEnabled = false;
+static World3DPerf3D perf3D = {};
+static World3DPerf3D perf3DReportBase3D = {};
+static uint32_t perf3DReportMs3D = 0;
 
 static void setupDefaultCamera3D() {
   memset(cameras3D, 0, sizeof(cameras3D));
@@ -222,6 +232,46 @@ static inline int32_t clamp3DI(int32_t v, int32_t lo, int32_t hi) {
   return v;
 }
 
+/*
+ * The ESP32-S3 FPU runs add/sub/mul but has no divide or square root instruction,
+ * so 1.0f/x and sqrtf() compile to library calls (__divsf3 and sqrtf relocations
+ * are visible in this file's own firmware object). Those calls dominated the hot
+ * loops, hence the bit-hack seed plus Newton iterations below: the hot path stays
+ * entirely in FPU instructions (wfr + mul.s/msub.s in the firmware disassembly).
+ * The bit view uses a union pun because the memcpy idiom is not equivalent on this
+ * target — the Xtensa -Os compiler emits real memcpy calls for it. Measured
+ * worst-case relative error over 0.001..3000 is
+ * 1.6e-6 for the reciprocal and 4.7e-6 for the reciprocal square root, i.e. under
+ * 0.001 px of screen movement and under 0.01 texels — below RGB565 resolution.
+ */
+union FloatBits32 { float f; uint32_t u; };
+
+static inline float fastRecip3D(float x) {
+  FloatBits32 b;
+  b.f = x;
+  uint32_t exponent = (b.u >> 23) & 0xFF;
+  if (exponent == 0 || exponent >= 254) return 1.0f / x; // zero, denormal, inf, nan
+  b.u = 0x7ED00000u - b.u;
+  float y = b.f;
+  y *= 2.0f - x * y;
+  y *= 2.0f - x * y;
+  y *= 2.0f - x * y;
+  return y;
+}
+
+static inline float fastInvSqrt3D(float x) {
+  FloatBits32 b;
+  b.f = x;
+  uint32_t exponent = (b.u >> 23) & 0xFF;
+  if (exponent == 0 || exponent >= 254) return 1.0f / sqrtf(x);
+  b.u = 0x5F3759DFu - (b.u >> 1);
+  float y = b.f;
+  float half = 0.5f * x;
+  y *= 1.5f - half * y * y;
+  y *= 1.5f - half * y * y;
+  return y;
+}
+
 static void freeMeshArrays3D(Mesh3D* m) {
   if (m->pos) free(m->pos);
   if (m->nrm) free(m->nrm);
@@ -229,6 +279,7 @@ static void freeMeshArrays3D(Mesh3D* m) {
   if (m->faces) free(m->faces);
   if (m->viewPos) free(m->viewPos);
   if (m->viewNrm) free(m->viewNrm);
+  if (m->invViewZ) free(m->invViewZ);
   if (m->scrX) free(m->scrX);
   if (m->scrY) free(m->scrY);
   if (m->scrColor) free(m->scrColor);
@@ -311,10 +362,11 @@ static bool buildMeshScratch3D(Mesh3D* m) {
   m->boundsRadius = sqrtf(radius);
   m->viewPos = (float*)heap_caps_malloc(sizeof(float) * 3 * vc, MALLOC_CAP_SPIRAM);
   m->viewNrm = (float*)heap_caps_malloc(sizeof(float) * 3 * vc, MALLOC_CAP_SPIRAM);
+  m->invViewZ = (float*)heap_caps_malloc(sizeof(float) * vc, MALLOC_CAP_SPIRAM);
   m->scrX = (int32_t*)heap_caps_malloc(sizeof(int32_t) * vc, MALLOC_CAP_SPIRAM);
   m->scrY = (int32_t*)heap_caps_malloc(sizeof(int32_t) * vc, MALLOC_CAP_SPIRAM);
   m->scrColor = (uint32_t*)heap_caps_malloc(sizeof(uint32_t) * vc, MALLOC_CAP_SPIRAM);
-  if (!m->viewPos || !m->viewNrm || !m->scrX || !m->scrY || !m->scrColor) return false;
+  if (!m->viewPos || !m->viewNrm || !m->invViewZ || !m->scrX || !m->scrY || !m->scrColor) return false;
   return true;
 }
 // ---------------------------------------------------------------------------
@@ -1239,7 +1291,7 @@ static uint8_t clipTriangleNear3D(float nearPlane,
     }
     if (inA != inB && outCount < 4) {
       float denom = pos[b][2] - pos[a][2];
-      float t = (denom == 0.0f) ? 0.0f : (nearPlane - pos[a][2]) / denom;
+      float t = (denom == 0.0f) ? 0.0f : (nearPlane - pos[a][2]) * fastRecip3D(denom);
       outPos[outCount][0] = pos[a][0] + (pos[b][0] - pos[a][0]) * t;
       outPos[outCount][1] = pos[a][1] + (pos[b][1] - pos[a][1]) * t;
       outPos[outCount][2] = nearPlane;
@@ -1252,13 +1304,13 @@ static uint8_t clipTriangleNear3D(float nearPlane,
   return outCount;
 }
 
-static void projectClipPoint3D(const float* viewPos, float projScale, float halfW, float halfH,
+// scale carries projScale * (1/viewZ): the divide is hoisted to the callers, which
+// need 1/z for their texture coordinates anyway. Callers only project vertices at
+// or beyond the near plane, so scale is always finite.
+static void projectClipPoint3D(const float* viewPos, float scale, float halfW, float halfH,
     int32_t* outX, int32_t* outY) {
-  float z = viewPos[2];
-  if (z < 0.001f) z = 0.001f;
-  float s = projScale / z;
-  float sxf = halfW + viewPos[0] * s;
-  float syf = halfH - viewPos[1] * s;
+  float sxf = halfW + viewPos[0] * scale;
+  float syf = halfH - viewPos[1] * scale;
   if (sxf > 1024.0f) sxf = 1024.0f;
   else if (sxf < -1024.0f) sxf = -1024.0f;
   if (syf > 1024.0f) syf = 1024.0f;
@@ -1267,8 +1319,54 @@ static void projectClipPoint3D(const float* viewPos, float projScale, float half
   *outY = (int32_t)(syf * 256.0f);
 }
 
+void setWorld3DDebug3D(bool enabled) {
+  perf3DEnabled = enabled;
+  if (!enabled) return;
+  resetWorld3DPerf3D();
+  perf3DReportBase3D = perf3D;
+  perf3DReportMs3D = millis() + 1000;
+}
+
+void getWorld3DPerf3D(World3DPerf3D* out) {
+  if (out) *out = perf3D;
+}
+
+void resetWorld3DPerf3D() {
+  memset(&perf3D, 0, sizeof(perf3D));
+  perf3DReportBase3D = perf3D;
+  perf3DReportMs3D = 0;
+}
+
+// Prints the averages of the window since the previous report, once per second.
+void reportWorld3DFrame3D(int32_t pushUs) {
+  if (!perf3DEnabled) return;
+  perf3D.frames++;
+  uint32_t now = millis();
+  if (perf3DReportMs3D == 0) { perf3DReportMs3D = now + 1000; return; }
+  if (now < perf3DReportMs3D) return;
+  World3DPerf3D d = perf3D;
+  d.updateUs -= perf3DReportBase3D.updateUs;
+  d.drawUs -= perf3DReportBase3D.drawUs;
+  d.pushUs -= perf3DReportBase3D.pushUs;
+  d.vertsTransformed -= perf3DReportBase3D.vertsTransformed;
+  d.trisSubmitted -= perf3DReportBase3D.trisSubmitted;
+  d.trisClipped -= perf3DReportBase3D.trisClipped;
+  d.spans -= perf3DReportBase3D.spans;
+  d.pixels -= perf3DReportBase3D.pixels;
+  d.frames -= perf3DReportBase3D.frames;
+  perf3DReportBase3D = perf3D;
+  double f = d.frames ? (double)d.frames : 1.0;
+  double windowMs = (double)(now - perf3DReportMs3D + 1000) / 1000.0;
+  Serial.printf("engine3d perf: %.1f fps  update=%.2fms  draw=%.2fms  blit=%.2fms"
+                "  verts=%.0f  tris=%.0f  clipped=%.0f  spans=%.0f  px=%.0f (per frame)\n",
+                f / windowMs, d.updateUs / 1000.0 / f, d.drawUs / 1000.0 / f, d.pushUs / 1000.0 / f,
+                d.vertsTransformed / f, d.trisSubmitted / f, d.trisClipped / f, d.spans / f, d.pixels / f);
+  perf3DReportMs3D = now + 1000;
+}
+
 void updateWorld3D(DISPLAY_T* display) {
   if (!ensureWorld3D()) return;
+  int64_t perfT0 = perf3DEnabled ? esp_timer_get_time() : 0;
   drawCount3D = 0;
   if (!display || !display->created()) {
     Serial.println("engine3d: updateWorld called with an invalid display!");
@@ -1363,11 +1461,15 @@ void updateWorld3D(DISPLAY_T* display) {
       float* vp = &mesh->viewPos[vi*3];
       vp[0] = c[0]*px + c[1]*py + c[2]*pz + tx;
       vp[1] = c[3]*px + c[4]*py + c[5]*pz + ty;
-      vp[2] = c[6]*px + c[7]*py + c[8]*pz + tz;
-      if (vp[2] >= cam->nearPlane) {
-        projectClipPoint3D(vp, projScale, halfW, halfH, &mesh->scrX[vi], &mesh->scrY[vi]);
+      float z = c[6]*px + c[7]*py + c[8]*pz + tz;
+      vp[2] = z;
+      if (z >= cam->nearPlane) {
+        float iz = fastRecip3D(z);
+        mesh->invViewZ[vi] = iz;   // the face loop needs the same 1/z for its texture coords
+        projectClipPoint3D(vp, projScale * iz, halfW, halfH, &mesh->scrX[vi], &mesh->scrY[vi]);
       }
     }
+    if (perf3DEnabled) perf3D.vertsTransformed += vertexCount;
 
     uint32_t baseR = ((uint32_t)e->color[0] * mesh->color[0] + 128) / 255;
     uint32_t baseG = ((uint32_t)e->color[1] * mesh->color[1] + 128) / 255;
@@ -1400,9 +1502,10 @@ void updateWorld3D(DISPLAY_T* display) {
             float ldx = l->vx - vp[0], ldy = l->vy - vp[1], ldz = l->vz - vp[2];
             float d2 = ldx*ldx + ldy*ldy + ldz*ldz;
             if (d2 >= l->rangeSq) continue;
-            float dist = sqrtf(d2);
-            if (dist < 0.001f) dist = 0.001f;
-            float inv = 1.0f / dist;
+            // dist only feeds an 8-bit light term and a cone test, so the approximate
+            // reciprocal square root replaces both a sqrtf() call and a float divide.
+            float inv = (d2 < 1e-6f) ? 1000.0f : fastInvSqrt3D(d2);
+            float dist = d2 * inv;
             float ndl = (nx*ldx + ny*ldy + nz*ldz) * inv;
             if (ndl <= 0.0f) continue;
             float att = 1.0f - dist * l->invRange;
@@ -1475,7 +1578,7 @@ void updateWorld3D(DISPLAY_T* display) {
         d->sx[0] = mesh->scrX[ia]; d->sy[0] = mesh->scrY[ia];
         d->sx[1] = mesh->scrX[ib]; d->sy[1] = mesh->scrY[ib];
         d->sx[2] = mesh->scrX[ic]; d->sy[2] = mesh->scrY[ic];
-        float izA = 1.0f / za, izB = 1.0f / zb, izC = 1.0f / zc;
+        float izA = mesh->invViewZ[ia], izB = mesh->invViewZ[ib], izC = mesh->invViewZ[ic];
         d->ru[0] = uvA0 * izA; d->rv[0] = uvA1 * izA; d->rz[0] = izA;
         d->ru[1] = uvB0 * izB; d->rv[1] = uvB1 * izB; d->rz[1] = izB;
         d->ru[2] = uvC0 * izC; d->rv[2] = uvC1 * izC; d->rz[2] = izC;
@@ -1494,15 +1597,15 @@ void updateWorld3D(DISPLAY_T* display) {
         d->vertexCount = clipCount;
         zAvg = 0.0f;
         for (uint8_t ci = 0; ci < clipCount; ci++) {
-          projectClipPoint3D(clipPos[ci], projScale, halfW, halfH, &d->sx[ci], &d->sy[ci]);
-          float izc = 1.0f / clipPos[ci][2];
+          float izc = fastRecip3D(clipPos[ci][2]);
+          projectClipPoint3D(clipPos[ci], projScale * izc, halfW, halfH, &d->sx[ci], &d->sy[ci]);
           d->ru[ci] = clipU[ci] * izc;
           d->rv[ci] = clipV[ci] * izc;
           d->rz[ci] = izc;
           d->color[ci] = clipCol[ci];
           zAvg += clipPos[ci][2];
         }
-        zAvg /= (float)clipCount;
+        zAvg *= (clipCount == 3) ? 0.3333333f : 0.25f;
       }
       d->tex = tex ? tex->pixels : nullptr;
       d->texW = tex ? tex->w : 0;
@@ -1514,13 +1617,17 @@ void updateWorld3D(DISPLAY_T* display) {
       d->orderOff = e->order;
       if (zAvg < zLo) zLo = zAvg;
       if (zAvg > zHi) zHi = zAvg;
+      if (perf3DEnabled) {
+        perf3D.trisSubmitted++;
+        if (d->vertexCount >= 4) perf3D.trisClipped++;
+      }
       drawCount3D++;
     }
   }
 
   float span = zHi - zLo;
   if (span < 1e-4f) span = 1e-4f;
-  float bucketScale = (float)(BUCKET3D_COUNT - 1) / span;
+  float bucketScale = 4095.0f * fastRecip3D(span);
   for (int32_t i = 0; i < drawCount3D; i++) {
     TriDraw3D* d = &drawList3D[i];
     int32_t bucket = (int32_t)((d->zKey - zLo) * bucketScale) + (int32_t)d->orderOff * 32;
@@ -1529,6 +1636,7 @@ void updateWorld3D(DISPLAY_T* display) {
     d->next = bucketHeads3D[bucket];
     bucketHeads3D[bucket] = (int16_t)i;
   }
+  if (perf3DEnabled) perf3D.updateUs += (int32_t)(esp_timer_get_time() - perfT0);
 }
 // ---------------------------------------------------------------------------
 // Rasterizer: integer span filling with Gouraud shading (screen-space) and
@@ -1644,16 +1752,63 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
   float sAu = 0, sAv = 0, sAw = 0, sBu = 0, sBv = 0, sBw = 0, sCu = 0, sCv = 0, sCw = 0;
   if (wantUV) {
     if (dy02 > 0) {
-      float inv = 256.0f / (float)dy02;
+      float inv = 256.0f * fastRecip3D((float)dy02);
       sAu = (u2 - u0) * inv; sAv = (v2 - v0) * inv; sAw = (w2 - w0) * inv;
     }
     if (dy01 > 0) {
-      float inv = 256.0f / (float)dy01;
+      float inv = 256.0f * fastRecip3D((float)dy01);
       sBu = (u1 - u0) * inv; sBv = (v1 - v0) * inv; sBw = (w1 - w0) * inv;
     }
     if (dy12 > 0) {
-      float inv = 256.0f / (float)dy12;
+      float inv = 256.0f * fastRecip3D((float)dy12);
       sCu = (u2 - u1) * inv; sCv = (v2 - v1) * inv; sCw = (w2 - w1) * inv;
+    }
+  }
+
+  /* Screen-space interpolation is affine, so the step from the left edge of a
+   * span to its right edge is identical on every scanline of one triangle half:
+   * both edges start at the same vertex, so their attribute difference and their
+   * x difference grow with the same factor. Evaluating the ratio once per half
+   * (at a representative scanline, where both are well conditioned) removes the
+   * three colour and three texture divides from every scanline of the frame. */
+  int32_t midUp = (syStart + syMid - 1) >> 1;
+  if (midUp < syStart) midUp = syStart;
+  int32_t midDn = (syMid + syEnd) >> 1;
+  int32_t kUp = midUp - syV0;
+  int32_t kDnA = midDn - syV0;
+  int32_t kDnC = midDn - syV1;
+  int32_t stepUpR = 0, stepUpG = 0, stepUpB = 0, stepDnR = 0, stepDnG = 0, stepDnB = 0;
+  float stepUpU = 0, stepUpV = 0, stepUpW = 0, stepDnU = 0, stepDnV = 0, stepDnW = 0;
+  if (wantColor || wantUV) {
+    int32_t spanUp = (x0 + sAx * kUp) - (x0 + sBx * kUp);
+    if (spanUp != 0) {
+      float invSpan = 256.0f * fastRecip3D((float)spanUp);
+      if (wantColor) {
+        stepUpR = (int32_t)((float)((r0 + sAr * kUp) - (r0 + sBr * kUp)) * invSpan);
+        stepUpG = (int32_t)((float)((g0 + sAg * kUp) - (g0 + sBg * kUp)) * invSpan);
+        stepUpB = (int32_t)((float)((b0 + sAb * kUp) - (b0 + sBb * kUp)) * invSpan);
+      }
+      if (wantUV) {
+        float kUpF = (float)kUp;
+        stepUpU = ((u0 + sAu * kUpF) - (u0 + sBu * kUpF)) * invSpan;
+        stepUpV = ((v0 + sAv * kUpF) - (v0 + sBv * kUpF)) * invSpan;
+        stepUpW = ((w0 + sAw * kUpF) - (w0 + sBw * kUpF)) * invSpan;
+      }
+    }
+    int32_t spanDn = (x0 + sAx * kDnA) - (x1 + sCx * kDnC);
+    if (spanDn != 0) {
+      float invSpan = 256.0f * fastRecip3D((float)spanDn);
+      if (wantColor) {
+        stepDnR = (int32_t)((float)((r0 + sAr * kDnA) - (r1 + sCr * kDnC)) * invSpan);
+        stepDnG = (int32_t)((float)((g0 + sAg * kDnA) - (g1 + sCg * kDnC)) * invSpan);
+        stepDnB = (int32_t)((float)((b0 + sAb * kDnA) - (b1 + sCb * kDnC)) * invSpan);
+      }
+      if (wantUV) {
+        float kDnAF = (float)kDnA, kDnCF = (float)kDnC;
+        stepDnU = ((u0 + sAu * kDnAF) - (u1 + sCu * kDnCF)) * invSpan;
+        stepDnV = ((v0 + sAv * kDnAF) - (v1 + sCv * kDnCF)) * invSpan;
+        stepDnW = ((w0 + sAw * kDnAF) - (w1 + sCw * kDnCF)) * invSpan;
+      }
     }
   }
 
@@ -1688,6 +1843,10 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
     int32_t dist = px0 * 256 - xL;
     if (dist < 0) dist = 0;
     if (span > 0 && dist > span) dist = span;
+    if (perf3DEnabled) {
+      perf3D.spans++;
+      perf3D.pixels += (uint32_t)(px1 - px0 + 1);
+    }
 
     switch (mode) {
       case 0: {
@@ -1699,18 +1858,12 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
         int32_t arB, agB, abB;
         if (lower) { arB = r1 + sCr * kB; agB = g1 + sCg * kB; abB = b1 + sCb * kB; }
         else { arB = r0 + sBr * kB; agB = g0 + sBg * kB; abB = b0 + sBb * kB; }
-        int32_t leftR = bIsLeft ? arB : arA;
-        int32_t leftG = bIsLeft ? agB : agA;
-        int32_t leftB = bIsLeft ? abB : abA;
-        int32_t rightR = bIsLeft ? arA : arB;
-        int32_t rightG = bIsLeft ? agA : agB;
-        int32_t rightB = bIsLeft ? abA : abB;
-        int32_t dR = (span > 0) ? ((rightR - leftR) * 256) / span : 0;
-        int32_t dG = (span > 0) ? ((rightG - leftG) * 256) / span : 0;
-        int32_t dB = (span > 0) ? ((rightB - leftB) * 256) / span : 0;
-        int32_t curR = leftR + ((dR * dist) >> 8);
-        int32_t curG = leftG + ((dG * dist) >> 8);
-        int32_t curB = leftB + ((dB * dist) >> 8);
+        int32_t dR = lower ? stepDnR : stepUpR;
+        int32_t dG = lower ? stepDnG : stepUpG;
+        int32_t dB = lower ? stepDnB : stepUpB;
+        int32_t curR = (bIsLeft ? arB : arA) + ((dR * dist) >> 8);
+        int32_t curG = (bIsLeft ? agB : agA) + ((dG * dist) >> 8);
+        int32_t curB = (bIsLeft ? abB : abA) + ((dB * dist) >> 8);
         for (int32_t x = px0; x <= px1; x++) {
           int32_t r8 = curR >> 8;
           int32_t g8 = curG >> 8;
@@ -1733,15 +1886,13 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
         if (lower) { auB = u1 + sCu * kbF; avB = v1 + sCv * kbF; awB = w1 + sCw * kbF; }
         else { auB = u0 + sBu * kbF; avB = v0 + sBv * kbF; awB = w0 + sBw * kbF; }
         float curUw = bIsLeft ? auB : auA, curVw = bIsLeft ? avB : avA, curW = bIsLeft ? awB : awA;
-        float rightUw = bIsLeft ? auA : auB, rightVw = bIsLeft ? avA : avB, rightW = bIsLeft ? awA : awB;
-        float fspan = (span > 0) ? (float)span : 1.0f;
-        float dUw = (rightUw - curUw) * 256.0f / fspan;
-        float dVw = (rightVw - curVw) * 256.0f / fspan;
-        float dW = (rightW - curW) * 256.0f / fspan;
+        float dUw = lower ? stepDnU : stepUpU;
+        float dVw = lower ? stepDnV : stepUpV;
+        float dW = lower ? stepDnW : stepUpW;
         float distF = (float)dist * 0.00390625f;
         curUw += dUw * distF; curVw += dVw * distF; curW += dW * distF;
         for (int32_t x = px0; x <= px1; x++) {
-          float f = (curW > 1e-12f) ? (1.0f / curW) : 0.0f;
+          float f = (curW > 1e-12f) ? fastRecip3D(curW) : 0.0f;
           uint32_t smp = sampleTexel3D(texPix, texW, texH, texMask, (int32_t)(curUw * f), (int32_t)(curVw * f));
           uint32_t r5 = (((smp >> 11) & 31) * (uint32_t)lightR5) >> 5;
           uint32_t g6 = (((smp >> 5) & 63) * (uint32_t)lightG6) >> 6;
@@ -1762,25 +1913,17 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
         float auB, avB, awB;
         if (lower) { auB = u1 + sCu * kbF; avB = v1 + sCv * kbF; awB = w1 + sCw * kbF; }
         else { auB = u0 + sBu * kbF; avB = v0 + sBv * kbF; awB = w0 + sBw * kbF; }
-        int32_t leftR = bIsLeft ? arB : arA;
-        int32_t leftG = bIsLeft ? agB : agA;
-        int32_t leftB = bIsLeft ? abB : abA;
-        int32_t rightR = bIsLeft ? arA : arB;
-        int32_t rightG = bIsLeft ? agA : agB;
-        int32_t rightB = bIsLeft ? abA : abB;
         float curUw = bIsLeft ? auB : auA, curVw = bIsLeft ? avB : avA, curW = bIsLeft ? awB : awA;
-        float rightUw = bIsLeft ? auA : auB, rightVw = bIsLeft ? avA : avB, rightW = bIsLeft ? awA : awB;
-        int32_t dR = (span > 0) ? ((rightR - leftR) * 256) / span : 0;
-        int32_t dG = (span > 0) ? ((rightG - leftG) * 256) / span : 0;
-        int32_t dB = (span > 0) ? ((rightB - leftB) * 256) / span : 0;
-        float fspan = (span > 0) ? (float)span : 1.0f;
-        float dUw = (rightUw - curUw) * 256.0f / fspan;
-        float dVw = (rightVw - curVw) * 256.0f / fspan;
-        float dW = (rightW - curW) * 256.0f / fspan;
+        int32_t dR = lower ? stepDnR : stepUpR;
+        int32_t dG = lower ? stepDnG : stepUpG;
+        int32_t dB = lower ? stepDnB : stepUpB;
+        float dUw = lower ? stepDnU : stepUpU;
+        float dVw = lower ? stepDnV : stepUpV;
+        float dW = lower ? stepDnW : stepUpW;
         float distF = (float)dist * 0.00390625f;
-        int32_t curR = leftR + ((dR * dist) >> 8);
-        int32_t curG = leftG + ((dG * dist) >> 8);
-        int32_t curB = leftB + ((dB * dist) >> 8);
+        int32_t curR = (bIsLeft ? arB : arA) + ((dR * dist) >> 8);
+        int32_t curG = (bIsLeft ? agB : agA) + ((dG * dist) >> 8);
+        int32_t curB = (bIsLeft ? abB : abA) + ((dB * dist) >> 8);
         curUw += dUw * distF; curVw += dVw * distF; curW += dW * distF;
         for (int32_t x = px0; x <= px1; x++) {
           int32_t r8 = curR >> 8;
@@ -1789,7 +1932,7 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
           if (r8 < 0) r8 = 0; else if (r8 > 255) r8 = 255;
           if (g8 < 0) g8 = 0; else if (g8 > 255) g8 = 255;
           if (b8 < 0) b8 = 0; else if (b8 > 255) b8 = 255;
-          float f = (curW > 1e-12f) ? (1.0f / curW) : 0.0f;
+          float f = (curW > 1e-12f) ? fastRecip3D(curW) : 0.0f;
           uint32_t smp = sampleTexel3D(texPix, texW, texH, texMask, (int32_t)(curUw * f), (int32_t)(curVw * f));
           uint32_t r5 = (((smp >> 11) & 31) * (uint32_t)(r8 >> 3)) >> 5;
           uint32_t g6 = (((smp >> 5) & 63) * (uint32_t)(g8 >> 2)) >> 6;
@@ -1818,6 +1961,7 @@ void drawWorld3D(DISPLAY_T* display) {
     Serial.println("engine3d: drawWorld called with an invalid display!");
     return;
   }
+  int64_t perfT0 = perf3DEnabled ? esp_timer_get_time() : 0;
   fb3D = (uint16_t*)display->getPointer();
   fbW3D = display->width();
   fbH3D = display->height();
@@ -1834,6 +1978,7 @@ void drawWorld3D(DISPLAY_T* display) {
       idx = nextIdx;
     }
   }
+  if (perf3DEnabled) perf3D.drawUs += (int32_t)(esp_timer_get_time() - perfT0);
 }
 
 void initWorld3D() {

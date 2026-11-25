@@ -5,6 +5,8 @@
 #include "hardware/powerHandler.h"
 #include "hardware/touchHandler.h"
 #include "hardware/pressuresensor.h"
+#include "hardware/engine3d.hpp"
+#include <esp_timer.h>
 #include "hardware/serialHandler.h"
 #include "games/games.h"
 #include "constants.h"
@@ -319,7 +321,13 @@ static void drawPEPDisplay() {
   }
 
   doSystemTasks();
-  spr.pushSpriteFast(0, 0);
+  if (systemConfig.debugLogRender3D) {
+    int64_t pushStartUs = esp_timer_get_time();
+    spr.pushSpriteFast(0, 0);
+    reportWorld3DFrame3D((int32_t)(esp_timer_get_time() - pushStartUs));
+  } else {
+    spr.pushSpriteFast(0, 0);
+  }
 }
 
 static void drawTrampolineDisplay() {

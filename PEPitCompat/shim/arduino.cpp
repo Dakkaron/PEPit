@@ -97,6 +97,11 @@ uint32_t millis() {
     );
 }
 
+extern "C" int64_t esp_timer_get_time(void) {
+    auto now = std::chrono::steady_clock::now();
+    return std::chrono::duration_cast<std::chrono::microseconds>(now - bootTime).count();
+}
+
 // Helper: poll SDL events and check for quit conditions (used by delay/vTaskDelay/yield)
 static void pollEventsAndCheckQuit(uint32_t timeoutMs) {
     if (g_requestQuit) return; // Already requested quit
