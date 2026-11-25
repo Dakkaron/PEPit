@@ -139,6 +139,8 @@ TEST_CASE("engine3d perf: 3ddemo scene phase timings", "[perf][.disabled]") {
     CHECK(lit > 3000);
     CHECK(perf.frames == (uint32_t)FRAMES);
     CHECK(perf.pushUs > 0);                    // the pipelined push task measured its runs
+    CHECK(perf.frameUs > 0);                   // frame-to-frame wall time sampled at the blit
+    CHECK(perf.frameUs + 2 * (int64_t)perf.updateUs / FRAMES >= (int64_t)perf.updateUs + perf.drawUs);
     int64_t partsUs = (int64_t)perf.xfUs + perf.faceUs + perf.bucketUs;
     // sub-phase timers must partition updateUs (plus timer-call slack)
     CHECK(partsUs <= (int64_t)perf.updateUs + 5 * FRAMES * 1000);

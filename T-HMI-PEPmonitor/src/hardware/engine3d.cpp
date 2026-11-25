@@ -149,6 +149,7 @@ static bool perf3DEnabled = false;
 static World3DPerf3D perf3D = {};
 static World3DPerf3D perf3DReportBase3D = {};
 static uint32_t perf3DReportMs3D = 0;
+static int64_t w3dPerfFrameT3D = 0;
 
 // Blit mode reported in the perf line ("full" pipelined, "sync" diff push)
 static const char* w3dBlitMode3D = "sync";
@@ -1342,11 +1343,22 @@ void resetWorld3DPerf3D() {
   memset(&perf3D, 0, sizeof(perf3D));
   perf3DReportBase3D = perf3D;
   perf3DReportMs3D = 0;
+  w3dPerfFrameT3D = 0;
+}
+
+// Accumulates externally measured time (pressure sensor reads) into the perf
+// window so the frame budget gap can be attributed.
+void addWorld3DSensorUs3D(int32_t us) {
+  if (!perf3DEnabled) return;
+  perf3D.sensorUs += us;
 }
 
 // Prints the averages of the window since the previous report, once per second.
 void reportWorld3DFrame3D(int32_t pushUs) {
   if (!perf3DEnabled) return;
+  int64_t frameT = esp_timer_get_time();
+  if (w3dPerfFrameT3D) perf3D.frameUs += (int32_t)(frameT - w3dPerfFrameT3D);
+  w3dPerfFrameT3D = frameT;
   perf3D.frames++;
   perf3D.pushUs += pushUs;
   uint32_t now = millis();
@@ -1365,16 +1377,24 @@ void reportWorld3DFrame3D(int32_t pushUs) {
   d.spans -= perf3DReportBase3D.spans;
   d.pixels -= perf3DReportBase3D.pixels;
   d.frames -= perf3DReportBase3D.frames;
+  d.sensorUs -= perf3DReportBase3D.sensorUs;
+  d.frameUs -= perf3DReportBase3D.frameUs;
   perf3DReportBase3D = perf3D;
   double f = d.frames ? (double)d.frames : 1.0;
   double windowMs = (double)(now - perf3DReportMs3D + 1000) / 1000.0;
+  double frameMs = d.frameUs / 1000.0 / f;
+  // "other" is the part of the frame loop the engine timers do not cover:
+  // Lua VM, HUD drawing, sprite fill, sensor reads, doSystemTasks delay.
+  double otherMs = frameMs - d.updateUs / 1000.0 / f - d.drawUs / 1000.0 / f;
+  if (strcmp(w3dBlitMode3D, "sync") == 0) otherMs -= d.pushUs / 1000.0 / f;
   Serial.printf("engine3d perf: %.1f fps  update=%.2fms  draw=%.2fms  blit=%.2fms(%s)"
-                "  update parts: xf=%.2f face=%.2f bucket=%.2f\n",
+                "  other=%.2fms  update parts: xf=%.2f face=%.2f bucket=%.2f\n",
                 f / windowMs, d.updateUs / 1000.0 / f, d.drawUs / 1000.0 / f, d.pushUs / 1000.0 / f,
-                w3dBlitMode3D,
+                w3dBlitMode3D, otherMs,
                 d.xfUs / 1000.0 / f, d.faceUs / 1000.0 / f, d.bucketUs / 1000.0 / f);
-  Serial.printf("engine3d perf: verts=%.0f  tris=%.0f  clipped=%.0f  spans=%.0f  px=%.0f (per frame)\n",
-                d.vertsTransformed / f, d.trisSubmitted / f, d.trisClipped / f, d.spans / f, d.pixels / f);
+  Serial.printf("engine3d perf: verts=%.0f  tris=%.0f  clipped=%.0f  spans=%.0f  px=%.0f  sensor=%.2fms (per frame)\n",
+                d.vertsTransformed / f, d.trisSubmitted / f, d.trisClipped / f, d.spans / f, d.pixels / f,
+                d.sensorUs / 1000.0 / f);
   perf3DReportMs3D = now + 1000;
 }
 
@@ -1396,6 +1416,7 @@ static SemaphoreHandle_t w3dPushReady3D = nullptr;
 static SemaphoreHandle_t w3dPushDone3D = nullptr;
 static TaskHandle_t w3dPushTask3DHandle = nullptr;
 static bool w3dPushPending3D = false;
+static bool w3dPipelineEnabled3D = true;
 static uint16_t* w3dPushNew3D = nullptr; // buffer holding the frame to display
 static int16_t w3dPushW3D = 0, w3dPushH3D = 0;
 static volatile int32_t w3dPushUs3D = 0;
@@ -1411,8 +1432,7 @@ static void w3dPushTaskLoop3D(void*) {
 }
 
 // Created on the first pipelined frame so games that never use 3D pay nothing.
-static bool w3dPipelineReady3D() {
-  if (w3dPushTask3DHandle) return true;
+static bool w3dPipelineReady3D() {  if (w3dPushTask3DHandle) return true;
   w3dPushReady3D = xSemaphoreCreateBinary();
   w3dPushDone3D = xSemaphoreCreateBinary();
   if (!w3dPushReady3D || !w3dPushDone3D) return false;
@@ -1432,6 +1452,13 @@ void quiesceWorld3DBlit3D() {
   }
 }
 
+// Switch between pipelined and synchronous blit for on-device perf A/B
+// (systemconfig.ini renderPipeline3D).
+void setWorld3DPipeline3D(bool enabled) {
+  w3dPipelineEnabled3D = enabled;
+  if (!enabled) quiesceWorld3DBlit3D();
+}
+
 // End-of-frame display push for full-screen game loops: pipelined whenever
 // the display sprite is double-buffered, the plain synchronous sprite push
 // otherwise. Reports the frame to the perf counters when debug logging is
@@ -1444,7 +1471,7 @@ void blitWorld3DFrame3D(DISPLAY_T* display) {
   int64_t perfT0 = perf3DEnabled ? esp_timer_get_time() : 0;
   bool pipelined = false;
   int8_t drawn = display->frameBufferId();
-  if (drawn && w3dPipelineReady3D()) {
+  if (w3dPipelineEnabled3D && drawn && w3dPipelineReady3D()) {
     if (w3dPushPending3D) xSemaphoreTake(w3dPushDone3D, portMAX_DELAY);
     w3dPushNew3D = (uint16_t*)display->frameBuffer(drawn);
     display->frameBuffer(drawn == 2 ? 1 : 2); // next frame's draw target

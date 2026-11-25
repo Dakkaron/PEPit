@@ -1257,6 +1257,7 @@ void initGames_lua(String gamePath, GameConfig* pGameConfig, String* errorMessag
   String ignoreErrorMessage;
   readGameConfig(gamePath, &gameConfig, errorMessage);
   setWorld3DDebug3D(systemConfig.debugLogRender3D);
+  setWorld3DPipeline3D(systemConfig.renderPipeline3D);
   initLua();
   String variablesString = "Ms="+String(millis())+"\n"+\
                     "LeftHandedMode="+String(systemConfig.leftHandMode ? "true\n" : "false\n");

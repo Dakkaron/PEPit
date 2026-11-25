@@ -80,6 +80,8 @@ typedef struct {
   int32_t updateUs;      // microseconds spent transforming/lighting/sorting last frame
   int32_t drawUs;        // microseconds spent rasterizing last frame
   int32_t pushUs;        // microseconds spent pushing the frame buffer to the TFT
+  int32_t sensorUs;      // microseconds spent on pressure sensor reads (added externally)
+  int32_t frameUs;       // wall time between consecutive end-of-frame blits (full frame period)
   int32_t xfUs;          // updateUs breakdown: vertex transform + projection + lighting
   int32_t faceUs;        // updateUs breakdown: face cull/clip/draw-list submit
   int32_t bucketUs;      // updateUs breakdown: depth bucket sort
@@ -103,5 +105,8 @@ void reportWorld3DFrame3D(int32_t pushUs);
 // TFT directly.
 void blitWorld3DFrame3D(DISPLAY_T* display);
 void quiesceWorld3DBlit3D();
+void setWorld3DPipeline3D(bool enabled);
+// Accumulates time spent outside the 3D pipeline (pressure sensor reads) for the perf line
+void addWorld3DSensorUs3D(int32_t us);
 
 #endif /*__ENGINE3D_H__*/

@@ -631,7 +631,9 @@ void handlePhysioTask() {
       drawFinished();
       return;
     }
+    int64_t sensorT0 = esp_timer_get_time();
     readPressure(&blowData);
+    addWorld3DSensorUs3D((int32_t)(esp_timer_get_time() - sensorT0));
     if (blowData.pressure>blowData.minPressure && !blowData.currentlyBlowing) {
       Serial.print(F("Blowing... "));
       blowData.currentlyBlowing = true;

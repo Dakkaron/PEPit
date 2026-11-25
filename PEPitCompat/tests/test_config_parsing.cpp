@@ -35,6 +35,7 @@ const char* FULL_SYSTEM_CONFIG =
     "debugLogBlowPressure = true\n"
     "debugLogTrampoline = false\n"
     "debugLogRender3D = true\n"
+    "renderPipeline3D = false\n"
     "logExecutions = true\n"
     "timezoneOffset = 2\n"
     "leftHandMode = false\n"
@@ -64,6 +65,7 @@ TEST_CASE("readSystemConfig: maps all fields", "[config]") {
     REQUIRE(cfg.debugLogBlowPressure == true);
     REQUIRE(cfg.debugLogTrampoline == false);
     REQUIRE(cfg.debugLogRender3D == true);
+    REQUIRE(cfg.renderPipeline3D == false);
     REQUIRE(cfg.logExecutions == true);
     REQUIRE(cfg.timezoneOffset == 120);          // 60 * 2
     REQUIRE(cfg.leftHandMode == false);
@@ -86,6 +88,7 @@ TEST_CASE("readSystemConfig: absent keys fall back to defaults", "[config]") {
     REQUIRE(cfg.leftHandMode == true);
     REQUIRE(cfg.manometerMode == false);
     REQUIRE(cfg.debugLogRender3D == false);
+    REQUIRE(cfg.renderPipeline3D == true);   // pipelined blit is the default
     REQUIRE(cfg.timezoneOffset == 0);
     REQUIRE(cfg.logExecutions == false);
 }
