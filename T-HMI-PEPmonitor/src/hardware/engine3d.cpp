@@ -287,8 +287,19 @@ static bool ensureWorld3D() {
   return true;
 }
 
+// grow3D always returns 64-byte aligned buffers with 64-byte rounded sizes:
+// finishMesh3D hands the OBJ build buffers straight to m->vtx, and the split
+// vtx cache leg (M2C) requires line-aligned address and size on PSRAM.
 static void* grow3D(void* ptr, size_t newBytes) {
-  return heap_caps_realloc(ptr, newBytes, MALLOC_CAP_SPIRAM);
+  size_t alignedBytes = (newBytes + 63) & ~(size_t)63;
+  void* p = heap_caps_realloc(ptr, alignedBytes, MALLOC_CAP_SPIRAM);
+  if (!p) return nullptr;
+  if (((uintptr_t)p & 63) == 0) return p;
+  void* a = heap_caps_aligned_alloc(64, alignedBytes, MALLOC_CAP_SPIRAM);
+  if (!a) return p; // out of PSRAM: keep working unaligned, just lose the split leg
+  memcpy(a, p, newBytes);
+  heap_caps_free(p);
+  return a;
 }
 
 static void mat3Mul3D(const Mat3* a, const Mat3* b, Mat3* out) {
