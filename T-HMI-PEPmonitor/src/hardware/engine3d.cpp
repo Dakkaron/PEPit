@@ -40,7 +40,7 @@ typedef struct {
 } Face3D;
 
 /*
- * Per-vertex view-space scratch in one 28-byte record. The update loop writes
+ * Per-vertex view-space scratch in one 32-byte record. The update loop writes
  * it as a single PSRAM stream and the face loop's random vertex access then
  * needs one cache line per vertex instead of one per scratch array: line
  * transfers to PSRAM dominate both phases on the ESP32-S3.
@@ -50,6 +50,9 @@ typedef struct {
   float iz;          // 1/viewZ (fastRecip3D), reused by the face loop for texture coords
   int32_t sx, sy;    // Q8 screen projection, valid when z >= near plane
   uint32_t color;    // Gouraud color 0x00RRGGBB
+  uint32_t pad;      // 28-byte records straddle 64-byte PSRAM cache lines, so every
+                     // write miss fetches the line before updating it; padding to 32
+                     // tiles records exactly into lines and removes that read.
 } ViewVertex3D;
 
 /* Stored vertex record: position and normal in one record so the update
