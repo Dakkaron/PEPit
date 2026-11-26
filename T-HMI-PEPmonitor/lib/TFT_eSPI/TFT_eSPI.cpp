@@ -6462,3 +6462,135 @@ void TFT_eSPI::getSetup(setup_t &tft_settings)
 #endif
 ////////////////////////////////////////////////////////////////////////////////////////
 
+/***************************************************************************************
+** Function name:           pushRectI80
+** Description:             Push a rectangular RGB565 block using the ESP32-S3
+**                          LCD_CAM peripheral + GDMA instead of GPIO bit-banging.
+**                          Same window and pixel byte order as pushRect (which is
+**                          why the DMA can stream the buffer with no rearranging).
+**                          The source may live in PSRAM: it is relayed through two
+**                          internal-RAM bounce buffers so GDMA sends chunk N while
+**                          the CPU copies chunk N+1. The window commands stay
+**                          bit-banged through the existing setWindow(), then the
+**                          data/DC/WR pins are temporarily routed to the peripheral
+**                          signals for the color phases and handed back to GPIO
+**                          afterwards so all other library traffic is unaffected.
+***************************************************************************************/
+#if defined (CONFIG_IDF_TARGET_ESP32S3) && defined (TFT_PARALLEL_8_BIT)
+
+#include "esp_heap_caps.h"
+#include "esp_lcd_io_i80.h"
+#include "esp_lcd_panel_io.h"
+#include "esp_rom_gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "soc/clk_tree_defs.h"
+#include "soc/gpio_sig_map.h"
+
+#define I80_PCLK_HZ    20000000  // ST7789 8080 WR cycle minimum is 450 ns
+#define I80_MAX_CHUNK  24576     // GDMA chunk size and bounce buffer size
+
+static esp_lcd_i80_bus_handle_t  i80Bus = nullptr;
+static esp_lcd_panel_io_handle_t i80Io = nullptr;
+static uint8_t* i80Bounce[2] = { nullptr, nullptr };
+static SemaphoreHandle_t i80DoneSem = nullptr;
+static bool i80TriedInit = false;
+
+static bool IRAM_ATTR i80TransDoneCb(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t* edata, void* ctx) {
+  BaseType_t woken = pdFALSE;
+  xSemaphoreGiveFromISR(i80DoneSem, &woken);
+  return woken == pdTRUE;
+}
+
+static void i80RoutePins(bool toPeripheral) {
+  const int pins[10] = { TFT_D0, TFT_D1, TFT_D2, TFT_D3, TFT_D4, TFT_D5, TFT_D6, TFT_D7, TFT_DC, TFT_WR };
+  const uint32_t sigs[10] = { LCD_DATA_OUT0_IDX, LCD_DATA_OUT1_IDX, LCD_DATA_OUT2_IDX, LCD_DATA_OUT3_IDX,
+                              LCD_DATA_OUT4_IDX, LCD_DATA_OUT5_IDX, LCD_DATA_OUT6_IDX, LCD_DATA_OUT7_IDX,
+                              LCD_DC_IDX, LCD_PCLK_IDX };
+  for (int i = 0; i < 10; i++) {
+    if (pins[i] < 0) continue;
+    esp_rom_gpio_connect_out_signal(pins[i], toPeripheral ? sigs[i] : SIG_GPIO_OUT_IDX, false, false);
+  }
+}
+
+static bool i80InitBus() {
+  if (i80TriedInit) return i80Io != nullptr;
+  i80TriedInit = true;
+  i80DoneSem = xSemaphoreCreateBinary();
+  if (!i80DoneSem) return false;
+  esp_lcd_i80_bus_config_t bus_cfg = {};
+  bus_cfg.dc_gpio_num = TFT_DC;
+  bus_cfg.wr_gpio_num = TFT_WR;
+  bus_cfg.clk_src = LCD_CLK_SRC_DEFAULT;
+  bus_cfg.bus_width = 8;
+  bus_cfg.max_transfer_bytes = I80_MAX_CHUNK;
+  const int dataPins[8] = { TFT_D0, TFT_D1, TFT_D2, TFT_D3, TFT_D4, TFT_D5, TFT_D6, TFT_D7 };
+  for (int i = 0; i < 8; i++) bus_cfg.data_gpio_nums[i] = dataPins[i];
+  if (esp_lcd_new_i80_bus(&bus_cfg, &i80Bus) != ESP_OK) { i80Bus = nullptr; return false; }
+  esp_lcd_panel_io_i80_config_t io_cfg = {};
+  io_cfg.cs_gpio_num = -1;            // CS stays under the library's manual control
+  io_cfg.pclk_hz = I80_PCLK_HZ;
+  io_cfg.trans_queue_depth = 2;       // lets the CPU keep one chunk queued ahead of the DMA
+  io_cfg.on_color_trans_done = i80TransDoneCb;
+  io_cfg.lcd_cmd_bits = 8;
+  io_cfg.lcd_param_bits = 8;
+  io_cfg.dc_levels.dc_data_level = 1; // D/C high while color data streams
+  if (esp_lcd_new_panel_io_i80(i80Bus, &io_cfg, &i80Io) != ESP_OK) {
+    esp_lcd_del_i80_bus(i80Bus); i80Bus = nullptr; i80Io = nullptr;
+    return false;
+  }
+  i80Bounce[0] = (uint8_t*)esp_lcd_i80_alloc_draw_buffer(i80Io, I80_MAX_CHUNK, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
+  i80Bounce[1] = (uint8_t*)esp_lcd_i80_alloc_draw_buffer(i80Io, I80_MAX_CHUNK, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
+  if (!i80Bounce[0] || !i80Bounce[1]) {
+    free(i80Bounce[0]); free(i80Bounce[1]); i80Bounce[0] = i80Bounce[1] = nullptr;
+    i80Io = nullptr;
+    return false;
+  }
+  i80RoutePins(false); // bus creation routes the pins; keep bit-banging until a push needs the peripheral
+  return true;
+}
+
+bool TFT_eSPI::pushRectI80(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data) {
+  if (!data || w <= 0 || h <= 0 || x < 0 || y < 0) return false;
+  if (x + w > _width || y + h > _height) return false;
+  std::lock_guard<std::mutex> busLock(tftBusMutex);
+  if (!i80InitBus()) return false;
+
+  size_t rowBytes = (size_t)w * 2;
+  int rows = 0;
+  for (int g = (int)(I80_MAX_CHUNK / rowBytes); g >= 1; g--) {
+    if (((size_t)g * rowBytes % 64) == 0 && h % g == 0) { rows = g; break; }
+  }
+  if (!rows) return false; // window can't be split into aligned equal chunks
+  size_t chunk = (size_t)rows * rowBytes;
+  size_t nchunks = ((size_t)h * rowBytes) / chunk;
+  const uint8_t* src = (const uint8_t*)data;
+
+  setWindow(x, y, x + w - 1, y + h - 1); // bit-banged CASET/RASET, rotation-aware
+
+  i80RoutePins(true);
+  CS_L;
+  size_t sent = 0, done = 0;
+  bool ok = true;
+  for (size_t ci = 0; ci < nchunks; ci++) {
+    uint8_t* buf = i80Bounce[ci & 1];
+    while (done + 2 <= ci) { xSemaphoreTake(i80DoneSem, portMAX_DELAY); done++; } // reuse gate
+    memcpy(buf, src + ci * chunk, chunk);
+    if (esp_lcd_panel_io_tx_color(i80Io, 0x2C, buf, chunk) != ESP_OK) { ok = false; break; }
+    sent++;
+  }
+  while (done < sent) { xSemaphoreTake(i80DoneSem, portMAX_DELAY); done++; }
+  CS_H;
+  i80RoutePins(false);
+  return ok;
+}
+
+#else
+
+bool TFT_eSPI::pushRectI80(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data) {
+  (void)x; (void)y; (void)w; (void)h; (void)data;
+  return false;
+}
+
+#endif
+

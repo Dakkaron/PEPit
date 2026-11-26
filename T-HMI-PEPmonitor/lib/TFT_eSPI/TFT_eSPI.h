@@ -603,6 +603,12 @@ class TFT_eSPI : public Print { friend class TFT_eSprite; // Sprite class has ac
            // Write a block of pixels to the screen which have been read by readRect()
   void     pushRect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data);
 
+  // ESP32-S3 fast path: feed the 8-bit parallel bus from the LCD_CAM
+  // peripheral + GDMA instead of GPIO bit-banging. Same window and byte
+  // order semantics as pushRect. Returns false on other targets, so
+  // callers can fall back to pushRect.
+  bool     pushRectI80(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data);
+
            // These are used to render images or sprites stored in RAM arrays (used by Sprite class for 16bpp Sprites)
   void     pushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data);
   void     pushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data, uint16_t transparent);

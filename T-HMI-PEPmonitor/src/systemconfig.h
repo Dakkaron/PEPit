@@ -18,6 +18,7 @@ struct SystemConfig {
   bool debugLogTrampoline;
   bool debugLogRender3D;
   bool renderPipeline3D;
+  bool renderI80Push3D;
   bool logExecutions;
   int32_t timezoneOffset;
   bool leftHandMode;

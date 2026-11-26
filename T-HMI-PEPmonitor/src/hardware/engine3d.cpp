@@ -1475,6 +1475,7 @@ static SemaphoreHandle_t w3dWorkDone3D = nullptr;
 static TaskHandle_t w3dPushTask3DHandle = nullptr;
 static bool w3dPushPending3D = false;
 static bool w3dPipelineEnabled3D = true;
+static bool w3dI80Push3D = true; // full-frame pushes go through the LCD_CAM peripheral when available
 static uint16_t* w3dPushNew3D = nullptr; // buffer holding the frame to display
 static int16_t w3dPushW3D = 0, w3dPushH3D = 0;
 static volatile int32_t w3dPushUs3D = 0;
@@ -1595,7 +1596,8 @@ static void w3dPushTaskLoop3D(void*) {
       xSemaphoreGive(w3dFillDone3D);
     }
     int64_t t0 = esp_timer_get_time();
-    tft.pushRect(0, 0, w3dPushW3D, w3dPushH3D, w3dPushNew3D);
+    if (!w3dI80Push3D || !tft.pushRectI80(0, 0, w3dPushW3D, w3dPushH3D, w3dPushNew3D))
+      tft.pushRect(0, 0, w3dPushW3D, w3dPushH3D, w3dPushNew3D);
     w3dPushUs3D = (int32_t)(esp_timer_get_time() - t0);
     xSemaphoreGive(w3dPushDone3D);
     xSemaphoreGive(w3dWorkDone3D); // hand-off variables are safe to rewrite
@@ -1745,6 +1747,12 @@ void claimTextRect3D(DISPLAY_T* display, const char* text, int16_t x, int16_t y)
 void setWorld3DPipeline3D(bool enabled) {
   w3dPipelineEnabled3D = enabled;
   if (!enabled) quiesceWorld3DBlit3D();
+}
+
+// Switch the pipelined full-frame push between the LCD_CAM/GDMA bus driver and
+// bit-banged pushRect for on-device perf A/B (systemconfig.ini renderI80Push3D).
+void setWorld3DI80Push3D(bool enabled) {
+  w3dI80Push3D = enabled;
 }
 
 // End-of-frame display push for full-screen game loops: pipelined whenever
