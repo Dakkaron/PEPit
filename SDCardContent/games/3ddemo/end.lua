@@ -1,4 +1,0 @@
-UpdateWorld()
-DrawWorld()
-SetTextSize(2)
-DrawString("Session finished!", 10, 6)

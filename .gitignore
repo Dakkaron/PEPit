@@ -48,10 +48,6 @@ PepItEmulator/
 PepItEmulator/
 T-HMI-PEPmonitor/src/initModeConfig.h
 
-# Third-party test models (not ours; kept out of the repo)
-SDCardContent/games/3ddemo/models/Chevrolet_Camaro*.obj
-SDCardContent/games/3ddemo/models/Chevrolet_Camaro*.mtl
-
 __pycache__/
 
 # task briefs: working notes, never commit

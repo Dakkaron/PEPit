@@ -101,5 +101,5 @@ function drawFrame()
 end
 ```
 
-See `SDCardContent/games/3ddemo` for a complete runnable example game.
+See the in-development 3ddemo game (`WIPSDCardContent/games/3ddemo`, not committed) for a complete runnable example.
 

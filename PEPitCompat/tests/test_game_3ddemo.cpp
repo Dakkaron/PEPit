@@ -98,8 +98,9 @@ int litPixels(TFT_eSprite& disp) {
 TEST_CASE("3ddemo game boots through real Lua entry points and renders 3D frames", "[engine3d][game]") {
     std::filesystem::path repoRoot = std::filesystem::path(__FILE__).parent_path()
         .parent_path().parent_path();
-    std::filesystem::path gameDir = repoRoot / "SDCardContent" / "games" / "3ddemo";
-    REQUIRE(std::filesystem::exists(gameDir / "gameconfig.ini"));
+    std::filesystem::path gameDir = repoRoot / "WIPSDCardContent" / "games" / "3ddemo";
+    if (!std::filesystem::exists(gameDir / "gameconfig.ini"))
+        SKIP("3ddemo game lives in WIPSDCardContent, which is not committed");
 
     std::filesystem::path sdRoot = makeSdRoot("3ddemo");
     copyGameTree(gameDir, sdRoot, "games/3ddemo");
@@ -165,7 +166,9 @@ TEST_CASE("3ddemo game boots through real Lua entry points and renders 3D frames
 TEST_CASE("3ddemo consecutive frames are stable (flicker check)", "[game][flicker]") {
     std::filesystem::path repoRoot = std::filesystem::path(__FILE__).parent_path()
         .parent_path().parent_path();
-    std::filesystem::path gameDir = repoRoot / "SDCardContent" / "games" / "3ddemo";
+    std::filesystem::path gameDir = repoRoot / "WIPSDCardContent" / "games" / "3ddemo";
+    if (!std::filesystem::exists(gameDir / "gameconfig.ini"))
+        SKIP("3ddemo game lives in WIPSDCardContent, which is not committed");
 
     std::filesystem::path sdRoot = makeSdRoot("flicker");
     copyGameTree(gameDir, sdRoot, "games/3ddemo");

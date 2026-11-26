@@ -638,7 +638,7 @@ These globals are predefined in the Lua state:
 | `DIRECTIONALLIGHT`  | `4`   | Parallel rays (sun-like)    |
 
 > A fuller conceptual overview with a complete example is in [LuaAPI.md](../LuaAPI.md);
-> `SDCardContent/games/3ddemo` is a runnable demo game.
+> The in-development 3ddemo game (`WIPSDCardContent/games/3ddemo`, not committed) exercises these commands end to end.
 
 ---
 

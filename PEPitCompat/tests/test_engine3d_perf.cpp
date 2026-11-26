@@ -43,7 +43,9 @@ std::string readRepoFile(const std::filesystem::path& p) {
 TEST_CASE("engine3d perf: 3ddemo scene phase timings", "[perf][.disabled]") {
     std::filesystem::path repoRoot = std::filesystem::path(__FILE__).parent_path()
         .parent_path().parent_path();
-    std::filesystem::path models = repoRoot / "SDCardContent" / "games" / "3ddemo" / "models";
+    std::filesystem::path models = repoRoot / "WIPSDCardContent" / "games" / "3ddemo" / "models";
+    if (!std::filesystem::exists(models / "racecar.obj"))
+        SKIP("3ddemo game fixtures live in WIPSDCardContent, which is not committed");
 
     std::filesystem::path root = makeSdRoot("engine3d_perf");
     for (const char* name : {"racecar.obj", "racecar.mtl", "racecar.bmp",
