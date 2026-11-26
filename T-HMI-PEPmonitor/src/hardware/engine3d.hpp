@@ -4,15 +4,31 @@
 #include "hardware/gfxHandler.hpp"
 #include "hardware/matrix.h"
 
+/*
+ * Handles are globally unique per kind: pivots, cameras and lights are
+ * entities sharing the entity handle space; mesh and texture handles occupy
+ * their own ranges, so a handle only works with the function family it came
+ * from. A mesh is object data; CreateEntity instantiates a visible entity.
+ */
 #define MESH3D_LIMIT 32
 #define TEXTURE3D_LIMIT 16
 #define ENTITY3D_LIMIT 128
 #define LIGHT3D_LIMIT 8
 #define CAMERA3D_LIMIT 4
 
+#define ENTITY3D_HANDLE_BASE 0
+#define MESH3D_HANDLE_BASE ENTITY3D_LIMIT
+#define TEXTURE3D_HANDLE_BASE (ENTITY3D_LIMIT + MESH3D_LIMIT)
+
 #define MESH3D_MAX_VERTICES 24576
 #define MESH3D_MAX_FACES 8192
 #define WORLD3D_MAX_TRIANGLES 8192
+
+// Entity kinds; returned handles are entity handles for pivot/camera/light.
+#define ENTITY3D_KIND_MESH 0
+#define ENTITY3D_KIND_PIVOT 1
+#define ENTITY3D_KIND_LIGHT 2
+#define ENTITY3D_KIND_CAMERA 3
 
 #define LIGHT3D_TYPE_POINT 1
 #define LIGHT3D_TYPE_SPOT 2
@@ -34,8 +50,12 @@ void setMeshFlipped3D(int16_t handle, bool flipped);
 int16_t loadTexture3D(String path);
 bool freeTexture3D(int16_t handle);
 
+// Pivots, cameras and lights are entities too and accept every transform below.
 int16_t createEntity3D(int16_t meshHandle);
+int16_t createPivot3D();
 bool freeEntity3D(int16_t handle);
+// Moves the entity along its own (rotated) local axes
+void moveEntity3D(int16_t handle, float x, float y, float z);
 void positionEntity3D(int16_t handle, float x, float y, float z);
 void rotateEntity3D(int16_t handle, float pitch, float yaw, float roll);
 void turnEntity3D(int16_t handle, float pitch, float yaw, float roll);
@@ -46,7 +66,7 @@ void hideEntity3D(int16_t handle, bool hidden);
 bool linkEntity3D(int16_t childHandle, int16_t parentHandle);
 void entityOrder3D(int16_t handle, int8_t order);
 
-// The camera with the lowest handle is the active one.
+// Camera entities; the lowest live camera handle is the active one.
 int16_t createCamera3D();
 bool freeCamera3D(int16_t handle);
 void positionCamera3D(int16_t handle, float x, float y, float z);
@@ -55,6 +75,7 @@ void turnCamera3D(int16_t handle, float pitch, float yaw, float roll);
 void cameraZoom3D(int16_t handle, float zoom);
 void cameraRange3D(int16_t handle, float nearPlane, float farPlane);
 
+// Light entities; the beam (spot/directional) runs along the entity's local +z.
 void ambientLight3D(uint8_t r, uint8_t g, uint8_t b);
 int16_t createLight3D(uint8_t r, uint8_t g, uint8_t b, float x, float y, float z, float range, uint8_t type);
 bool freeLight3D(int16_t handle);
