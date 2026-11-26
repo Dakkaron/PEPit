@@ -1,1 +1,0 @@
-PrefsSetInt("crashes", Crashes)
