@@ -1114,6 +1114,16 @@ static int lua_wrapper_createEntity(lua_State* luaState) {
   return 1;
 }
 
+static int lua_wrapper_createPivot(lua_State* luaState) {
+  lua_pushinteger(luaState, createPivot3D());
+  return 1;
+}
+
+static int lua_wrapper_moveEntity(lua_State* luaState) {
+  moveEntity3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3), luaL_checknumber(luaState, 4));
+  return 0;
+}
+
 static int lua_wrapper_freeEntity(lua_State* luaState) {
   lua_pushboolean(luaState, freeEntity3D(luaL_checkinteger(luaState, 1)));
   return 1;
@@ -1141,6 +1151,11 @@ static int lua_wrapper_scaleEntity(lua_State* luaState) {
 
 static int lua_wrapper_entityColor(lua_State* luaState) {
   entityColor3D(luaL_checkinteger(luaState, 1), luaColorArg(luaState, 2), luaColorArg(luaState, 3), luaColorArg(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_setEntityTexture(lua_State* luaState) {
+  setEntityTexture3D(luaL_checkinteger(luaState, 1), luaL_checkinteger(luaState, 2));
   return 0;
 }
 
@@ -1363,12 +1378,15 @@ void initLua() {
   lua_register(luaState, "SetMeshTexture", (lua_CFunction) &lua_wrapper_setMeshTexture);
   lua_register(luaState, "SetMeshFlipped", (lua_CFunction) &lua_wrapper_setMeshFlipped);
   lua_register(luaState, "CreateEntity", (lua_CFunction) &lua_wrapper_createEntity);
+  lua_register(luaState, "CreatePivot", (lua_CFunction) &lua_wrapper_createPivot);
   lua_register(luaState, "FreeEntity", (lua_CFunction) &lua_wrapper_freeEntity);
+  lua_register(luaState, "MoveEntity", (lua_CFunction) &lua_wrapper_moveEntity);
   lua_register(luaState, "PositionEntity", (lua_CFunction) &lua_wrapper_positionEntity);
   lua_register(luaState, "RotateEntity", (lua_CFunction) &lua_wrapper_rotateEntity);
   lua_register(luaState, "TurnEntity", (lua_CFunction) &lua_wrapper_turnEntity);
   lua_register(luaState, "ScaleEntity", (lua_CFunction) &lua_wrapper_scaleEntity);
   lua_register(luaState, "EntityColor", (lua_CFunction) &lua_wrapper_entityColor);
+  lua_register(luaState, "SetEntityTexture", (lua_CFunction) &lua_wrapper_setEntityTexture);
   lua_register(luaState, "HideEntity", (lua_CFunction) &lua_wrapper_hideEntity);
   lua_register(luaState, "LinkEntity", (lua_CFunction) &lua_wrapper_linkEntity);
   lua_register(luaState, "EntityOrder", (lua_CFunction) &lua_wrapper_entityOrder);

@@ -56,6 +56,13 @@ public:
         for (int i = 0; i < 320 * 240; i++) if (fb[i]) n++;
         return n;
     }
+    std::vector<uint16_t> snapshot() {
+        std::vector<uint16_t> fb;
+        fb.reserve(320 * 240);
+        for (int y = 0; y < 240; y++)
+            for (int x = 0; x < 320; x++) fb.push_back(pixel(x, y));
+        return fb;
+    }
     static void rgb(uint16_t c, int& r, int& g, int& b) {
         r = (c >> 11) * 255 / 31;
         g = ((c >> 5) & 63) * 255 / 63;
@@ -240,6 +247,9 @@ void stripeColor(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b) {
     if ((x / 8) & 1) { *r = 255; *g = 255; *b = 255; }
     else { *r = 30; *g = 30; *b = 180; }
 }
+
+void redFill(int, int, uint8_t* r, uint8_t* g, uint8_t* b) { *r = 235; *g = 40; *b = 40; }
+void greenFill(int, int, uint8_t* r, uint8_t* g, uint8_t* b) { *r = 40; *g = 220; *b = 60; }
 
 /*
  * Single planar quad tilted so depth varies from 55 (left) to 95 (right):
@@ -946,5 +956,280 @@ TEST_CASE("engine3d: missing model file and full pool handled without crash", "[
     for (int i = 0; i < MESH3D_LIMIT + 1; i++) handles[i] = createMesh3DCube();
     CHECK(handles[MESH3D_LIMIT] == -1);
     CHECK(handles[MESH3D_LIMIT - 1] >= 0);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: handles are globally unique and checked against their kind", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_handle_kinds");
+    writeSdFile(root, "models/tex.bmp", makeBmp24(8, 8, brickColor));
+    resetWorld3D();
+
+    int16_t mesh = createMesh3DCube();
+    int16_t tex = loadTexture3D(String("/models/tex.bmp"));
+    int16_t ent = createEntity3D(mesh);
+    int16_t cam = createCamera3D();
+    int16_t light = createLight3D(255, 255, 255, 0, 0, -100, 0, LIGHT3D_TYPE_POINT);
+    REQUIRE(mesh >= 0); REQUIRE(tex >= 0); REQUIRE(ent >= 0);
+    REQUIRE(cam >= 0); REQUIRE(light >= 0);
+
+    // Cameras and lights are entities: they share the entity handle space and
+    // every handle stays distinct. Mesh and texture handles live in disjoint
+    // ranges above it.
+    CHECK(ent < ENTITY3D_LIMIT);
+    CHECK(cam < ENTITY3D_LIMIT);
+    CHECK(light < ENTITY3D_LIMIT);
+    CHECK(ent != cam); CHECK(ent != light); CHECK(cam != light);
+    CHECK(mesh >= MESH3D_HANDLE_BASE);
+    CHECK(mesh < MESH3D_HANDLE_BASE + MESH3D_LIMIT);
+    CHECK(tex >= TEXTURE3D_HANDLE_BASE);
+    CHECK(tex < TEXTURE3D_HANDLE_BASE + TEXTURE3D_LIMIT);
+
+    // Wrong-kind handles are rejected rather than aliasing another pool
+    CHECK(createEntity3D(ent) == -1);   // an entity handle is not a mesh handle
+    CHECK(!freeEntity3D(mesh));         // a mesh handle is not an entity handle
+    CHECK(!freeCamera3D(ent));          // a mesh entity is not a camera
+    CHECK(!freeLight3D(cam));           // a camera entity is not a light
+    CHECK(!freeTexture3D(ent));
+    CHECK(!linkEntity3D(ent, mesh));
+
+    hideEntity3D(mesh, true);           // rejected: the cube entity stays visible
+    Display3D d;
+    d.render();
+    CHECK(d.litPixels() > 5000);
+
+    // Cameras and lights draw from the entity pool but are capped by their
+    // component limits. One camera and one light are already live.
+    for (int i = 1; i < CAMERA3D_LIMIT; i++) REQUIRE(createCamera3D() >= 0);
+    CHECK(createCamera3D() == -1);
+    for (int i = 1; i < LIGHT3D_LIMIT; i++)
+        REQUIRE(createLight3D(255, 255, 255, 0, 0, -100, 0, LIGHT3D_TYPE_POINT) >= 0);
+    CHECK(createLight3D(255, 255, 255, 0, 0, -100, 0, LIGHT3D_TYPE_POINT) == -1);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: MoveEntity translates along the entity's own axes", "[engine3d]") {
+    resetWorld3D();  // ambient-only lighting: cube shading is orientation-free
+    int16_t mesh = createMesh3DCube();
+    Display3D d;
+
+    int16_t e = createEntity3D(mesh);
+    positionEntity3D(e, 30, 0, 0);
+    d.render();
+    std::vector<uint16_t> ref = d.snapshot();
+    CHECK(d.litPixels() > 5000);
+    freeEntity3D(e);
+
+    e = createEntity3D(mesh);            // identity rotation: local axes are world axes
+    moveEntity3D(e, 30, 0, 0);
+    d.render();
+    CHECK(d.snapshot() == ref);
+    freeEntity3D(e);
+
+    e = createEntity3D(mesh);
+    rotateEntity3D(e, 0, 90, 0);         // yaw 90 puts local +z at world +x
+    moveEntity3D(e, 0, 0, 30);
+    d.render();
+    CHECK(d.snapshot() == ref);
+    freeEntity3D(e);
+
+    e = createEntity3D(mesh);
+    rotateEntity3D(e, 90, 0, 0);         // pitch 90 puts local +z at world +y
+    moveEntity3D(e, 0, 0, 30);
+    d.render();
+    std::vector<uint16_t> up = d.snapshot();
+    freeEntity3D(e);
+
+    e = createEntity3D(mesh);
+    positionEntity3D(e, 0, 30, 0);
+    d.render();
+    CHECK(d.snapshot() == up);
+
+    e = createEntity3D(mesh);            // identity rotation: +z is depth, not screen shift
+    moveEntity3D(e, 0, 0, 30);
+    d.render();
+    CHECK(d.snapshot() != ref);          // the cube moved towards the camera instead
+    freeEntity3D(e);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: CreatePivot rigs — children follow parent rotation and moves", "[engine3d]") {
+    resetWorld3D();
+    int16_t mesh = createMesh3DCube();
+    Display3D d;
+
+    int16_t pivot = createPivot3D();
+    REQUIRE(pivot >= 0);
+    rotateEntity3D(pivot, 0, 90, 0);     // pivot's local +z now points at world +x
+    int16_t child = createEntity3D(mesh);
+    REQUIRE(child >= 0);
+    REQUIRE(linkEntity3D(child, pivot));
+    positionEntity3D(child, 0, 0, 20);   // orbits to world (20,0,0)
+    d.render();
+    std::vector<uint16_t> rig = d.snapshot();
+    CHECK(d.litPixels() > 5000);
+    freeEntity3D(child);
+    freeEntity3D(pivot);
+
+    int16_t base = createEntity3D(mesh); // baseline: one cube at world (20,0,0)
+    rotateEntity3D(base, 0, 90, 0);
+    positionEntity3D(base, 20, 0, 0);
+    d.render();
+    CHECK(d.snapshot() == rig);
+    freeEntity3D(base);
+
+    pivot = createPivot3D();
+    rotateEntity3D(pivot, 0, 90, 0);
+    moveEntity3D(pivot, 0, 0, 15);       // the whole rig slides along the pivot's +z
+    child = createEntity3D(mesh);
+    REQUIRE(linkEntity3D(child, pivot));
+    positionEntity3D(child, 0, 0, 20);   // now orbits to world (35,0,0)
+    d.render();
+    rig = d.snapshot();
+    freeEntity3D(child);
+    freeEntity3D(pivot);
+
+    base = createEntity3D(mesh);
+    rotateEntity3D(base, 0, 90, 0);
+    positionEntity3D(base, 35, 0, 0);
+    d.render();
+    CHECK(d.snapshot() == rig);
+    freeEntity3D(base);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: camera is an entity — MoveEntity dollies, a pivot orbits it, hiding disables it", "[engine3d]") {
+    resetWorld3D();
+    int16_t mesh = createMesh3DCube();
+    createEntity3D(mesh);
+    Display3D d;
+
+    int16_t cam = createCamera3D();
+    REQUIRE(cam >= 0);
+    positionCamera3D(cam, 0, 0, -100);
+    d.render();
+    int far = d.litPixels();
+    CHECK(far > 10000);
+
+    moveEntity3D(cam, 0, 0, 40);         // dollies along its own look axis
+    d.render();
+    CHECK(d.litPixels() > far * 2);
+
+    resetWorld3D();
+    mesh = createMesh3DCube();
+    createEntity3D(mesh);
+    cam = createCamera3D();
+    positionCamera3D(cam, 0, 0, -100);
+    d.render();
+    std::vector<uint16_t> straight = d.snapshot();
+    int16_t pivot = createPivot3D();
+    REQUIRE(linkEntity3D(cam, pivot));
+    rotateEntity3D(pivot, 0, 90, 0);     // swings the camera to (-100,0,0), looking at the cube
+    d.render();
+    CHECK(d.snapshot() == straight);     // yaw-symmetric cube renders the same frame
+
+    hideEntity3D(cam, true);             // a hidden camera is not the active camera
+    int16_t cam2 = createCamera3D();     // tiny far view only wins if cam stays out of the pick
+    REQUIRE(cam2 >= 0);
+    positionCamera3D(cam2, 0, 0, -600);  // same look axis, six times further: small silhouette
+    d.render();
+    CHECK(d.litPixels() < 3000);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: light is an entity — RotateEntity/TurnEntity aim the beam", "[engine3d]") {
+    resetWorld3D();
+    ambientLight3D(0, 0, 0);
+    int16_t mesh = createMesh3DCube();
+    createEntity3D(mesh);
+    int16_t spot = createLight3D(255, 255, 255, 0, 0, -100, 0, LIGHT3D_TYPE_SPOT);
+    REQUIRE(spot >= 0);
+    setLightCone3D(spot, 30, 45);
+
+    Display3D d;
+    int r, g, b;
+    d.render();                          // unrotated: beam runs along local +z, at the face
+    Display3D::rgb(d.pixel(160, 120), r, g, b);
+    CHECK(r > 180); CHECK(g > 180); CHECK(b > 180);
+
+    rotateEntity3D(spot, 90, 0, 0);     // pitch 90 aims the beam straight up
+    d.render();
+    CHECK(d.pixel(160, 120) == 0);
+
+    turnEntity3D(spot, -90, 0, 0);      // back onto the face
+    d.render();
+    Display3D::rgb(d.pixel(160, 120), r, g, b);
+    CHECK(r > 180); CHECK(g > 180); CHECK(b > 180);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: a light parented to a pivot travels with it", "[engine3d]") {
+    resetWorld3D();
+    ambientLight3D(0, 0, 0);
+    int16_t mesh = createMesh3DCube();
+    createEntity3D(mesh);
+    Display3D d;
+
+    int16_t direct = createLight3D(255, 255, 255, 0, 0, -100, 500, LIGHT3D_TYPE_POINT);
+    REQUIRE(direct >= 0);
+    d.render();
+    CHECK(d.pixel(160, 120) != 0);      // face sits well inside the 500-unit range
+    std::vector<uint16_t> ref = d.snapshot();
+    freeLight3D(direct);
+
+    int16_t pivot = createPivot3D();
+    positionEntity3D(pivot, 0, 0, -100);
+    int16_t light = createLight3D(255, 255, 255, 0, 0, 0, 500, LIGHT3D_TYPE_POINT);
+    REQUIRE(light >= 0);
+    REQUIRE(linkEntity3D(light, pivot));  // same world position through the rig
+    d.render();
+    CHECK(d.snapshot() == ref);
+
+    moveEntity3D(pivot, 0, 0, 900);      // the light flies to z=+800, out of range
+    d.render();
+    CHECK(d.pixel(160, 120) == 0);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: entities sharing a mesh can carry different textures", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_entity_textures");
+    writeSdFile(root, "models/red.bmp", makeBmp24(16, 16, redFill));
+    writeSdFile(root, "models/green.bmp", makeBmp24(16, 16, greenFill));
+    resetWorld3D();
+
+    int16_t mesh = createMesh3DCube();   // one shared mesh object, no texture of its own
+    int16_t red = loadTexture3D(String("/models/red.bmp"));
+    int16_t green = loadTexture3D(String("/models/green.bmp"));
+    REQUIRE(mesh >= 0); REQUIRE(red >= 0); REQUIRE(green >= 0);
+
+    int16_t left = createEntity3D(mesh);
+    int16_t right = createEntity3D(mesh);
+    REQUIRE(left >= 0); REQUIRE(right >= 0);
+    positionEntity3D(left, -40, 0, 0);
+    positionEntity3D(right, 40, 0, 0);
+    setEntityTexture3D(left, red);
+    setEntityTexture3D(right, green);
+
+    Display3D d;
+    d.render();
+    CHECK(d.litPixels() > 10000);
+    int r, g, b;
+    Display3D::rgb(d.pixel(49, 120), r, g, b);   // left cube's front face centre
+    CHECK(r > 90); CHECK(r > g + 60); CHECK(r > b + 60);
+    Display3D::rgb(d.pixel(271, 120), r, g, b);  // right cube's front face centre
+    CHECK(g > 90); CHECK(g > r + 60); CHECK(g > b + 40);
+
+    // Freeing a texture clears the entity overrides that referenced it
+    REQUIRE(freeTexture3D(green));
+    d.render();
+    Display3D::rgb(d.pixel(271, 120), r, g, b);
+    CHECK(r > 100); CHECK(r < 160); CHECK(g > 100); CHECK(b > 100);  // back to untextured ambient grey
+    Display3D::rgb(d.pixel(49, 120), r, g, b);
+    CHECK(r > 90); CHECK(r > g + 60);                  // left one still red
+
+    // An explicit -1 override also falls back to the (untextured) mesh
+    setEntityTexture3D(left, -1);
+    d.render();
+    Display3D::rgb(d.pixel(49, 120), r, g, b);
+    CHECK(r > 100); CHECK(r < 160); CHECK(g > 100); CHECK(b > 100);
     resetWorld3D();
 }

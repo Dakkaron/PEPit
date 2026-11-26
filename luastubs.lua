@@ -101,12 +101,15 @@ function FreeTexture(textureHandle) end
 function SetMeshTexture(meshHandle, textureHandle) end
 function SetMeshFlipped(meshHandle, flipped) end
 function CreateEntity(meshHandle) end
+function CreatePivot() end
+function MoveEntity(entityHandle, x, y, z) end
 function FreeEntity(entityHandle) end
 function PositionEntity(entityHandle, x, y, z) end
 function RotateEntity(entityHandle, pitch, yaw, roll) end
 function TurnEntity(entityHandle, pitch, yaw, roll) end
 function ScaleEntity(entityHandle, sx, sy, sz) end
 function EntityColor(entityHandle, r, g, b) end
+function SetEntityTexture(entityHandle, textureHandle) end
 function HideEntity(entityHandle, hidden) end
 function LinkEntity(childHandle, parentHandle) end
 function EntityOrder(entityHandle, order) end

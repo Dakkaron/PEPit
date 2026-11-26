@@ -258,13 +258,18 @@ sx, sy, s = Mode7WorldToScreen(wx, wy, camX, camY, camH, yaw, zoom, horizon, sta
 
 The 3D engine ([`engine3d.cpp`](../../T-HMI-PEPmonitor/src/hardware/engine3d.cpp)) is driven by
 **meshes**, **textures**, **entities**, **cameras** and **lights** — all referenced by integer
-handles like the 2D sprite handles. Creation functions return `-1` on failure; the `Free*`
+handles like the 2D sprite handles. Handles are globally unique per kind: pivots, cameras and
+lights are entities and share the entity handle space; mesh and texture handles occupy their own
+ranges, so a handle only works with the functions of the family that returned it. A mesh is
+object data, not a scene object: `CreateEntity` instantiates a visible entity from it, and
+several entities may share one mesh. Creation functions return `-1` on failure; the `Free*`
 functions return a boolean. A frame is rendered by calling `UpdateWorld()` and then `DrawWorld()`.
 The engine is internally pipelined and split over both cores; that is invisible to Lua and never
 changes the rendered result.
 
 Fixed capacities ([`engine3d.hpp`](../../T-HMI-PEPmonitor/src/hardware/engine3d.hpp)): **32
-meshes**, **16 textures**, **128 entities**, **8 lights**, **4 cameras**.
+meshes**, **64 textures**, **128 entities** (pivots, cameras and lights included), **8 lights**,
+**4 cameras**.
 
 Coordinate system: `+x` right, `+y` up, `+z` forward (into the scene). All rotations are in
 degrees: `pitch` turns about the x-axis (positive looks up), `yaw` about the y-axis (positive
@@ -357,7 +362,7 @@ Loads a 16-bit BMP texture (same loader as 2D sprites) for use on meshes.
 **Returns:** texture handle (int), or `-1` on failure.
 
 ### `FreeTexture(textureHandle)`
-Frees a texture; any mesh using it falls back to untextured.
+Frees a texture; meshes and entities using it fall back to untextured.
 
 | Param           | Type | Description        |
 |-----------------|------|--------------------|
@@ -375,6 +380,12 @@ has its own transform and color.
 
 **Returns:** entity handle (int), or `-1` on failure.
 
+### `CreatePivot()`
+Creates an invisible transform node to parent entities to. Pivots render nothing but carry the
+full entity transform set, so turning a pivot orbits everything linked to it.
+
+**Returns:** entity handle (int), or `-1` on failure.
+
 ### `FreeEntity(entityHandle)`
 Removes an instance.
 
@@ -383,6 +394,18 @@ Removes an instance.
 | `entityHandle` | int  | Handle to free     |
 
 **Returns:** `true` if the handle was in use.
+
+### `MoveEntity(entityHandle, x, y, z)`
+Translates the entity along its **own rotated axes** (Blitz3D semantics): with `yaw = 90` the
+entity's `+z` points at world `+x`, so `MoveEntity(e, 0, 0, 10)` steps 10 units to the right.
+With a parent, the move happens in the parent's frame.
+
+| Param          | Type  | Description              |
+|----------------|-------|--------------------------|
+| `entityHandle` | int   | Entity handle            |
+| `x`, `y`, `z`  | float | Local-axis offsets       |
+
+**Returns:** nothing.
 
 ### `PositionEntity(entityHandle, x, y, z)`
 Sets the absolute position. With a parent (see `LinkEntity`), the position is relative to the
@@ -439,6 +462,17 @@ Per-instance tint, multiplied with the mesh color.
 
 **Returns:** nothing.
 
+### `SetEntityTexture(entityHandle, textureHandle)`
+Per-instance texture override: entities sharing a mesh can render with different textures.
+`-1` clears the override and falls back to the mesh's own texture.
+
+| Param           | Type | Description                        |
+|-----------------|------|------------------------------------|
+| `entityHandle`  | int  | Entity handle                      |
+| `textureHandle` | int  | Texture handle, or `-1` to clear   |
+
+**Returns:** nothing.
+
 ### `HideEntity(entityHandle, hidden)`
 Excludes the instance from the scene while hidden.
 
@@ -473,10 +507,12 @@ values draw later (in front). Used for coplanar surfaces to stop z-fighting flic
 **Returns:** nothing.
 
 ### `CreateCamera()`
-Creates a camera. The camera with the **lowest handle** is the active one. Defaults: zoom 1,
-near plane 1, far plane 5000.
+Creates a camera entity. The camera with the **lowest handle** is the active one. Defaults:
+zoom 1, near plane 1, far plane 5000.
 
-**Returns:** camera handle (int), or `-1` on failure.
+**Returns:** entity handle (int), or `-1` on failure. Cameras are entities: the handle works with
+every entity transform (`PositionCamera` equals `PositionEntity` etc.), a camera linked to a
+pivot orbits with it, and `HideEntity(cam, true)` disables it.
 
 ### `FreeCamera(cameraHandle)`
 Frees a camera.
@@ -552,18 +588,19 @@ Sets the global ambient light level. Device default: `127, 127, 127`.
 **Returns:** nothing.
 
 ### `CreateLight(r, g, b, x, y, z, range = 0, lightType = POINTLIGHT)`
-Creates a point, spot or directional light (per-vertex Gouraud lighting with distance
-attenuation for point/spot lights).
+Creates a light entity (per-vertex Gouraud lighting with distance attenuation for point/spot
+lights).
 
 | Param       | Type  | Default          | Description                                        |
 |-------------|-------|------------------|----------------------------------------------------|
 | `r`, `g`, `b` | int | —                | 0..255 per channel                                 |
-| `x`, `y`, `z` | float | —              | Light position (direction ignored for directional) |
+| `x`, `y`, `z` | float | —              | Light position                                     |
 | `range`     | float | `0`              | Attenuation range; `0` = infinite                  |
 | `lightType` | int   | `POINTLIGHT`     | `POINTLIGHT`, `SPOTLIGHT` or `DIRECTIONALLIGHT`    |
 
-**Returns:** light handle (int), or `-1` on failure. Spot and directional lights aim along
-`(0, -1, 0)` until `SetLightDirection` is called.
+**Returns:** entity handle (int), or `-1` on failure. Lights are entities: spot and directional
+beams run along the entity's local `+z` axis, so `RotateEntity`/`TurnEntity` aim them and
+`LinkEntity` moves them with a rig; an unrotated light beams into the scene (`+z`).
 
 ### `FreeLight(lightHandle)`
 Removes a light.
@@ -575,7 +612,8 @@ Removes a light.
 **Returns:** `true` if the handle was in use.
 
 ### `SetLightDirection(lightHandle, dx, dy, dz)`
-Beam direction for spot and directional lights (the vector is normalized).
+Beam direction for spot and directional lights (the vector is normalized; it rotates the light
+entity so its `+z` axis points along the vector).
 
 | Param         | Type  | Description        |
 |---------------|-------|--------------------|

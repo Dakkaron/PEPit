@@ -20,6 +20,7 @@
 
 #define BUCKET3D_COUNT 4096
 #define DEG3D_TO_RAD 0.01745329252f
+#define RAD3D_TO_DEG 57.29577951f
 // Vertical field of view at CameraZoom 1 is 60 degrees: 0.5/tan(30deg)
 #define PROJ3D_FACTOR 0.8660254f
 #define SPOT3D_DEFAULT_INNER_DEG 12.0f
@@ -61,7 +62,7 @@ typedef struct {
   int32_t* uvQ; // Q16 uv pairs, null when untextured
   Face3D* faces;
   uint8_t color[3];
-  int16_t textureHandle;
+  int16_t textureIndex;
   uint8_t flipped;
   Vector3D boundsCenter;
   float boundsRadius;
@@ -78,32 +79,32 @@ typedef struct {
 
 typedef struct {
   bool inUse;
-  int16_t meshHandle;
-  int16_t parentHandle;
+  int16_t meshIndex;   // raw meshes3D index, -1 for pivot/camera/light entities
+  int16_t parentIndex;
   float x, y, z;
   float pitch, yaw, roll;
   float sx, sy, sz;
   uint8_t color[3];
   uint8_t hidden;
   int8_t order;
+  int8_t kind;         // ENTITY3D_KIND_*
+  int16_t compIndex;   // lights3D/cameras3D slot for light/camera entities
+  int16_t textureIndex; // raw textures3D override, -1 = use the mesh's texture
 } Entity3D;
 
 typedef struct {
   bool inUse;
-  float x, y, z;
-  float pitch, yaw, roll;
-  float zoom, nearPlane, farPlane;
+  float zoom, nearPlane, farPlane; // position and rotation live on the entity
 } Camera3D;
 
 typedef struct {
   bool inUse;
   uint8_t type;
   float r, g, b;        // 0..1
-  float x, y, z;
   float range, invRange, rangeSq; // range<=0 means infinite range
-  float dx, dy, dz;     // normalized beam direction (spot and directional)
   float cosInner, cosOuter, cosInvDelta;
-  // View space caches, refreshed every updateWorld3D()
+  // View space caches, refreshed every updateWorld3D() from the light
+  // entity's world transform.
   float vx, vy, vz;
   float bx, by, bz;
   float tx, ty, tz;     // direction towards the light (directional lights)
@@ -187,6 +188,22 @@ static bool w3d3DFrameActive3D = false; // enables the core 0 gap fill (see blit
 // one; the first CreateCamera replaces it so game camera settings take effect.
 static bool implicitCamera3D = false;
 
+/* Public handles are kind-tagged by range (see handle bases in engine3d.hpp);
+ * everything below the API boundary works on raw array indices. */
+static Entity3D* entityFromHandle3D(int16_t handle) {
+  if (handle < ENTITY3D_HANDLE_BASE || handle >= ENTITY3D_HANDLE_BASE + ENTITY3D_LIMIT)
+    return nullptr;
+  Entity3D* e = &entities3D[handle - ENTITY3D_HANDLE_BASE];
+  return e->inUse ? e : nullptr;
+}
+
+static Mesh3D* meshFromHandle3D(int16_t handle) {
+  if (handle < MESH3D_HANDLE_BASE || handle >= MESH3D_HANDLE_BASE + MESH3D_LIMIT)
+    return nullptr;
+  Mesh3D* m = &meshes3D[handle - MESH3D_HANDLE_BASE];
+  return m->inUse ? m : nullptr;
+}
+
 static uint16_t* fb3D = nullptr;
 static int32_t fbW3D = 0, fbH3D = 0;
 
@@ -241,13 +258,19 @@ static const char* w3dBlitMode3D = "sync";
 static void setupDefaultCamera3D() {
   memset(cameras3D, 0, sizeof(cameras3D));
   cameras3D[0].inUse = true;
-  implicitCamera3D = true;
-  cameras3D[0].x = 0;
-  cameras3D[0].y = 0;
-  cameras3D[0].z = -100;
   cameras3D[0].zoom = 1.0f;
   cameras3D[0].nearPlane = 1.0f;
   cameras3D[0].farPlane = 5000.0f;
+  Entity3D* e = &entities3D[0];
+  memset(e, 0, sizeof(Entity3D));
+  e->inUse = true;
+  e->kind = ENTITY3D_KIND_CAMERA;
+  e->compIndex = 0;
+  e->meshIndex = -1;
+  e->parentIndex = -1;
+  e->textureIndex = -1;
+  e->z = -100;
+  implicitCamera3D = true;
 }
 
 static bool ensureWorld3D() {
@@ -389,7 +412,7 @@ static int16_t allocMeshSlot3D() {
       Mesh3D* m = &meshes3D[i];
       memset(m, 0, sizeof(Mesh3D));
       m->inUse = true;
-      m->textureHandle = -1;
+      m->textureIndex = -1;
       m->color[0] = 255; m->color[1] = 255; m->color[2] = 255;
       return i;
     }
@@ -771,7 +794,7 @@ static void tryMtlTexture3D(const String& objPath, const char* mtlName, Mesh3D* 
   String texPath = parentDir3D(mtlPath) + String(texFile);
   int16_t texHandle = loadTexture3D(texPath);
   if (texHandle >= 0) {
-    m->textureHandle = texHandle;
+    m->textureIndex = (int16_t)(texHandle - TEXTURE3D_HANDLE_BASE);
     Serial.println("engine3d: auto-textured " + objPath + " with " + texPath);
   }
 }
@@ -847,7 +870,7 @@ int16_t loadMesh3D(String path) {
   Serial.print(" verts, ");
   Serial.print(m->faceCount);
   Serial.println(" faces)");
-  return slot;
+  return (int16_t)(MESH3D_HANDLE_BASE + slot);
 }
 
 
@@ -883,20 +906,28 @@ int16_t loadTexture3D(String path) {
     textures3D[i].inUse = true;
     Serial.print("engine3d: loaded texture ");
     Serial.println(path);
-    return i;
+    return (int16_t)(TEXTURE3D_HANDLE_BASE + i);
   }
   Serial.println("engine3d: no free texture slot!");
   return -1;
 }
 
 bool freeTexture3D(int16_t handle) {
-  if (handle < 0 || handle >= TEXTURE3D_LIMIT || !textures3D[handle].inUse) return false;
-  TFT_eSprite* s = &textureSprites3D[handle];
+  if (handle < TEXTURE3D_HANDLE_BASE || handle >= TEXTURE3D_HANDLE_BASE + TEXTURE3D_LIMIT)
+    return false;
+  int16_t idx = handle - TEXTURE3D_HANDLE_BASE;
+  if (!textures3D[idx].inUse) return false;
+  TFT_eSprite* s = &textureSprites3D[idx];
   if (s->created()) s->deleteSprite();
-  memset(&textures3D[handle], 0, sizeof(Texture3D));
+  memset(&textures3D[idx], 0, sizeof(Texture3D));
   for (int16_t mi = 0; mi < MESH3D_LIMIT; mi++) {
-    if (meshes3D[mi].inUse && meshes3D[mi].textureHandle == handle) {
-      meshes3D[mi].textureHandle = -1;
+    if (meshes3D[mi].inUse && meshes3D[mi].textureIndex == idx) {
+      meshes3D[mi].textureIndex = -1;
+    }
+  }
+  for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
+    if (entities3D[ei].inUse && entities3D[ei].textureIndex == idx) {
+      entities3D[ei].textureIndex = -1;
     }
   }
   return true;
@@ -905,39 +936,51 @@ bool freeTexture3D(int16_t handle) {
 
 
 bool freeMesh3D(int16_t handle) {
-  if (handle < 0 || handle >= MESH3D_LIMIT || !meshes3D[handle].inUse) return false;
-  freeMeshArrays3D(&meshes3D[handle]);
+  Mesh3D* m = meshFromHandle3D(handle);
+  if (!m) return false;
+  int16_t idx = handle - MESH3D_HANDLE_BASE;
+  freeMeshArrays3D(m);
   for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
-    if (entities3D[ei].inUse && entities3D[ei].meshHandle == handle) {
-      entities3D[ei].meshHandle = -1;
+    if (entities3D[ei].inUse && entities3D[ei].meshIndex == idx) {
+      entities3D[ei].meshIndex = -1;
     }
   }
   return true;
 }
 
 bool getMeshStats3D(int16_t handle, uint16_t* vertexCount, uint16_t* faceCount) {
-  if (handle < 0 || handle >= MESH3D_LIMIT || !meshes3D[handle].inUse) return false;
-  if (vertexCount) *vertexCount = meshes3D[handle].vertexCount;
-  if (faceCount) *faceCount = meshes3D[handle].faceCount;
+  Mesh3D* m = meshFromHandle3D(handle);
+  if (!m) return false;
+  if (vertexCount) *vertexCount = m->vertexCount;
+  if (faceCount) *faceCount = m->faceCount;
   return true;
 }
 
 void setMeshColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b) {
-  if (handle < 0 || handle >= MESH3D_LIMIT || !meshes3D[handle].inUse) return;
-  meshes3D[handle].color[0] = r;
-  meshes3D[handle].color[1] = g;
-  meshes3D[handle].color[2] = b;
+  Mesh3D* m = meshFromHandle3D(handle);
+  if (!m) return;
+  m->color[0] = r;
+  m->color[1] = g;
+  m->color[2] = b;
 }
 
 void setMeshTexture3D(int16_t meshHandle, int16_t textureHandle) {
-  if (meshHandle < 0 || meshHandle >= MESH3D_LIMIT || !meshes3D[meshHandle].inUse) return;
-  if (textureHandle >= 0 && (textureHandle >= TEXTURE3D_LIMIT || !textures3D[textureHandle].inUse)) return;
-  meshes3D[meshHandle].textureHandle = textureHandle;
+  Mesh3D* m = meshFromHandle3D(meshHandle);
+  if (!m) return;
+  if (textureHandle == -1) {
+    m->textureIndex = -1;
+    return;
+  }
+  if (textureHandle < TEXTURE3D_HANDLE_BASE || textureHandle >= TEXTURE3D_HANDLE_BASE + TEXTURE3D_LIMIT) return;
+  int16_t idx = textureHandle - TEXTURE3D_HANDLE_BASE;
+  if (!textures3D[idx].inUse) return;
+  m->textureIndex = idx;
 }
 
 void setMeshFlipped3D(int16_t handle, bool flipped) {
-  if (handle < 0 || handle >= MESH3D_LIMIT || !meshes3D[handle].inUse) return;
-  meshes3D[handle].flipped = flipped ? 1 : 0;
+  Mesh3D* m = meshFromHandle3D(handle);
+  if (!m) return;
+  m->flipped = flipped ? 1 : 0;
 }
 
 static bool setupPrimitiveMesh3D(Mesh3D* m, uint16_t vc, uint16_t fc) {
@@ -992,7 +1035,7 @@ int16_t createMesh3DCube() {
     m->faces[fi*2] = {base, (uint16_t)(base+1), (uint16_t)(base+2)};
     m->faces[fi*2+1] = {base, (uint16_t)(base+2), (uint16_t)(base+3)};
   }
-  return slot;
+  return (int16_t)(MESH3D_HANDLE_BASE + slot);
 }
 
 int16_t createMesh3DSphere(float radius, uint8_t segments) {
@@ -1041,7 +1084,7 @@ int16_t createMesh3DSphere(float radius, uint8_t segments) {
       m->faces[faceIdx++] = {p0, p2, p3};
     }
   }
-  return slot;
+  return (int16_t)(MESH3D_HANDLE_BASE + slot);
 }
 
 int16_t createMesh3DPlane(float width, float height) {
@@ -1065,89 +1108,153 @@ int16_t createMesh3DPlane(float width, float height) {
   }
   m->faces[0] = {0, 1, 2};
   m->faces[1] = {0, 2, 3};
-  return slot;
+  return (int16_t)(MESH3D_HANDLE_BASE + slot);
 }
 
 
 
-int16_t createEntity3D(int16_t meshHandle) {
-  if (!ensureWorld3D()) return -1;
-  if (meshHandle < 0 || meshHandle >= MESH3D_LIMIT || !meshes3D[meshHandle].inUse) {
-    Serial.println("engine3d: CreateEntity got an invalid mesh handle!");
-    return -1;
-  }
+static int16_t allocEntitySlot3D() {
   for (int16_t i = 0; i < ENTITY3D_LIMIT; i++) {
     if (entities3D[i].inUse) continue;
     Entity3D* e = &entities3D[i];
     memset(e, 0, sizeof(Entity3D));
     e->inUse = true;
-    e->meshHandle = meshHandle;
-    e->parentHandle = -1;
+    e->meshIndex = -1;
+    e->parentIndex = -1;
+    e->compIndex = -1;
+    e->textureIndex = -1;
     e->sx = 1.0f; e->sy = 1.0f; e->sz = 1.0f;
     e->color[0] = 255; e->color[1] = 255; e->color[2] = 255;
     return i;
   }
-  Serial.println("engine3d: no free entity slot!");
   return -1;
 }
 
+int16_t createEntity3D(int16_t meshHandle) {
+  if (!ensureWorld3D()) return -1;
+  if (!meshFromHandle3D(meshHandle)) {
+    Serial.println("engine3d: CreateEntity got an invalid mesh handle!");
+    return -1;
+  }
+  int16_t i = allocEntitySlot3D();
+  if (i < 0) {
+    Serial.println("engine3d: no free entity slot!");
+    return -1;
+  }
+  entities3D[i].kind = ENTITY3D_KIND_MESH;
+  entities3D[i].meshIndex = (int16_t)(meshHandle - MESH3D_HANDLE_BASE);
+  return i;
+}
+
+int16_t createPivot3D() {
+  if (!ensureWorld3D()) return -1;
+  int16_t i = allocEntitySlot3D();
+  if (i < 0) {
+    Serial.println("engine3d: no free entity slot!");
+    return -1;
+  }
+  entities3D[i].kind = ENTITY3D_KIND_PIVOT;
+  return i;
+}
+
+static void freeEntityComponent3D(Entity3D* e) {
+  if (e->compIndex < 0) return;
+  if (e->kind == ENTITY3D_KIND_LIGHT) {
+    memset(&lights3D[e->compIndex], 0, sizeof(Light3D));
+  } else if (e->kind == ENTITY3D_KIND_CAMERA) {
+    if (implicitCamera3D && e->compIndex == 0) implicitCamera3D = false;
+    memset(&cameras3D[e->compIndex], 0, sizeof(Camera3D));
+  }
+}
+
 bool freeEntity3D(int16_t handle) {
-  if (handle < 0 || handle >= ENTITY3D_LIMIT || !entities3D[handle].inUse) return false;
-  entities3D[handle].inUse = false;
-  memset(&entities3D[handle], 0, sizeof(Entity3D));
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e) return false;
+  freeEntityComponent3D(e);
+  memset(e, 0, sizeof(Entity3D));
   for (int16_t i = 0; i < ENTITY3D_LIMIT; i++) {
-    if (entities3D[i].inUse && entities3D[i].parentHandle == handle) {
-      entities3D[i].parentHandle = -1;
+    if (entities3D[i].inUse && entities3D[i].parentIndex == handle) {
+      entities3D[i].parentIndex = -1;
     }
   }
   return true;
 }
 
+void moveEntity3D(int16_t handle, float mx, float my, float mz) {
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e) return;
+  Mat3 own;
+  mat3FromEuler3D(e->pitch, e->yaw, e->roll, &own);
+  e->x += own.m[0]*mx + own.m[1]*my + own.m[2]*mz;
+  e->y += own.m[3]*mx + own.m[4]*my + own.m[5]*mz;
+  e->z += own.m[6]*mx + own.m[7]*my + own.m[8]*mz;
+}
+
 void positionEntity3D(int16_t handle, float x, float y, float z) {
-  if (handle < 0 || handle >= ENTITY3D_LIMIT || !entities3D[handle].inUse) return;
-  entities3D[handle].x = x;
-  entities3D[handle].y = y;
-  entities3D[handle].z = z;
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e) return;
+  e->x = x;
+  e->y = y;
+  e->z = z;
 }
 
 void rotateEntity3D(int16_t handle, float pitch, float yaw, float roll) {
-  if (handle < 0 || handle >= ENTITY3D_LIMIT || !entities3D[handle].inUse) return;
-  entities3D[handle].pitch = pitch;
-  entities3D[handle].yaw = yaw;
-  entities3D[handle].roll = roll;
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e) return;
+  e->pitch = pitch;
+  e->yaw = yaw;
+  e->roll = roll;
 }
 
 void turnEntity3D(int16_t handle, float pitch, float yaw, float roll) {
-  if (handle < 0 || handle >= ENTITY3D_LIMIT || !entities3D[handle].inUse) return;
-  entities3D[handle].pitch += pitch;
-  entities3D[handle].yaw += yaw;
-  entities3D[handle].roll += roll;
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e) return;
+  e->pitch += pitch;
+  e->yaw += yaw;
+  e->roll += roll;
 }
 
 void scaleEntity3D(int16_t handle, float sx, float sy, float sz) {
-  if (handle < 0 || handle >= ENTITY3D_LIMIT || !entities3D[handle].inUse) return;
-  entities3D[handle].sx = sx;
-  entities3D[handle].sy = sy;
-  entities3D[handle].sz = sz;
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e) return;
+  e->sx = sx;
+  e->sy = sy;
+  e->sz = sz;
 }
 
 void entityColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b) {
-  if (handle < 0 || handle >= ENTITY3D_LIMIT || !entities3D[handle].inUse) return;
-  entities3D[handle].color[0] = r;
-  entities3D[handle].color[1] = g;
-  entities3D[handle].color[2] = b;
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e) return;
+  e->color[0] = r;
+  e->color[1] = g;
+  e->color[2] = b;
+}
+
+void setEntityTexture3D(int16_t handle, int16_t textureHandle) {
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e) return;
+  if (textureHandle == -1) {
+    e->textureIndex = -1;
+    return;
+  }
+  if (textureHandle < TEXTURE3D_HANDLE_BASE || textureHandle >= TEXTURE3D_HANDLE_BASE + TEXTURE3D_LIMIT) return;
+  int16_t idx = textureHandle - TEXTURE3D_HANDLE_BASE;
+  if (!textures3D[idx].inUse) return;
+  e->textureIndex = idx;
 }
 
 void hideEntity3D(int16_t handle, bool hidden) {
-  if (handle < 0 || handle >= ENTITY3D_LIMIT || !entities3D[handle].inUse) return;
-  entities3D[handle].hidden = hidden ? 1 : 0;
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e) return;
+  e->hidden = hidden ? 1 : 0;
 }
 
 bool linkEntity3D(int16_t childHandle, int16_t parentHandle) {
-  if (childHandle < 0 || childHandle >= ENTITY3D_LIMIT || !entities3D[childHandle].inUse) return false;
-  if (parentHandle >= ENTITY3D_LIMIT || !entities3D[parentHandle].inUse) return false;
+  Entity3D* child = entityFromHandle3D(childHandle);
+  Entity3D* parent = entityFromHandle3D(parentHandle);
+  if (!child || !parent) return false;
   if (childHandle == parentHandle) return false;
-  entities3D[childHandle].parentHandle = parentHandle;
+  child->parentIndex = parentHandle;
   return true;
 }
 
@@ -1158,65 +1265,80 @@ void entityOrder3D(int16_t handle, int8_t order) {
 
 
 
+// Cameras are entities with a camera component; position and rotation are
+// entity transforms, zoom and clipping range are component settings.
 int16_t createCamera3D() {
   if (!ensureWorld3D()) return -1;
-  if (implicitCamera3D) {
-    implicitCamera3D = false;
-    cameras3D[0].inUse = false;
-  }
+  if (implicitCamera3D) freeEntity3D(ENTITY3D_HANDLE_BASE);
+  int16_t ci = -1;
   for (int16_t i = 0; i < CAMERA3D_LIMIT; i++) {
-    if (cameras3D[i].inUse) continue;
-    memset(&cameras3D[i], 0, sizeof(Camera3D));
-    cameras3D[i].inUse = true;
-    cameras3D[i].z = -100;
-    cameras3D[i].zoom = 1.0f;
-    cameras3D[i].nearPlane = 1.0f;
-    cameras3D[i].farPlane = 5000.0f;
-    return i;
+    if (!cameras3D[i].inUse) { ci = i; break; }
   }
-  Serial.println("engine3d: no free camera slot!");
-  return -1;
+  int16_t ei = allocEntitySlot3D();
+  if (ei < 0 || ci < 0) {
+    if (ei >= 0) memset(&entities3D[ei], 0, sizeof(Entity3D));
+    Serial.println("engine3d: no free camera slot!");
+    return -1;
+  }
+  entities3D[ei].kind = ENTITY3D_KIND_CAMERA;
+  entities3D[ei].compIndex = ci;
+  entities3D[ei].z = -100;
+  cameras3D[ci].inUse = true;
+  cameras3D[ci].zoom = 1.0f;
+  cameras3D[ci].nearPlane = 1.0f;
+  cameras3D[ci].farPlane = 5000.0f;
+  return ei;
+}
+
+static Entity3D* cameraEntityFromHandle3D(int16_t handle) {
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e || e->kind != ENTITY3D_KIND_CAMERA || e->compIndex < 0) return nullptr;
+  return e;
 }
 
 bool freeCamera3D(int16_t handle) {
-  if (handle < 0 || handle >= CAMERA3D_LIMIT || !cameras3D[handle].inUse) return false;
-  cameras3D[handle].inUse = false;
-  return true;
+  if (!cameraEntityFromHandle3D(handle)) return false;
+  return freeEntity3D(handle);
 }
 
 void positionCamera3D(int16_t handle, float x, float y, float z) {
-  if (handle < 0 || handle >= CAMERA3D_LIMIT || !cameras3D[handle].inUse) return;
-  cameras3D[handle].x = x;
-  cameras3D[handle].y = y;
-  cameras3D[handle].z = z;
+  Entity3D* e = cameraEntityFromHandle3D(handle);
+  if (!e) return;
+  e->x = x;
+  e->y = y;
+  e->z = z;
 }
 
 void rotateCamera3D(int16_t handle, float pitch, float yaw, float roll) {
-  if (handle < 0 || handle >= CAMERA3D_LIMIT || !cameras3D[handle].inUse) return;
-  cameras3D[handle].pitch = pitch;
-  cameras3D[handle].yaw = yaw;
-  cameras3D[handle].roll = roll;
+  Entity3D* e = cameraEntityFromHandle3D(handle);
+  if (!e) return;
+  e->pitch = pitch;
+  e->yaw = yaw;
+  e->roll = roll;
 }
 
 void turnCamera3D(int16_t handle, float pitch, float yaw, float roll) {
-  if (handle < 0 || handle >= CAMERA3D_LIMIT || !cameras3D[handle].inUse) return;
-  cameras3D[handle].pitch += pitch;
-  cameras3D[handle].yaw += yaw;
-  cameras3D[handle].roll += roll;
+  Entity3D* e = cameraEntityFromHandle3D(handle);
+  if (!e) return;
+  e->pitch += pitch;
+  e->yaw += yaw;
+  e->roll += roll;
 }
 
 void cameraZoom3D(int16_t handle, float zoom) {
-  if (handle < 0 || handle >= CAMERA3D_LIMIT || !cameras3D[handle].inUse) return;
+  Entity3D* e = cameraEntityFromHandle3D(handle);
+  if (!e) return;
   if (zoom < 0.01f) zoom = 0.01f;
-  cameras3D[handle].zoom = zoom;
+  cameras3D[e->compIndex].zoom = zoom;
 }
 
 void cameraRange3D(int16_t handle, float nearPlane, float farPlane) {
-  if (handle < 0 || handle >= CAMERA3D_LIMIT || !cameras3D[handle].inUse) return;
+  Entity3D* e = cameraEntityFromHandle3D(handle);
+  if (!e) return;
   if (nearPlane < 0.01f) nearPlane = 0.01f;
   if (farPlane <= nearPlane + 0.01f) farPlane = nearPlane + 100.0f;
-  cameras3D[handle].nearPlane = nearPlane;
-  cameras3D[handle].farPlane = farPlane;
+  cameras3D[e->compIndex].nearPlane = nearPlane;
+  cameras3D[e->compIndex].farPlane = farPlane;
 }
 
 
@@ -1236,54 +1358,72 @@ static void lightSetCone3D(Light3D* l, float innerDeg, float outerDeg) {
   l->cosInvDelta = (delta > 1e-6f) ? (1.0f / delta) : 1000000.0f;
 }
 
+// Lights are entities with a light component. The entity's local +z axis is
+// the beam direction, so RotateEntity/TurnEntity aim the light and parenting
+// moves it with a rig. SetLightDirection aims the entity at a vector.
 int16_t createLight3D(uint8_t r, uint8_t g, uint8_t b, float x, float y, float z, float range, uint8_t type) {
   if (!ensureWorld3D()) return -1;
+  int16_t ci = -1;
   for (int16_t i = 0; i < LIGHT3D_LIMIT; i++) {
-    if (lights3D[i].inUse) continue;
-    Light3D* l = &lights3D[i];
-    memset(l, 0, sizeof(Light3D));
-    l->inUse = true;
-    l->type = type;
-    l->r = (float)r / 255.0f;
-    l->g = (float)g / 255.0f;
-    l->b = (float)b / 255.0f;
-    l->x = x; l->y = y; l->z = z;
-    if (range > 0.0f) {
-      l->range = range;
-      l->invRange = 1.0f / range;
-      l->rangeSq = range * range;
-    } else {
-      l->range = 0;
-      l->invRange = 0;
-      l->rangeSq = LIGHT3D_MAX_RANGE;
-    }
-    l->dx = 0; l->dy = -1; l->dz = 0;
-    lightSetCone3D(l, SPOT3D_DEFAULT_INNER_DEG, SPOT3D_DEFAULT_OUTER_DEG);
-    return i;
+    if (!lights3D[i].inUse) { ci = i; break; }
   }
-  Serial.println("engine3d: no free light slot!");
-  return -1;
+  int16_t ei = allocEntitySlot3D();
+  if (ei < 0 || ci < 0) {
+    if (ei >= 0) memset(&entities3D[ei], 0, sizeof(Entity3D));
+    Serial.println("engine3d: no free light slot!");
+    return -1;
+  }
+  entities3D[ei].kind = ENTITY3D_KIND_LIGHT;
+  entities3D[ei].compIndex = ci;
+  entities3D[ei].x = x; entities3D[ei].y = y; entities3D[ei].z = z;
+  Light3D* l = &lights3D[ci];
+  memset(l, 0, sizeof(Light3D));
+  l->inUse = true;
+  l->type = type;
+  l->r = (float)r / 255.0f;
+  l->g = (float)g / 255.0f;
+  l->b = (float)b / 255.0f;
+  if (range > 0.0f) {
+    l->range = range;
+    l->invRange = 1.0f / range;
+    l->rangeSq = range * range;
+  } else {
+    l->range = 0;
+    l->invRange = 0;
+    l->rangeSq = LIGHT3D_MAX_RANGE;
+  }
+  lightSetCone3D(l, SPOT3D_DEFAULT_INNER_DEG, SPOT3D_DEFAULT_OUTER_DEG);
+  return ei;
+}
+
+static Entity3D* lightEntityFromHandle3D(int16_t handle) {
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e || e->kind != ENTITY3D_KIND_LIGHT || e->compIndex < 0) return nullptr;
+  return e;
 }
 
 bool freeLight3D(int16_t handle) {
-  if (handle < 0 || handle >= LIGHT3D_LIMIT || !lights3D[handle].inUse) return false;
-  memset(&lights3D[handle], 0, sizeof(Light3D));
-  return true;
+  if (!lightEntityFromHandle3D(handle)) return false;
+  return freeEntity3D(handle);
 }
 
 void setLightDirection3D(int16_t handle, float dx, float dy, float dz) {
-  if (handle < 0 || handle >= LIGHT3D_LIMIT || !lights3D[handle].inUse) return;
+  Entity3D* e = lightEntityFromHandle3D(handle);
+  if (!e) return;
   float len = sqrtf(dx*dx + dy*dy + dz*dz);
   if (len < 1e-6f) return;
-  float inv = 1.0f / len;
-  lights3D[handle].dx = dx * inv;
-  lights3D[handle].dy = dy * inv;
-  lights3D[handle].dz = dz * inv;
+  float ny = dy / len;
+  if (ny > 1.0f) ny = 1.0f;
+  if (ny < -1.0f) ny = -1.0f;
+  e->pitch = asinf(ny) * RAD3D_TO_DEG;
+  e->yaw = atan2f(dx, dz) * RAD3D_TO_DEG;
+  e->roll = 0.0f;
 }
 
 void setLightCone3D(int16_t handle, float innerAngleDeg, float outerAngleDeg) {
-  if (handle < 0 || handle >= LIGHT3D_LIMIT || !lights3D[handle].inUse) return;
-  lightSetCone3D(&lights3D[handle], innerAngleDeg, outerAngleDeg);
+  Entity3D* e = lightEntityFromHandle3D(handle);
+  if (!e) return;
+  lightSetCone3D(&lights3D[e->compIndex], innerAngleDeg, outerAngleDeg);
 }
 
 void resetWorld3D() {
@@ -1317,10 +1457,10 @@ static void entityWorldTransform3D(int16_t handle, float* rot9, float* pos3, uin
   pos3[0] = e->x;
   pos3[1] = e->y;
   pos3[2] = e->z;
-  if (e->parentHandle >= 0 && e->parentHandle < ENTITY3D_LIMIT &&
-      entities3D[e->parentHandle].inUse && guard < 8) {
+  if (e->parentIndex >= 0 && e->parentIndex < ENTITY3D_LIMIT &&
+      entities3D[e->parentIndex].inUse && guard < 8) {
     float prot[9], ppos[3];
-    entityWorldTransform3D(e->parentHandle, prot, ppos, guard + 1);
+    entityWorldTransform3D(e->parentIndex, prot, ppos, guard + 1);
     Mat3 parent, child, combined;
     memcpy(parent.m, prot, sizeof(parent.m));
     memcpy(child.m, own.m, sizeof(child.m));
@@ -1856,8 +1996,8 @@ static inline bool xfCacheInvalidate3D(void* addr, size_t len, const char* what)
 static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* culledBits, ViewVertex3D* vs) {
   Entity3D* e = &entities3D[ei];
   if (!e->inUse || e->hidden) return 0;
-  if (e->meshHandle < 0 || e->meshHandle >= MESH3D_LIMIT || !meshes3D[e->meshHandle].inUse) return 0;
-  Mesh3D* mesh = &meshes3D[e->meshHandle];
+  if (e->meshIndex < 0 || e->meshIndex >= MESH3D_LIMIT || !meshes3D[e->meshIndex].inUse) return 0;
+  Mesh3D* mesh = &meshes3D[e->meshIndex];
   uint16_t vertexCount = mesh->vertexCount;
 
   float rot[9], epos[3];
@@ -1966,8 +2106,8 @@ static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* cu
 static void faceEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, ViewVertex3D* vs, float* zLo, float* zHi) {
   Entity3D* e = &entities3D[ei];
   if (!e->inUse || e->hidden) return;
-  if (e->meshHandle < 0 || e->meshHandle >= MESH3D_LIMIT || !meshes3D[e->meshHandle].inUse) return;
-  Mesh3D* mesh = &meshes3D[e->meshHandle];
+  if (e->meshIndex < 0 || e->meshIndex >= MESH3D_LIMIT || !meshes3D[e->meshIndex].inUse) return;
+  Mesh3D* mesh = &meshes3D[e->meshIndex];
   uint16_t vertexCount = mesh->vertexCount;
   const float nearPlane = ctx->nearPlane;
   const bool dynamicLighting = ctx->dynamicLighting;
@@ -1982,9 +2122,10 @@ static void faceEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, ViewVertex3D* 
 
   const int32_t* uvQ = mesh->uvQ;
   const Texture3D* tex = nullptr;
-  if (mesh->textureHandle >= 0 && mesh->textureHandle < TEXTURE3D_LIMIT &&
-      textures3D[mesh->textureHandle].inUse && uvQ) {
-    tex = &textures3D[mesh->textureHandle];
+  int16_t texIndex = e->textureIndex >= 0 ? e->textureIndex : mesh->textureIndex;
+  if (texIndex >= 0 && texIndex < TEXTURE3D_LIMIT &&
+      textures3D[texIndex].inUse && uvQ) {
+    tex = &textures3D[texIndex];
   }
   uint8_t mode = tex ? (dynamicLighting ? 2 : 3) : (dynamicLighting ? 1 : 0);
 
@@ -2093,7 +2234,7 @@ static void w3dXfTaskLoop3D(void*) {
     bool failed3D = false;
     int16_t ei;
     while (xQueueReceive(w3dXfQueue3D, &ei, 0) == pdTRUE) {
-      Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
+      Mesh3D* m = &meshes3D[entities3D[ei].meshIndex];
       ViewVertex3D* sc = w3dXfScratch3D[ei];
       // Core 1's vtx write-back may still sit in its private cache; drop the
       // stale copy before streaming from PSRAM.
@@ -2145,12 +2286,16 @@ void updateWorld3D(DISPLAY_T* display) {
     Serial.println("engine3d: updateWorld called with an invalid display!");
     return;
   }
-  int8_t camIdx = -1;
-  for (int8_t i = 0; i < CAMERA3D_LIMIT; i++) {
-    if (cameras3D[i].inUse) { camIdx = i; break; }
+  int16_t camEnt = -1;
+  for (int16_t i = 0; i < ENTITY3D_LIMIT; i++) {
+    if (entities3D[i].inUse && !entities3D[i].hidden &&
+        entities3D[i].kind == ENTITY3D_KIND_CAMERA && entities3D[i].compIndex >= 0) {
+      camEnt = i;
+      break;
+    }
   }
-  if (camIdx < 0) return;
-  Camera3D* cam = &cameras3D[camIdx];
+  if (camEnt < 0) return;
+  Camera3D* cam = &cameras3D[entities3D[camEnt].compIndex];
   if (cam->nearPlane < 0.01f) cam->nearPlane = 0.01f;
   if (cam->farPlane <= cam->nearPlane) cam->farPlane = cam->nearPlane + 100.0f;
   if (cam->zoom < 0.01f) cam->zoom = 0.01f;
@@ -2163,26 +2308,31 @@ void updateWorld3D(DISPLAY_T* display) {
   float tanHalfX = (vpR3D - vpL3D) * 0.5f / projScale;
   float tanHalfY = (vpB3D - vpT3D) * 0.5f / projScale;
 
+  float camWrot[9], camWpos[3];
+  entityWorldTransform3D(camEnt, camWrot, camWpos, 0);
   Mat3 camRot, basis;
-  mat3FromEuler3D(cam->pitch, cam->yaw, cam->roll, &camRot);
+  memcpy(camRot.m, camWrot, sizeof(camRot.m));
   mat3Transpose3D(&camRot, &basis); // rows are the camera axes in world space
 
   int8_t activeLights[LIGHT3D_LIMIT];
   int activeLightCount = 0;
-  for (int8_t li = 0; li < LIGHT3D_LIMIT; li++) {
-    Light3D* l = &lights3D[li];
-    if (!l->inUse) continue;
-    float lx = l->x - cam->x, ly = l->y - cam->y, lz = l->z - cam->z;
+  for (int16_t ei = 0; ei < ENTITY3D_LIMIT && activeLightCount < LIGHT3D_LIMIT; ei++) {
+    Entity3D* le = &entities3D[ei];
+    if (!le->inUse || le->hidden || le->kind != ENTITY3D_KIND_LIGHT || le->compIndex < 0) continue;
+    Light3D* l = &lights3D[le->compIndex];
+    float wrot[9], wpos[3];
+    entityWorldTransform3D(ei, wrot, wpos, 0); // beam aim comes from the entity's local +z axis
+    float lx = wpos[0] - camWpos[0], ly = wpos[1] - camWpos[1], lz = wpos[2] - camWpos[2];
     l->vx = basis.m[0]*lx + basis.m[1]*ly + basis.m[2]*lz;
     l->vy = basis.m[3]*lx + basis.m[4]*ly + basis.m[5]*lz;
     l->vz = basis.m[6]*lx + basis.m[7]*ly + basis.m[8]*lz;
-    l->bx = basis.m[0]*l->dx + basis.m[1]*l->dy + basis.m[2]*l->dz;
-    l->by = basis.m[3]*l->dx + basis.m[4]*l->dy + basis.m[5]*l->dz;
-    l->bz = basis.m[6]*l->dx + basis.m[7]*l->dy + basis.m[8]*l->dz;
+    l->bx = basis.m[0]*wrot[2] + basis.m[1]*wrot[5] + basis.m[2]*wrot[8];
+    l->by = basis.m[3]*wrot[2] + basis.m[4]*wrot[5] + basis.m[5]*wrot[8];
+    l->bz = basis.m[6]*wrot[2] + basis.m[7]*wrot[5] + basis.m[8]*wrot[8];
     l->tx = -l->bx;
     l->ty = -l->by;
     l->tz = -l->bz;
-    if (l->r + l->g + l->b > 0.001f) activeLights[activeLightCount++] = li;
+    if (l->r + l->g + l->b > 0.001f) activeLights[activeLightCount++] = le->compIndex;
   }
   bool dynamicLighting = activeLightCount > 0;
 
@@ -2194,7 +2344,7 @@ void updateWorld3D(DISPLAY_T* display) {
 
   XfFrameCtx3D* ctx = &w3dXfCtx3D;
   memcpy(ctx->basis.m, basis.m, sizeof(ctx->basis.m));
-  ctx->camX = cam->x; ctx->camY = cam->y; ctx->camZ = cam->z;
+  ctx->camX = camWpos[0]; ctx->camY = camWpos[1]; ctx->camZ = camWpos[2];
   ctx->nearPlane = cam->nearPlane; ctx->farPlane = cam->farPlane;
   ctx->projScale = projScale; ctx->vpCx = vpCx3D; ctx->vpCy = vpCy3D;
   ctx->tanHalfX = tanHalfX; ctx->tanHalfY = tanHalfY;
@@ -2219,11 +2369,11 @@ void updateWorld3D(DISPLAY_T* display) {
     for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
       Entity3D* e = &entities3D[ei];
       if (!e->inUse || e->hidden) continue;
-      if (e->meshHandle < 0 || e->meshHandle >= MESH3D_LIMIT || !meshes3D[e->meshHandle].inUse) continue;
-      uint16_t vc = meshes3D[e->meshHandle].vertexCount;
+      if (e->meshIndex < 0 || e->meshIndex >= MESH3D_LIMIT || !meshes3D[e->meshIndex].inUse) continue;
+      uint16_t vc = meshes3D[e->meshIndex].vertexCount;
       int16_t pos = xfQueuedCount3D++;
       while (pos > 0 &&
-             meshes3D[entities3D[xfQueued3D[pos - 1]].meshHandle].vertexCount < vc) {
+             meshes3D[entities3D[xfQueued3D[pos - 1]].meshIndex].vertexCount < vc) {
         xfQueued3D[pos] = xfQueued3D[pos - 1];
         pos--;
       }
@@ -2237,7 +2387,7 @@ void updateWorld3D(DISPLAY_T* display) {
     size_t poolVerts = 0;
     memset(instSeen3D, 0, sizeof(instSeen3D));
     for (int16_t qi = 0; qi < xfQueuedCount3D; qi++) {
-      Mesh3D* m = &meshes3D[entities3D[xfQueued3D[qi]].meshHandle];
+      Mesh3D* m = &meshes3D[entities3D[xfQueued3D[qi]].meshIndex];
       if (instSeen3D[m - meshes3D]++) poolVerts += (m->vertexCount + 1) & ~1;
     }
     bool poolOk = poolVerts <= w3dXfPoolVerts3D;
@@ -2252,7 +2402,7 @@ void updateWorld3D(DISPLAY_T* display) {
       memset(instSeen3D, 0, sizeof(instSeen3D));
       for (int16_t qi = 0; qi < xfQueuedCount3D; qi++) {
         int16_t ei = xfQueued3D[qi];
-        Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
+        Mesh3D* m = &meshes3D[entities3D[ei].meshIndex];
         if (instSeen3D[m - meshes3D]++) {
           w3dXfScratch3D[ei] = w3dXfPool3D + poolOff;
           poolOff += (m->vertexCount + 1) & ~1;
@@ -2262,7 +2412,7 @@ void updateWorld3D(DISPLAY_T* display) {
       }
       bool synced = true;  // the shared statics need no leg; vtx and scratch do
       for (int16_t qi = 0; synced && qi < xfQueuedCount3D; qi++) {
-        Mesh3D* m = &meshes3D[entities3D[xfQueued3D[qi]].meshHandle];
+        Mesh3D* m = &meshes3D[entities3D[xfQueued3D[qi]].meshIndex];
         synced = m->vtx && m->vertexCount
           ? xfCacheFlush3D(m->vtx, meshVtxSpan3D(m->vertexCount), "vtx C2M")
           : true;
@@ -2271,7 +2421,7 @@ void updateWorld3D(DISPLAY_T* display) {
       // gone from its cache before the helper writes them. Invalidate only.
       for (int16_t qi = 0; synced && qi < xfQueuedCount3D; qi++) {
         int16_t ei = xfQueued3D[qi];
-        Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
+        Mesh3D* m = &meshes3D[entities3D[ei].meshIndex];
         synced = w3dXfScratch3D[ei] && m->vertexCount
           ? xfCacheInvalidate3D(w3dXfScratch3D[ei], viewVertsSpan3D(m->vertexCount), "scratch M2C")
           : true;
@@ -2338,8 +2488,8 @@ void updateWorld3D(DISPLAY_T* display) {
     for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
       Entity3D* e = &entities3D[ei];
       if (!e->inUse || e->hidden) continue;
-      if (e->meshHandle < 0 || e->meshHandle >= MESH3D_LIMIT || !meshes3D[e->meshHandle].inUse) continue;
-      ViewVertex3D* vs = meshes3D[e->meshHandle].vs;
+      if (e->meshIndex < 0 || e->meshIndex >= MESH3D_LIMIT || !meshes3D[e->meshIndex].inUse) continue;
+      ViewVertex3D* vs = meshes3D[e->meshIndex].vs;
       if (perf3DEnabled) perfSub3D = esp_timer_get_time();
       uint32_t n = xfEntityPass3D(ei, ctx, xfCulled3D, vs);
       if (perf3DEnabled) {
