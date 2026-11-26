@@ -65,7 +65,6 @@ void readSystemConfig(SystemConfig* systemConfig, String* errorMessage) {
     systemConfig->debugLogBlowPressure  = getBoolIniValueFromSection(resBuffer, "debugLogBlowPressure", &ignoreErrors, false);
     systemConfig->debugLogTrampoline    = getBoolIniValueFromSection(resBuffer, "debugLogTrampoline", &ignoreErrors, false);
     systemConfig->debugLogRender3D      = getBoolIniValueFromSection(resBuffer, "debugLogRender3D", &ignoreErrors, false);
-    systemConfig->renderPipeline3D      = getBoolIniValueFromSection(resBuffer, "renderPipeline3D", &ignoreErrors, true);
     systemConfig->renderI80Push3D       = getBoolIniValueFromSection(resBuffer, "renderI80Push3D", &ignoreErrors, true);
     systemConfig->renderSplitXf3D       = getBoolIniValueFromSection(resBuffer, "renderSplitXf3D", &ignoreErrors, true);
     systemConfig->logExecutions         = getBoolIniValueFromSection(resBuffer, "logExecutions", errorMessage, false);

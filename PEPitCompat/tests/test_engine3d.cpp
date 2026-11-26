@@ -751,7 +751,6 @@ TEST_CASE("engine3d: progress bar overdraw beyond 100% survives the gap fill", "
     disp.setColorDepth(16);
     disp.createSprite(320, 240, 2);
     disp.frameBuffer(1);
-    setWorld3DPipeline3D(true);
 
     // mask mode only arms after the engine rasterized a 3D frame on the display
     beginWorld3DFill3D(&disp);

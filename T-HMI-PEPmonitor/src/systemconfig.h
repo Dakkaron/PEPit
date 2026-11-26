@@ -17,7 +17,6 @@ struct SystemConfig {
   bool debugLogBlowPressure;
   bool debugLogTrampoline;
   bool debugLogRender3D;
-  bool renderPipeline3D;
   bool renderI80Push3D;
   bool renderSplitXf3D;
   bool logExecutions;

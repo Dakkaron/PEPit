@@ -1489,7 +1489,6 @@ static SemaphoreHandle_t w3dFillDone3D = nullptr;
 static SemaphoreHandle_t w3dWorkDone3D = nullptr;
 static TaskHandle_t w3dPushTask3DHandle = nullptr;
 static bool w3dPushPending3D = false;
-static bool w3dPipelineEnabled3D = true;
 static bool w3dI80Push3D = true;
 static uint16_t* w3dPushNew3D = nullptr; // buffer holding the frame to display
 static int16_t w3dPushW3D = 0, w3dPushH3D = 0;
@@ -1671,7 +1670,7 @@ bool world3DMaskMode3D(DISPLAY_T* display) {
 void beginWorld3DFill3D(DISPLAY_T* display) {
   if (!display || !display->created()) return;
   barrierWorld3DFill3D();
-  if (w3dPipelineEnabled3D && w3d3DFrameActive3D && display->frameBufferId() && w3dPipelineReady3D()
+  if (w3d3DFrameActive3D && display->frameBufferId() && w3dPipelineReady3D()
       && ensureMask3D(display->width(), display->height())) {
     memset(w3dMask3D[display->frameBufferId() - 1], 0,
            (size_t)w3dMaskWords3D * w3dMaskRows3D * 4);
@@ -1749,11 +1748,6 @@ void claimTextRect3D(DISPLAY_T* display, const char* text, int16_t x, int16_t y)
                          (int16_t)(x1 - x0 + 2), (int16_t)(y1 - y0 + 2));
 }
 
-void setWorld3DPipeline3D(bool enabled) {
-  w3dPipelineEnabled3D = enabled;
-  if (!enabled) quiesceWorld3DBlit3D();
-}
-
 void setWorld3DI80Push3D(bool enabled) {
   w3dI80Push3D = enabled;
 }
@@ -1767,7 +1761,7 @@ void blitWorld3DFrame3D(DISPLAY_T* display) {
   int64_t perfT0 = perf3DEnabled ? esp_timer_get_time() : 0;
   bool pipelined = false;
   int8_t drawn = display->frameBufferId();
-  if (w3dPipelineEnabled3D && drawn && w3dPipelineReady3D()) {
+  if (drawn && w3dPipelineReady3D()) {
     if (w3dPushPending3D) {
       // The displayed buffer must be fully pushed before it is redrawn, and
       // the task must have consumed the previous hand-off before we rewrite it.

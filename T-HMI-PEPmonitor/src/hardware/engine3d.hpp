@@ -92,7 +92,6 @@ void reportWorld3DFrame3D(int32_t pushUs);
 // quiesce waits out an in-flight pipelined push before code that writes the TFT directly.
 void blitWorld3DFrame3D(DISPLAY_T* display);
 void quiesceWorld3DBlit3D();
-void setWorld3DPipeline3D(bool enabled);
 void setWorld3DI80Push3D(bool enabled);
 void setWorld3DSplitXf3D(bool enabled);
 // Frame start in place of fillSprite(TFT_BLACK); in mask mode this only clears

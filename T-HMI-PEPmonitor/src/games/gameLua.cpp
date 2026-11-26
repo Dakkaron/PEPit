@@ -56,9 +56,6 @@ static String findScriptRedirectPath(char* input) {
 String lua_dofile(const String path, bool dontCache) {
   static char* script[10];
   static String cachedPath[10];
-  // Caching stores the compiled chunk as a registry reference instead of the
-  // source text: frames then call the prototype directly instead of running
-  // luaL_dostring, which re-parses the whole script on every call.
   static int compiledRef[10] = {LUA_NOREF, LUA_NOREF, LUA_NOREF, LUA_NOREF, LUA_NOREF,
                                 LUA_NOREF, LUA_NOREF, LUA_NOREF, LUA_NOREF, LUA_NOREF};
   String result;
@@ -140,7 +137,6 @@ String lua_dofile(const String path, bool dontCache) {
       return result;
     }
     if (script[cacheSlot] == nullptr) {
-      // Path cached by an earlier load or compile failure: retry from disk.
       script[cacheSlot] = readFileToNewPSBuffer(path.c_str());
       if (script[cacheSlot] == nullptr) {
         result = "Failed to load lua script "+path;
@@ -1405,10 +1401,8 @@ void initGames_lua(String gamePath, GameConfig* pGameConfig, String* errorMessag
   String ignoreErrorMessage;
   readGameConfig(gamePath, &gameConfig, errorMessage);
   setWorld3DDebug3D(systemConfig.debugLogRender3D);
-  setWorld3DPipeline3D(systemConfig.renderPipeline3D);
   setWorld3DI80Push3D(systemConfig.renderI80Push3D);
   setWorld3DSplitXf3D(systemConfig.renderSplitXf3D);
-  // 3D handles and mask-mode eligibility are per-game state.
   resetWorld3D();
   // Games default to the area not covered by system UI and the pressure/time
   // bars; a game can change it with SetViewport(x, y, w, h).
