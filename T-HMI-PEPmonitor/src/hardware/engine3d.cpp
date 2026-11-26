@@ -137,11 +137,58 @@ typedef struct {
   uint8_t mode;           // 0 flat, 1 gouraud, 2 gouraud+texture, 3 texture uniform light
 } TriDraw3D;
 
-static Mesh3D meshes3D[MESH3D_LIMIT];
+/*
+ * Splitting the xf pass over both cores shares these arrays with a core 0
+ * helper task. The S3's per-core data caches are not coherent and
+ * esp_cache_msync's M2C (invalidate) direction only accepts ranges aligned
+ * exactly to cache lines, so everything the split hand-off touches lives in
+ * one 64-byte-aligned block whose total size is a whole number of cache
+ * lines: a single msync leg per hand-off then cannot bleed into unrelated
+ * core-1-dirtied static data. See the split section near updateWorld3D.
+ */
+typedef struct {
+  Mat3 basis;
+  float camX, camY, camZ;
+  float nearPlane, farPlane;
+  float projScale, vpCx, vpCy, tanHalfX, tanHalfY;
+  float ambient[3];
+  int8_t activeLights[LIGHT3D_LIMIT];
+  int8_t activeLightCount;
+  bool dynamicLighting;
+} XfFrameCtx3D;
+
+typedef struct {
+  int32_t verts;
+  uint64_t culledLo, culledHi;
+} XfHelperResult3D;
+
+typedef struct __attribute__((aligned(64))) {
+  XfFrameCtx3D ctx;
+  XfHelperResult3D res;
+  ViewVertex3D* scratch[ENTITY3D_LIMIT];
+  Mesh3D meshes[MESH3D_LIMIT];
+  Entity3D entities[ENTITY3D_LIMIT];
+  Light3D lights[LIGHT3D_LIMIT];
+} W3dSplitShared3D;
+static W3dSplitShared3D w3dSplitShared3D;
+static_assert(sizeof(W3dSplitShared3D) % 64 == 0 && alignof(W3dSplitShared3D) % 64 == 0,
+              "split hand-off block must span whole 64-byte cache lines");
+
+#define meshes3D (w3dSplitShared3D.meshes)
+#define entities3D (w3dSplitShared3D.entities)
+#define lights3D (w3dSplitShared3D.lights)
 static Texture3D textures3D[TEXTURE3D_LIMIT];
-static Entity3D entities3D[ENTITY3D_LIMIT];
-static Light3D lights3D[LIGHT3D_LIMIT];
 static Camera3D cameras3D[CAMERA3D_LIMIT];
+
+// Scratch and vtx allocations are rounded up to whole 64-byte cache lines so
+// every split msync leg on them is line-exact (see the split section near
+// updateWorld3D).
+static inline size_t viewVertsSpan3D(uint16_t vc) {
+  return ((size_t)vc * sizeof(ViewVertex3D) + 63) & ~(size_t)63;
+}
+static inline size_t meshVtxSpan3D(uint16_t vc) {
+  return ((size_t)vc * sizeof(MeshVertex3D) + 63) & ~(size_t)63;
+}
 static TFT_eSprite* textureSprites3D = nullptr;
 static TriDraw3D* drawList3D = nullptr;
 static int16_t* bucketHeads3D = nullptr;
@@ -422,7 +469,7 @@ static bool buildMeshScratch3D(Mesh3D* m) {
     if (d2 > radius) radius = d2;
   }
   m->boundsRadius = sqrtf(radius);
-  m->vs = (ViewVertex3D*)heap_caps_malloc(sizeof(ViewVertex3D) * vc, MALLOC_CAP_SPIRAM);
+  m->vs = (ViewVertex3D*)heap_caps_aligned_alloc(64, viewVertsSpan3D(vc), MALLOC_CAP_SPIRAM);
   if (!m->vs) return false;
   return true;
 }
@@ -914,7 +961,7 @@ void setMeshFlipped3D(int16_t handle, bool flipped) {
 }
 
 static bool setupPrimitiveMesh3D(Mesh3D* m, uint16_t vc, uint16_t fc) {
-  m->vtx = (MeshVertex3D*)heap_caps_malloc(sizeof(MeshVertex3D) * vc, MALLOC_CAP_SPIRAM);
+  m->vtx = (MeshVertex3D*)heap_caps_aligned_alloc(64, meshVtxSpan3D(vc), MALLOC_CAP_SPIRAM);
   m->uvQ = (int32_t*)heap_caps_malloc(sizeof(int32_t) * 2 * vc, MALLOC_CAP_SPIRAM);
   m->faces = (Face3D*)heap_caps_malloc(sizeof(Face3D) * fc, MALLOC_CAP_SPIRAM);
   if (!m->vtx || !m->uvQ || !m->faces) {
@@ -1818,49 +1865,60 @@ void blitWorld3DFrame3D(DISPLAY_T* display) {
  * Splitting the xf pass over both cores. A core 0 helper task transforms and
  * lights entities it claims from a shared queue (longest mesh first so the
  * big jobs start first on both cores, which auto-balances the tail), core 1
- * claims the rest; the fused pass has no inter-entity dependencies and a
- * mesh's whole ViewVertex3D array is always written by exactly one core, and
- * the 32-byte padding guarantees no two cores ever share a cache line. The
- * S3's data caches are per-core and not coherent, so every hand-off goes
- * through esp_cache_msync: core 1 pushes the frame setup to memory before
- * releasing the helper, the helper writes back each scratch array it wrote
- * before signaling done, and core 1 invalidates its stale copies of
- * helper-owned scratch before the face loop reads them.
+ * claims the rest; the fused pass has no inter-entity dependencies.
+ *
+ * The split xf phase transforms every entity before any face pass reads
+ * scratch, but mesh->vs is a single per-mesh buffer: several entities can
+ * share one mesh (the 3ddemo car's four wheels reuse two wheel meshes), so
+ * one instance's transform would clobber another's before the face loop ever
+ * sees it. Every entity therefore gets its own scratch slice each frame: the
+ * first instance of a mesh uses mesh->vs, extra instances get a slice from a
+ * PSRAM pool. Slices and their msync legs are aligned to whole 64-byte cache
+ * lines, so no cache line is ever written by both cores in one frame. Before
+ * releasing the helper, core 1 flushes the shared block and invalidates its
+ * own copies of every candidate scratch slice; the helper invalidates the
+ * shared block and the vtx streams it reads, and writes back each scratch
+ * slice it owns before signaling done. Core 1 then re-reads the helper's
+ * result. The hand-off legs are exact-line ranges: esp_cache_msync rejects
+ * the UNALIGNED flag for M2C, and an invalidate leg must never reach into
+ * data it does not own.
  */
-typedef struct {
-  Mat3 basis;
-  float camX, camY, camZ;
-  float nearPlane, farPlane;
-  float projScale, vpCx, vpCy, tanHalfX, tanHalfY;
-  float ambient[3];
-  int8_t activeLights[LIGHT3D_LIMIT];
-  int8_t activeLightCount;
-  bool dynamicLighting;
-} XfFrameCtx3D;
+#define w3dXfCtx3D (w3dSplitShared3D.ctx)
+#define w3dXfHelperRes3D (w3dSplitShared3D.res)
+#define w3dXfScratch3D (w3dSplitShared3D.scratch)
 
-typedef struct {
-  int32_t verts;
-  uint64_t culledLo, culledHi;
-} XfHelperResult3D;
-
-static XfFrameCtx3D w3dXfCtx3D;
-static XfHelperResult3D w3dXfHelperRes3D;
 static bool w3dSplitXf3D = true;
 static bool w3dSplitTried3D = false;
 static SemaphoreHandle_t w3dXfStart3D = nullptr;
 static SemaphoreHandle_t w3dXfDone3D = nullptr;
 static QueueHandle_t w3dXfQueue3D = nullptr;
 static TaskHandle_t w3dXfTask3DHandle = nullptr;
+static ViewVertex3D* w3dXfPool3D = nullptr;
+static size_t w3dXfPoolVerts3D = 0;
+static const size_t W3D_XF_POOL_MAX_VERTS = 8192; // 256 KB PSRAM ceiling for shared-instance scratch
 
-static inline bool xfCacheSync3D(void* addr, size_t len, uint32_t dirFlag) {
-  return esp_cache_msync(addr, len, dirFlag | ESP_CACHE_MSYNC_FLAG_UNALIGNED) == ESP_OK;
+static bool xfCacheWarn3D(const char* what) {
+  static bool warned3D = false;
+  if (!warned3D) {
+    warned3D = true;
+    Serial.printf("engine3d split: cache sync failed at %s\n", what);
+  }
+  return false;
+}
+static inline bool xfCacheFlush3D(void* addr, size_t len, const char* what) {
+  if (esp_cache_msync(addr, len, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED) == ESP_OK) return true;
+  return xfCacheWarn3D(what);
+}
+static inline bool xfCacheInvalidate3D(void* addr, size_t len, const char* what) {
+  if (esp_cache_msync(addr, len, ESP_CACHE_MSYNC_FLAG_DIR_M2C) == ESP_OK) return true;
+  return xfCacheWarn3D(what);
 }
 
-// Fused transform/project/light pass for one entity. Returns the number of
-// vertices transformed and marks the culled bit when the bounding-sphere
-// frustum test skips the entity, so the face loop skips it exactly like the
-// original fused loop did.
-static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* culledBits) {
+// Fused transform/project/light pass for one entity, writing into that
+// entity's scratch slice. Returns the number of vertices transformed and
+// marks the culled bit when the bounding-sphere frustum test skips the
+// entity, so the face loop skips it exactly like the original fused loop did.
+static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* culledBits, ViewVertex3D* vs) {
   Entity3D* e = &entities3D[ei];
   if (!e->inUse || e->hidden) return 0;
   if (e->meshHandle < 0 || e->meshHandle >= MESH3D_LIMIT || !meshes3D[e->meshHandle].inUse) return 0;
@@ -1915,7 +1973,7 @@ static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* cu
     float vpX = c[0]*px + c[1]*py + c[2]*pz + tx;
     float vpY = c[3]*px + c[4]*py + c[5]*pz + ty;
     float vpZ = c[6]*px + c[7]*py + c[8]*pz + tz;
-    ViewVertex3D* v = &mesh->vs[vi];
+    ViewVertex3D* v = &vs[vi];
     v->x = vpX; v->y = vpY; v->z = vpZ;
     if (vpZ >= nearPlane) {
       v->iz = fastRecip3D(vpZ);
@@ -1968,10 +2026,134 @@ static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* cu
       uint32_t cr = clamp3DI((int32_t)(lr * baseR), 0, 255);
       uint32_t cg = clamp3DI((int32_t)(lg * baseG), 0, 255);
       uint32_t cb = clamp3DI((int32_t)(lb * baseB), 0, 255);
-      mesh->vs[vi].color = (cr << 16) | (cg << 8) | cb;
+      vs[vi].color = (cr << 16) | (cg << 8) | cb;
     }
   }
   return vertexCount;
+}
+
+// Face-building pass for one entity: reads the scratch slice the xf pass
+// produced, runs backface/viewport rejection and near-plane clipping and
+// appends draw records. Core 1 only.
+static void faceEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, ViewVertex3D* vs, float* zLo, float* zHi) {
+  Entity3D* e = &entities3D[ei];
+  if (!e->inUse || e->hidden) return;
+  if (e->meshHandle < 0 || e->meshHandle >= MESH3D_LIMIT || !meshes3D[e->meshHandle].inUse) return;
+  Mesh3D* mesh = &meshes3D[e->meshHandle];
+  uint16_t vertexCount = mesh->vertexCount;
+  const float nearPlane = ctx->nearPlane;
+  const bool dynamicLighting = ctx->dynamicLighting;
+
+  uint32_t baseR = ((uint32_t)e->color[0] * mesh->color[0] + 128) / 255;
+  uint32_t baseG = ((uint32_t)e->color[1] * mesh->color[1] + 128) / 255;
+  uint32_t baseB = ((uint32_t)e->color[2] * mesh->color[2] + 128) / 255;
+  uint32_t uniformR = clamp3DI((int32_t)(ctx->ambient[0] * baseR + 0.5f), 0, 255);
+  uint32_t uniformG = clamp3DI((int32_t)(ctx->ambient[1] * baseG + 0.5f), 0, 255);
+  uint32_t uniformB = clamp3DI((int32_t)(ctx->ambient[2] * baseB + 0.5f), 0, 255);
+  uint32_t uniformColor = (uniformR << 16) | (uniformG << 8) | uniformB;
+
+  const int32_t* uvQ = mesh->uvQ;
+  const Texture3D* tex = nullptr;
+  if (mesh->textureHandle >= 0 && mesh->textureHandle < TEXTURE3D_LIMIT &&
+      textures3D[mesh->textureHandle].inUse && uvQ) {
+    tex = &textures3D[mesh->textureHandle];
+  }
+  uint8_t mode = tex ? (dynamicLighting ? 2 : 3) : (dynamicLighting ? 1 : 0);
+
+  for (uint16_t fi = 0; fi < mesh->faceCount; fi++) {
+    if (drawCount3D >= WORLD3D_MAX_TRIANGLES) break;
+    const Face3D* f = &mesh->faces[fi];
+    uint16_t ia = f->a;
+    uint16_t ib = mesh->flipped ? f->c : f->b;
+    uint16_t ic = mesh->flipped ? f->b : f->c;
+    if (ia >= vertexCount || ib >= vertexCount || ic >= vertexCount) continue;
+    const ViewVertex3D* pa = &vs[ia];
+    const ViewVertex3D* pb = &vs[ib];
+    const ViewVertex3D* pc = &vs[ic];
+    float za = pa->z, zb = pb->z, zc = pc->z;
+    if (za < nearPlane && zb < nearPlane && zc < nearPlane) continue;
+    float e1x = pb->x-pa->x, e1y = pb->y-pa->y, e1z = pb->z-pa->z;
+    float e2x = pc->x-pa->x, e2y = pc->y-pa->y, e2z = pc->z-pa->z;
+    float nx = e1y*e2z - e1z*e2y;
+    float ny = e1z*e2x - e1x*e2z;
+    float nz = e1x*e2y - e1y*e2x;
+    // Front facing when the winding normal points towards the camera (origin)
+    if (nx*(pa->x+pb->x+pc->x) + ny*(pa->y+pb->y+pc->y) + nz*(pa->z+pb->z+pc->z) >= 0.0f) continue;
+    /* Screen bbox reject, only on the unclipped fast path: perspective maps
+     * a triangle that stays behind the near plane exactly onto the triangle
+     * of its projected vertices, so an entirely outside bbox cannot re-enter
+     * the viewport through near-plane clipping later. */
+    if (za >= nearPlane && zb >= nearPlane && zc >= nearPlane) {
+      int32_t sminx = pa->sx, smaxx = pa->sx, sminy = pa->sy, smaxy = pa->sy;
+      if (pb->sx < sminx) sminx = pb->sx; else if (pb->sx > smaxx) smaxx = pb->sx;
+      if (pc->sx < sminx) sminx = pc->sx; else if (pc->sx > smaxx) smaxx = pc->sx;
+      if (pb->sy < sminy) sminy = pb->sy; else if (pb->sy > smaxy) smaxy = pb->sy;
+      if (pc->sy < sminy) sminy = pc->sy; else if (pc->sy > smaxy) smaxy = pc->sy;
+      if (smaxx <= (vpL3D << 8) || sminx >= (vpR3D << 8)
+          || smaxy <= (vpT3D << 8) || sminy >= (vpB3D << 8)) continue;
+    }
+
+    TriDraw3D* d = &drawList3D[drawCount3D];
+    uint32_t colA = dynamicLighting ? pa->color : uniformColor;
+    uint32_t colB = dynamicLighting ? pb->color : uniformColor;
+    uint32_t colC = dynamicLighting ? pc->color : uniformColor;
+    int32_t uvA0 = uvQ ? uvQ[ia*2] : 0;
+    int32_t uvA1 = uvQ ? uvQ[ia*2+1] : 0;
+    int32_t uvB0 = uvQ ? uvQ[ib*2] : 0;
+    int32_t uvB1 = uvQ ? uvQ[ib*2+1] : 0;
+    int32_t uvC0 = uvQ ? uvQ[ic*2] : 0;
+    int32_t uvC1 = uvQ ? uvQ[ic*2+1] : 0;
+    float zAvg;
+    if (za >= nearPlane && zb >= nearPlane && zc >= nearPlane) {
+      d->vertexCount = 3;
+      d->sx[0] = pa->sx; d->sy[0] = pa->sy;
+      d->sx[1] = pb->sx; d->sy[1] = pb->sy;
+      d->sx[2] = pc->sx; d->sy[2] = pc->sy;
+      float izA = pa->iz, izB = pb->iz, izC = pc->iz;
+      d->ru[0] = uvA0 * izA; d->rv[0] = uvA1 * izA; d->rz[0] = izA;
+      d->ru[1] = uvB0 * izB; d->rv[1] = uvB1 * izB; d->rz[1] = izB;
+      d->ru[2] = uvC0 * izC; d->rv[2] = uvC1 * izC; d->rz[2] = izC;
+      d->color[0] = colA;
+      d->color[1] = colB;
+      d->color[2] = colC;
+      zAvg = (za + zb + zc) * 0.3333333f;
+    } else {
+      float clipPos[4][3];
+      uint32_t clipCol[4];
+      int32_t clipU[4], clipV[4];
+      uint8_t clipCount = clipTriangleNear3D(nearPlane, &pa->x, &pb->x, &pc->x,
+          colA, colB, colC, uvA0, uvA1, uvB0, uvB1, uvC0, uvC1,
+          clipPos, clipCol, clipU, clipV);
+      if (clipCount < 3) continue;
+      d->vertexCount = clipCount;
+      zAvg = 0.0f;
+      for (uint8_t ci = 0; ci < clipCount; ci++) {
+        float izc = fastRecip3D(clipPos[ci][2]);
+        projectClipPoint3D(clipPos[ci], ctx->projScale * izc, ctx->vpCx, ctx->vpCy, &d->sx[ci], &d->sy[ci]);
+        d->ru[ci] = clipU[ci] * izc;
+        d->rv[ci] = clipV[ci] * izc;
+        d->rz[ci] = izc;
+        d->color[ci] = clipCol[ci];
+        zAvg += clipPos[ci][2];
+      }
+      zAvg *= (clipCount == 3) ? 0.3333333f : 0.25f;
+    }
+    d->tex = tex ? tex->pixels : nullptr;
+    d->texW = tex ? tex->w : 0;
+    d->texH = tex ? tex->h : 0;
+    d->texMask = tex ? tex->mask : -1;
+    d->mode = mode;
+    d->flatColor = uniformColor;
+    d->zKey = zAvg;
+    d->orderOff = e->order;
+    if (zAvg < *zLo) *zLo = zAvg;
+    if (zAvg > *zHi) *zHi = zAvg;
+    if (perf3DEnabled) {
+      perf3D.trisSubmitted++;
+      if (d->vertexCount >= 4) perf3D.trisClipped++;
+    }
+    drawCount3D++;
+  }
 }
 
 static void w3dXfTaskLoop3D(void*) {
@@ -1979,30 +2161,24 @@ static void w3dXfTaskLoop3D(void*) {
     xSemaphoreTake(w3dXfStart3D, portMAX_DELAY);
     uint64_t culled[2] = {0, 0};
     int32_t verts = 0;
-    bool usable =
-      xfCacheSync3D(&w3dXfCtx3D, sizeof(w3dXfCtx3D), ESP_CACHE_MSYNC_FLAG_DIR_M2C) &&
-      xfCacheSync3D(entities3D, sizeof(entities3D), ESP_CACHE_MSYNC_FLAG_DIR_M2C) &&
-      xfCacheSync3D(meshes3D, sizeof(meshes3D), ESP_CACHE_MSYNC_FLAG_DIR_M2C) &&
-      xfCacheSync3D(lights3D, sizeof(lights3D), ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+    bool usable = xfCacheInvalidate3D(&w3dSplitShared3D, sizeof(w3dSplitShared3D), "shared M2C");
     int16_t ei;
     if (usable) {
       while (xQueueReceive(w3dXfQueue3D, &ei, 0) == pdTRUE) {
         Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
+        ViewVertex3D* sc = w3dXfScratch3D[ei];
         // Core 1 may have re-uploaded vtx data whose write-back still sits in
         // its private cache; drop any stale local copy before streaming it.
-        if (m->vtx && !xfCacheSync3D(m->vtx, sizeof(MeshVertex3D) * (size_t)m->vertexCount,
-                                     ESP_CACHE_MSYNC_FLAG_DIR_M2C)) break;
-        uint32_t n = xfEntityPass3D(ei, &w3dXfCtx3D, culled);
+        if (m->vtx && !xfCacheInvalidate3D(m->vtx, meshVtxSpan3D(m->vertexCount), "helper vtx M2C")) break;
+        uint32_t n = xfEntityPass3D(ei, &w3dXfCtx3D, culled, sc);
         verts += (int32_t)n;
-        if (n && !xfCacheSync3D(m->vs,
-                                sizeof(ViewVertex3D) * (size_t)m->vertexCount,
-                                ESP_CACHE_MSYNC_FLAG_DIR_C2M)) break; // leave the rest to core 1
+        if (n && !xfCacheFlush3D(sc, viewVertsSpan3D(m->vertexCount), "helper scratch C2M")) break; // leave the rest to core 1
       }
     }
     w3dXfHelperRes3D.verts = verts;
     w3dXfHelperRes3D.culledLo = culled[0];
     w3dXfHelperRes3D.culledHi = culled[1];
-    xfCacheSync3D(&w3dXfHelperRes3D, sizeof(w3dXfHelperRes3D), ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+    xfCacheFlush3D(&w3dSplitShared3D.res, sizeof(w3dSplitShared3D.res), "helper result C2M");
     xSemaphoreGive(w3dXfDone3D);
   }
 }
@@ -2015,10 +2191,14 @@ static bool w3dSplitReady3D() {
   w3dXfStart3D = xSemaphoreCreateBinary();
   w3dXfDone3D = xSemaphoreCreateBinary();
   w3dXfQueue3D = xQueueCreate(ENTITY3D_LIMIT, sizeof(int16_t));
-  if (!w3dXfStart3D || !w3dXfDone3D || !w3dXfQueue3D) return false;
+  if (!w3dXfStart3D || !w3dXfDone3D || !w3dXfQueue3D) {
+    Serial.println("engine3d split: semaphore/queue creation failed");
+    return false;
+  }
   if (xTaskCreatePinnedToCore(w3dXfTaskLoop3D, "w3dxf", 6144, nullptr, 1,
                               &w3dXfTask3DHandle, 0) != pdPASS) {
     w3dXfTask3DHandle = nullptr;
+    Serial.println("engine3d split: helper task creation failed");
     return false;
   }
   return true;
@@ -2125,176 +2305,136 @@ void updateWorld3D(DISPLAY_T* display) {
       }
       xfQueued3D[pos] = ei;
     }
-    bool synced =
-      xfCacheSync3D(ctx, sizeof(*ctx), ESP_CACHE_MSYNC_FLAG_DIR_C2M) &&
-      xfCacheSync3D(entities3D, sizeof(entities3D), ESP_CACHE_MSYNC_FLAG_DIR_C2M) &&
-      xfCacheSync3D(meshes3D, sizeof(meshes3D), ESP_CACHE_MSYNC_FLAG_DIR_C2M) &&
-      xfCacheSync3D(lights3D, sizeof(lights3D), ESP_CACHE_MSYNC_FLAG_DIR_C2M);
-    for (int16_t qi = 0; synced && qi < xfQueuedCount3D; qi++) {
+    /* mesh->vs scratch is per-mesh, but several live entities can share one
+     * mesh (the 3ddemo car's four wheels reuse two wheel meshes). The split
+     * xf phase transforms every entity before any face pass reads scratch,
+     * so each instance past the first gets its own 64-byte aligned slice
+     * from a PSRAM pool; when the pool cannot cover the scene, this frame
+     * runs sequentially instead (sequential interleaves xf and face per
+     * entity, where shared scratch is safe). */
+    static int8_t instSeen3D[MESH3D_LIMIT];
+    size_t poolVerts = 0;
+    memset(instSeen3D, 0, sizeof(instSeen3D));
+    for (int16_t qi = 0; qi < xfQueuedCount3D; qi++) {
       Mesh3D* m = &meshes3D[entities3D[xfQueued3D[qi]].meshHandle];
-      synced = m->vtx && m->vertexCount
-        ? xfCacheSync3D(m->vtx, sizeof(MeshVertex3D) * (size_t)m->vertexCount, ESP_CACHE_MSYNC_FLAG_DIR_C2M)
-        : true;
+      if (instSeen3D[m - meshes3D]++) poolVerts += (m->vertexCount + 1) & ~1;
     }
-    if (synced && xQueueReset(w3dXfQueue3D) == pdTRUE) {
-      for (int16_t qi = 0; qi < xfQueuedCount3D; qi++)
-        if (xQueueSend(w3dXfQueue3D, &xfQueued3D[qi], 0) != pdTRUE) { synced = false; break; }
-      if (synced) synced = (xSemaphoreGive(w3dXfStart3D) == pdTRUE);
+    bool poolOk = poolVerts <= w3dXfPoolVerts3D;
+    if (!poolOk && poolVerts <= W3D_XF_POOL_MAX_VERTS) {
+      heap_caps_free(w3dXfPool3D);
+      w3dXfPool3D = (ViewVertex3D*)heap_caps_aligned_alloc(64, poolVerts * sizeof(ViewVertex3D), MALLOC_CAP_SPIRAM);
+      w3dXfPoolVerts3D = w3dXfPool3D ? poolVerts : 0;
+      poolOk = w3dXfPool3D != nullptr;
     }
-    if (!synced) w3dSplitXf3D = false; // drop permanently to the single-core path
-    splitXf3D = synced;
+    if (poolOk) {
+      size_t poolOff = 0;
+      memset(instSeen3D, 0, sizeof(instSeen3D));
+      for (int16_t qi = 0; qi < xfQueuedCount3D; qi++) {
+        int16_t ei = xfQueued3D[qi];
+        Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
+        if (instSeen3D[m - meshes3D]++) {
+          w3dXfScratch3D[ei] = w3dXfPool3D + poolOff;
+          poolOff += (m->vertexCount + 1) & ~1;
+        } else {
+          w3dXfScratch3D[ei] = m->vs;
+        }
+      }
+      bool synced = xfCacheFlush3D(&w3dSplitShared3D, sizeof(w3dSplitShared3D), "shared C2M");
+      for (int16_t qi = 0; synced && qi < xfQueuedCount3D; qi++) {
+        Mesh3D* m = &meshes3D[entities3D[xfQueued3D[qi]].meshHandle];
+        synced = m->vtx && m->vertexCount
+          ? xfCacheFlush3D(m->vtx, meshVtxSpan3D(m->vertexCount), "vtx C2M")
+          : true;
+      }
+      // Whichever core ends up claiming a slice, core 1's previous-frame
+      // copies of every candidate slice must be gone from its cache before
+      // the helper writes them. Invalidate only: no PSRAM traffic.
+      for (int16_t qi = 0; synced && qi < xfQueuedCount3D; qi++) {
+        int16_t ei = xfQueued3D[qi];
+        Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
+        synced = w3dXfScratch3D[ei] && m->vertexCount
+          ? xfCacheInvalidate3D(w3dXfScratch3D[ei], viewVertsSpan3D(m->vertexCount), "scratch M2C")
+          : true;
+      }
+      if (synced && xQueueReset(w3dXfQueue3D) == pdTRUE) {
+        for (int16_t qi = 0; qi < xfQueuedCount3D; qi++)
+          if (xQueueSend(w3dXfQueue3D, &xfQueued3D[qi], 0) != pdTRUE) { synced = false; break; }
+        if (synced) synced = (xSemaphoreGive(w3dXfStart3D) == pdTRUE);
+      }
+      if (!synced) w3dSplitXf3D = false; // drop permanently to the single-core path
+      splitXf3D = synced;
+    }
   }
 
+  bool splitResOk3D = false;
   if (splitXf3D) {
     int16_t ei;
     while (xQueueReceive(w3dXfQueue3D, &ei, 0) == pdTRUE) {
       xfClaimed3D[ei >> 6] |= 1ULL << (ei & 63);
-      xfVerts3D += (int32_t)xfEntityPass3D(ei, ctx, xfCulled3D);
+      xfVerts3D += (int32_t)xfEntityPass3D(ei, ctx, xfCulled3D, w3dXfScratch3D[ei]);
     }
     xSemaphoreTake(w3dXfDone3D, portMAX_DELAY);
-    if (xfCacheSync3D(&w3dXfHelperRes3D, sizeof(w3dXfHelperRes3D), ESP_CACHE_MSYNC_FLAG_DIR_M2C)) {
+    int32_t helperVerts3D = 0;
+    // The helper's result lives in the shared block; this core's copies of
+    // it (and of everything the helper may have touched) are stale now.
+    splitResOk3D = xfCacheInvalidate3D(&w3dSplitShared3D, sizeof(w3dSplitShared3D), "shared result M2C");
+    if (splitResOk3D) {
+      helperVerts3D = w3dXfHelperRes3D.verts;
       xfCulled3D[0] |= w3dXfHelperRes3D.culledLo;
       xfCulled3D[1] |= w3dXfHelperRes3D.culledHi;
-      xfVerts3D += w3dXfHelperRes3D.verts;
+      xfVerts3D += helperVerts3D;
+    } else {
+      w3dSplitXf3D = false;
     }
-    // Helper-owned scratch is authoritative in memory now; this core must not
-    // serve last frame's cached copies to the face loop.
-    for (int16_t qi = 0; qi < xfQueuedCount3D; qi++) {
-      int16_t ei = xfQueued3D[qi];
-      if (xfClaimed3D[ei >> 6] & (1ULL << (ei & 63))) continue;
-      Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
-      if (m->vs && m->vertexCount)
-        xfCacheSync3D(m->vs, sizeof(ViewVertex3D) * (size_t)m->vertexCount, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+    static bool reported3D = false;
+    static uint8_t reportFrames3D = 0;
+    if (!reported3D && (helperVerts3D > 0 || reportFrames3D < 5)) {
+      reportFrames3D++;
+      if (helperVerts3D > 0) reported3D = true;
+      Serial.printf("engine3d split: frame core1=%d helper=%d queued=%d\n",
+                    (int)(xfVerts3D - helperVerts3D), (int)helperVerts3D, (int)xfQueuedCount3D);
+    }
+    if (perf3DEnabled) {
+      perf3D.vertsTransformed += xfVerts3D;
+      perf3D.xfUs += (int32_t)(esp_timer_get_time() - perfSub3D);
+      perfSub3D = esp_timer_get_time();
     }
   } else {
-    for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++)
-      xfVerts3D += (int32_t)xfEntityPass3D(ei, ctx, xfCulled3D);
-  }
-  if (perf3DEnabled) {
-    perf3D.vertsTransformed += xfVerts3D;
-    perf3D.xfUs += (int32_t)(esp_timer_get_time() - perfSub3D);
-    perfSub3D = esp_timer_get_time();
-  }
-
-  for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
-    if (xfCulled3D[ei >> 6] & (1ULL << (ei & 63))) continue;
-    Entity3D* e = &entities3D[ei];
-    if (!e->inUse || e->hidden) continue;
-    if (e->meshHandle < 0 || e->meshHandle >= MESH3D_LIMIT || !meshes3D[e->meshHandle].inUse) continue;
-    Mesh3D* mesh = &meshes3D[e->meshHandle];
-    uint16_t vertexCount = mesh->vertexCount;
-
-    uint32_t baseR = ((uint32_t)e->color[0] * mesh->color[0] + 128) / 255;
-    uint32_t baseG = ((uint32_t)e->color[1] * mesh->color[1] + 128) / 255;
-    uint32_t baseB = ((uint32_t)e->color[2] * mesh->color[2] + 128) / 255;
-    uint32_t uniformR = clamp3DI((int32_t)(ambient3D[0] * baseR + 0.5f), 0, 255);
-    uint32_t uniformG = clamp3DI((int32_t)(ambient3D[1] * baseG + 0.5f), 0, 255);
-    uint32_t uniformB = clamp3DI((int32_t)(ambient3D[2] * baseB + 0.5f), 0, 255);
-    uint32_t uniformColor = (uniformR << 16) | (uniformG << 8) | uniformB;
-
-    const int32_t* uvQ = mesh->uvQ;
-    const Texture3D* tex = nullptr;
-    if (mesh->textureHandle >= 0 && mesh->textureHandle < TEXTURE3D_LIMIT &&
-        textures3D[mesh->textureHandle].inUse && uvQ) {
-      tex = &textures3D[mesh->textureHandle];
-    }
-    uint8_t mode = tex ? (dynamicLighting ? 2 : 3) : (dynamicLighting ? 1 : 0);
-
-    for (uint16_t fi = 0; fi < mesh->faceCount; fi++) {
-      if (drawCount3D >= WORLD3D_MAX_TRIANGLES) break;
-      const Face3D* f = &mesh->faces[fi];
-      uint16_t ia = f->a;
-      uint16_t ib = mesh->flipped ? f->c : f->b;
-      uint16_t ic = mesh->flipped ? f->b : f->c;
-      if (ia >= vertexCount || ib >= vertexCount || ic >= vertexCount) continue;
-      const ViewVertex3D* pa = &mesh->vs[ia];
-      const ViewVertex3D* pb = &mesh->vs[ib];
-      const ViewVertex3D* pc = &mesh->vs[ic];
-      float za = pa->z, zb = pb->z, zc = pc->z;
-      if (za < cam->nearPlane && zb < cam->nearPlane && zc < cam->nearPlane) continue;
-      float e1x = pb->x-pa->x, e1y = pb->y-pa->y, e1z = pb->z-pa->z;
-      float e2x = pc->x-pa->x, e2y = pc->y-pa->y, e2z = pc->z-pa->z;
-      float nx = e1y*e2z - e1z*e2y;
-      float ny = e1z*e2x - e1x*e2z;
-      float nz = e1x*e2y - e1y*e2x;
-      // Front facing when the winding normal points towards the camera (origin)
-      if (nx*(pa->x+pb->x+pc->x) + ny*(pa->y+pb->y+pc->y) + nz*(pa->z+pb->z+pc->z) >= 0.0f) continue;
-      /* Screen bbox reject, only on the unclipped fast path: perspective maps
-       * a triangle that stays behind the near plane exactly onto the triangle
-       * of its projected vertices, so an entirely outside bbox cannot re-enter
-       * the viewport through near-plane clipping later. */
-      if (za >= cam->nearPlane && zb >= cam->nearPlane && zc >= cam->nearPlane) {
-        int32_t sminx = pa->sx, smaxx = pa->sx, sminy = pa->sy, smaxy = pa->sy;
-        if (pb->sx < sminx) sminx = pb->sx; else if (pb->sx > smaxx) smaxx = pb->sx;
-        if (pc->sx < sminx) sminx = pc->sx; else if (pc->sx > smaxx) smaxx = pc->sx;
-        if (pb->sy < sminy) sminy = pb->sy; else if (pb->sy > smaxy) smaxy = pb->sy;
-        if (pc->sy < sminy) sminy = pc->sy; else if (pc->sy > smaxy) smaxy = pc->sy;
-        if (smaxx <= (vpL3D << 8) || sminx >= (vpR3D << 8)
-            || smaxy <= (vpT3D << 8) || sminy >= (vpB3D << 8)) continue;
-      }
-
-      TriDraw3D* d = &drawList3D[drawCount3D];
-      uint32_t colA = dynamicLighting ? pa->color : uniformColor;
-      uint32_t colB = dynamicLighting ? pb->color : uniformColor;
-      uint32_t colC = dynamicLighting ? pc->color : uniformColor;
-      int32_t uvA0 = uvQ ? uvQ[ia*2] : 0;
-      int32_t uvA1 = uvQ ? uvQ[ia*2+1] : 0;
-      int32_t uvB0 = uvQ ? uvQ[ib*2] : 0;
-      int32_t uvB1 = uvQ ? uvQ[ib*2+1] : 0;
-      int32_t uvC0 = uvQ ? uvQ[ic*2] : 0;
-      int32_t uvC1 = uvQ ? uvQ[ic*2+1] : 0;
-      float zAvg;
-      if (za >= cam->nearPlane && zb >= cam->nearPlane && zc >= cam->nearPlane) {
-        d->vertexCount = 3;
-        d->sx[0] = pa->sx; d->sy[0] = pa->sy;
-        d->sx[1] = pb->sx; d->sy[1] = pb->sy;
-        d->sx[2] = pc->sx; d->sy[2] = pc->sy;
-        float izA = pa->iz, izB = pb->iz, izC = pc->iz;
-        d->ru[0] = uvA0 * izA; d->rv[0] = uvA1 * izA; d->rz[0] = izA;
-        d->ru[1] = uvB0 * izB; d->rv[1] = uvB1 * izB; d->rz[1] = izB;
-        d->ru[2] = uvC0 * izC; d->rv[2] = uvC1 * izC; d->rz[2] = izC;
-        d->color[0] = colA;
-        d->color[1] = colB;
-        d->color[2] = colC;
-        zAvg = (za + zb + zc) * 0.3333333f;
-      } else {
-        float clipPos[4][3];
-        uint32_t clipCol[4];
-        int32_t clipU[4], clipV[4];
-        uint8_t clipCount = clipTriangleNear3D(cam->nearPlane, &pa->x, &pb->x, &pc->x,
-            colA, colB, colC, uvA0, uvA1, uvB0, uvB1, uvC0, uvC1,
-            clipPos, clipCol, clipU, clipV);
-        if (clipCount < 3) continue;
-        d->vertexCount = clipCount;
-        zAvg = 0.0f;
-        for (uint8_t ci = 0; ci < clipCount; ci++) {
-          float izc = fastRecip3D(clipPos[ci][2]);
-          projectClipPoint3D(clipPos[ci], projScale * izc, vpCx3D, vpCy3D, &d->sx[ci], &d->sy[ci]);
-          d->ru[ci] = clipU[ci] * izc;
-          d->rv[ci] = clipV[ci] * izc;
-          d->rz[ci] = izc;
-          d->color[ci] = clipCol[ci];
-          zAvg += clipPos[ci][2];
-        }
-        zAvg *= (clipCount == 3) ? 0.3333333f : 0.25f;
-      }
-      d->tex = tex ? tex->pixels : nullptr;
-      d->texW = tex ? tex->w : 0;
-      d->texH = tex ? tex->h : 0;
-      d->texMask = tex ? tex->mask : -1;
-      d->mode = mode;
-      d->flatColor = uniformColor;
-      d->zKey = zAvg;
-      d->orderOff = e->order;
-      if (zAvg < zLo) zLo = zAvg;
-      if (zAvg > zHi) zHi = zAvg;
+    // Sequential fused order, matching the original loop: xf and face
+    // interleave per entity, so shared mesh scratch cannot clobber instances.
+    for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
+      Entity3D* e = &entities3D[ei];
+      if (!e->inUse || e->hidden) continue;
+      if (e->meshHandle < 0 || e->meshHandle >= MESH3D_LIMIT || !meshes3D[e->meshHandle].inUse) continue;
+      ViewVertex3D* vs = meshes3D[e->meshHandle].vs;
+      if (perf3DEnabled) perfSub3D = esp_timer_get_time();
+      uint32_t n = xfEntityPass3D(ei, ctx, xfCulled3D, vs);
       if (perf3DEnabled) {
-        perf3D.trisSubmitted++;
-        if (d->vertexCount >= 4) perf3D.trisClipped++;
+        perf3D.vertsTransformed += (int32_t)n;
+        perf3D.xfUs += (int32_t)(esp_timer_get_time() - perfSub3D);
+        perfSub3D = esp_timer_get_time();
       }
-      drawCount3D++;
+      if (xfCulled3D[ei >> 6] & (1ULL << (ei & 63))) continue;
+      faceEntityPass3D(ei, ctx, vs, &zLo, &zHi);
+      if (perf3DEnabled) {
+        perf3D.faceUs += (int32_t)(esp_timer_get_time() - perfSub3D);
+        perfSub3D = esp_timer_get_time();
+      }
     }
-    if (perf3DEnabled) { perf3D.faceUs += (int32_t)(esp_timer_get_time() - perfSub3D); perfSub3D = esp_timer_get_time(); }
+  }
+
+  if (splitXf3D) {
+    for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
+      if (xfCulled3D[ei >> 6] & (1ULL << (ei & 63))) continue;
+      // With the helper's done-result lost, helper-owned entities have scratch
+      // state that cannot be trusted; skip them this frame.
+      if (!splitResOk3D && !(xfClaimed3D[ei >> 6] & (1ULL << (ei & 63)))) continue;
+      faceEntityPass3D(ei, ctx, w3dXfScratch3D[ei], &zLo, &zHi);
+    }
+    if (perf3DEnabled) {
+      perf3D.faceUs += (int32_t)(esp_timer_get_time() - perfSub3D);
+      perfSub3D = esp_timer_get_time();
+    }
   }
 
   float span = zHi - zLo;

@@ -359,6 +359,12 @@ long random(long min, long max);
 
 inline void* heap_caps_malloc(size_t size, int caps) { return malloc(size); }
 inline void* heap_caps_realloc(void* ptr, size_t size, int caps) { return realloc(ptr, size); }
+inline void* heap_caps_aligned_alloc(size_t alignment, size_t size, int caps) {
+  (void)caps;
+  void* p = nullptr;
+  if (posix_memalign(&p, alignment, size) != 0) return nullptr;
+  return p;
+}
 inline void heap_caps_free(void* ptr) { free(ptr); }
 
 // ============================================================

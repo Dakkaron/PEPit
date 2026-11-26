@@ -488,6 +488,77 @@ TEST_CASE("engine3d: wheel entities roll and steer when rotated", "[engine3d]") 
     resetWorld3D();
 }
 
+TEST_CASE("engine3d: entities sharing a mesh render as independent instances", "[engine3d]") {
+    // Regression: the 3ddemo's four wheels reuse two wheel meshes. If the
+    // transform phase writes shared scratch per mesh instead of per instance,
+    // the last-transformed instance clobbers the others and the earlier
+    // instances render on top of it (the missing-left-wheels bug). Two
+    // entities sharing one mesh must produce the exact frame that two
+    // entities on two identical meshes produce.
+    std::filesystem::path repoRoot = std::filesystem::path(__FILE__).parent_path()
+        .parent_path().parent_path();
+    std::filesystem::path models = repoRoot / "SDCardContent" / "games" / "3ddemo" / "models";
+    auto read = [](const std::filesystem::path& f) {
+        std::ifstream in(f, std::ios::binary);
+        REQUIRE(in);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+    std::filesystem::path root = makeSdRoot("engine3d_shared_mesh");
+    writeSdFile(root, "models/wheel_front.obj", read(models / "wheel_front.obj"));
+    writeSdFile(root, "models/wheel_front.mtl", read(models / "wheel_front.mtl"));
+    writeSdFile(root, "models/racecar.bmp", read(models / "racecar.bmp"));
+
+    auto frameWithWheels = [&](bool shared) {
+        resetWorld3D();
+        int16_t wl = -1, wr = -1;
+        int16_t m1 = loadMesh3D(String("/models/wheel_front.obj"));
+        REQUIRE(m1 >= 0);
+        positionCamera3D(0, 0, 0, -60);
+        cameraRange3D(0, 1.0f, 4000.0f);
+        if (shared) {
+            wl = createEntity3D(m1);
+            wr = createEntity3D(m1);
+        } else {
+            int16_t m2 = loadMesh3D(String("/models/wheel_front.obj"));
+            REQUIRE(m2 >= 0);
+            wl = createEntity3D(m1);
+            wr = createEntity3D(m2);
+        }
+        REQUIRE(wl >= 0); REQUIRE(wr >= 0);
+        rotateEntity3D(wl, 0, 90, 0);
+        rotateEntity3D(wr, 0, 90, 0);
+        positionEntity3D(wl, -14, 0, 0);
+        positionEntity3D(wr, 14, 0, 0);
+        Display3D d;
+        d.render();
+        std::vector<uint16_t> fb;
+        fb.reserve(320 * 240);
+        for (int y = 0; y < 240; y++)
+            for (int x = 0; x < 320; x++) fb.push_back(d.pixel(x, y));
+        return fb;
+    };
+
+    std::vector<uint16_t> sharedA = frameWithWheels(true);
+    std::vector<uint16_t> sharedB = frameWithWheels(true);   // threading must not vary the frame
+    std::vector<uint16_t> exclusive = frameWithWheels(false);
+
+    int lit = 0, leftHalf = 0, rightHalf = 0;
+    for (int y = 0; y < 240; y++)
+        for (int x = 0; x < 320; x++) {
+            if (sharedA[y * 320 + x]) {
+                lit++;
+                if (x < 160) leftHalf++; else rightHalf++;
+            }
+        }
+    CHECK(lit > 1400);
+    CHECK(leftHalf > 300);          // the left instance really is on the left
+    CHECK(rightHalf > 300);         // and the right one on the right
+    CHECK(sharedA == sharedB);
+    CHECK(sharedA == exclusive);
+
+    resetWorld3D();
+}
+
 TEST_CASE("engine3d: ngons and meshes over the historic caps load completely", "[engine3d]") {
     // Regression for two silent-truncation bugs: face records with more than
     // 16 corners were fan-triangulated from a fixed array, and meshes above
