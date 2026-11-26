@@ -2378,11 +2378,25 @@ void updateWorld3D(DISPLAY_T* display) {
   }
 
   bool splitResOk3D = false;
+  int32_t faceSplitUs3D = 0;
   if (splitXf3D) {
     int16_t ei;
     while (xQueueReceive(w3dXfQueue3D, &ei, 0) == pdTRUE) {
       xfClaimed3D[ei >> 6] |= 1ULL << (ei & 63);
       xfVerts3D += (int32_t)xfEntityPass3D(ei, ctx, xfCulled3D, w3dXfScratch3D[ei]);
+    }
+    /* Build faces for the entities this core already transformed while the
+     * helper still runs: their scratch was written by this core and is final
+     * now. This keeps core 1 busy through the done-wait, so the helper's
+     * core 0 contention (blit memcpy bursts, WiFi) costs less wall time. */
+    {
+      const int64_t faceT0 = perf3DEnabled ? esp_timer_get_time() : 0;
+      for (int16_t ei2 = 0; ei2 < ENTITY3D_LIMIT; ei2++) {
+        if (!(xfClaimed3D[ei2 >> 6] & (1ULL << (ei2 & 63)))) continue;
+        if (xfCulled3D[ei2 >> 6] & (1ULL << (ei2 & 63))) continue;
+        faceEntityPass3D(ei2, ctx, w3dXfScratch3D[ei2], &zLo, &zHi);
+      }
+      if (perf3DEnabled) faceSplitUs3D = (int32_t)(esp_timer_get_time() - faceT0);
     }
     xSemaphoreTake(w3dXfDone3D, portMAX_DELAY);
     int32_t helperVerts3D = 0;
@@ -2407,7 +2421,7 @@ void updateWorld3D(DISPLAY_T* display) {
     }
     if (perf3DEnabled) {
       perf3D.vertsTransformed += xfVerts3D;
-      perf3D.xfUs += (int32_t)(esp_timer_get_time() - perfSub3D);
+      perf3D.xfUs += (int32_t)(esp_timer_get_time() - perfSub3D) - faceSplitUs3D;
       perfSub3D = esp_timer_get_time();
     }
   } else {
@@ -2436,13 +2450,15 @@ void updateWorld3D(DISPLAY_T* display) {
 
   if (splitXf3D) {
     for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
+      if (xfClaimed3D[ei >> 6] & (1ULL << (ei & 63))) continue;  // face-passed already
       if (xfCulled3D[ei >> 6] & (1ULL << (ei & 63))) continue;
       // With the helper's done-result lost, helper-owned entities have scratch
       // state that cannot be trusted; skip them this frame.
-      if (!splitResOk3D && !(xfClaimed3D[ei >> 6] & (1ULL << (ei & 63)))) continue;
+      if (!splitResOk3D) continue;
       faceEntityPass3D(ei, ctx, w3dXfScratch3D[ei], &zLo, &zHi);
     }
     if (perf3DEnabled) {
+      perf3D.faceUs += faceSplitUs3D;
       perf3D.faceUs += (int32_t)(esp_timer_get_time() - perfSub3D);
       perfSub3D = esp_timer_get_time();
     }
