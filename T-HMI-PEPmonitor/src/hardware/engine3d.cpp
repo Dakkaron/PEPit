@@ -161,6 +161,7 @@ typedef struct {
 typedef struct {
   int32_t verts;
   int32_t failed;  // helper-side cache leg failed; core 1 then skips helper-owned entities
+  int32_t busyUs;  // helper wake-to-drain-end time, cache legs included
   uint64_t culledLo, culledHi;
 } XfHelperResult3D;
 
@@ -2171,6 +2172,7 @@ static void faceEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, ViewVertex3D* 
 static void w3dXfTaskLoop3D(void*) {
   for (;;) {
     xSemaphoreTake(w3dXfStart3D, portMAX_DELAY);
+    const int64_t busyT0 = esp_timer_get_time();
     uint64_t culled[2] = {0, 0};
     int32_t verts = 0;
     bool failed3D = false;
@@ -2190,6 +2192,7 @@ static void w3dXfTaskLoop3D(void*) {
     w3dXfHelperRes3D.culledLo = culled[0];
     w3dXfHelperRes3D.culledHi = culled[1];
     w3dXfHelperRes3D.failed = failed3D ? 1 : 0;
+    w3dXfHelperRes3D.busyUs = (int32_t)(esp_timer_get_time() - busyT0);
     xSemaphoreGive(w3dXfDone3D);
   }
 }
@@ -2380,11 +2383,13 @@ void updateWorld3D(DISPLAY_T* display) {
   bool splitResOk3D = false;
   int32_t faceSplitUs3D = 0;
   if (splitXf3D) {
+    const int64_t drainT0 = esp_timer_get_time();
     int16_t ei;
     while (xQueueReceive(w3dXfQueue3D, &ei, 0) == pdTRUE) {
       xfClaimed3D[ei >> 6] |= 1ULL << (ei & 63);
       xfVerts3D += (int32_t)xfEntityPass3D(ei, ctx, xfCulled3D, w3dXfScratch3D[ei]);
     }
+    const int32_t drainUs3D = (int32_t)(esp_timer_get_time() - drainT0);
     /* Build faces for the entities this core already transformed while the
      * helper still runs: their scratch was written by this core and is final
      * now. This keeps core 1 busy through the done-wait, so the helper's
@@ -2411,13 +2416,12 @@ void updateWorld3D(DISPLAY_T* display) {
     } else {
       w3dSplitXf3D = false;
     }
-    static bool reported3D = false;
-    static uint8_t reportFrames3D = 0;
-    if (!reported3D && (helperVerts3D > 0 || reportFrames3D < 5)) {
-      reportFrames3D++;
-      if (helperVerts3D > 0) reported3D = true;
-      Serial.printf("engine3d split: frame core1=%d helper=%d queued=%d\n",
-                    (int)(xfVerts3D - helperVerts3D), (int)helperVerts3D, (int)xfQueuedCount3D);
+    static uint32_t splitFrames3D = 0;
+    splitFrames3D++;
+    if (helperVerts3D > 0 && splitFrames3D % 240 == 3) {
+      Serial.printf("engine3d split: core1=%d/%ldus helper=%d/%ldus queued=%d\n",
+                    (int)(xfVerts3D - helperVerts3D), (long)drainUs3D,
+                    (int)helperVerts3D, (long)w3dXfHelperRes3D.busyUs, (int)xfQueuedCount3D);
     }
     if (perf3DEnabled) {
       perf3D.vertsTransformed += xfVerts3D;
