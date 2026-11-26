@@ -1,0 +1,1 @@
+Game `.lua` under `SDCardContent/games/` and `WIPSDCardContent/games/` is parsed on-device: comments cost runtime resources. No comments unless essential, then minimal. Dev knowledge → `TASK_INFO/` notes. Strip only with `scripts/strip_lua_comments.py`, never by hand. Load the `create-game` skill before game work; never edit it unless asked.

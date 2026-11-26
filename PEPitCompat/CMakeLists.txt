@@ -23,6 +23,7 @@ set(SHIM_LIB_SOURCES
     shim/sensor.cpp
     shim/joystick.cpp
     shim/touch.cpp
+    shim/autonav.cpp
     shim/thread.cpp
     shim/instances.cpp
     shim/appinit.cpp
@@ -141,6 +142,7 @@ target_include_directories(pepit_core PUBLIC
 )
 
 target_compile_definitions(pepit_core PUBLIC
+    PEPIT_COMPAT                         # We are the Linux compat build (gates compat-only firmware code)
     LUA_USE_C89                          # Required by EspLuaEngine for C89-compatible Lua
     VERBOSE                              # Enable log_v (used by EspLuaEngine)
     PROCESSOR_INCLUDE="Processors/TFT_eSDL.h"  # Tell TFT_eSPI to use our SDL2 processor

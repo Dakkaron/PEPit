@@ -298,6 +298,7 @@ function DisplayValidUpgrades()
       UpgradeMenuOffset = UpgradeMenuOffset - 1
       TouchBlocked = true
     end
+    MenuItems[#MenuItems + 1] = { x = 275, y = 35, w = 32, h = 32, act = function() UpgradeMenuOffset = UpgradeMenuOffset - 1 end }
   end
   if UpgradeMenuOffset<#upgrades-3 then
     DrawSprite(SButtonDown, 275, 150)
@@ -305,6 +306,7 @@ function DisplayValidUpgrades()
       UpgradeMenuOffset = UpgradeMenuOffset + 1
       TouchBlocked = true
     end
+    MenuItems[#MenuItems + 1] = { x = 275, y = 150, w = 32, h = 32, act = function() UpgradeMenuOffset = UpgradeMenuOffset + 1 end }
   end
   for i = 1, math.min(3,#upgrades) do
     local upgrade = upgrades[i + UpgradeMenuOffset]
@@ -315,12 +317,16 @@ function DisplayValidUpgrades()
       FillRect(10, yPos, 220, 60, 0xF800)
     else
       FillRect(10, yPos, 220, 60, 0x001F)
-      if IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
-        TouchBlocked = true
+      local buy = function()
         Money = Money - upgradeCost
         PrefsSetInt("money", Money)
         PrefsSetInt(upgrade.prop, PrefsGetInt(upgrade.prop, 0) + 1)
         CachedValidUpdates = nil
+      end
+      MenuItems[#MenuItems + 1] = { x = 10, y = yPos, w = 220, h = 60, act = buy }
+      if IsTouchInZone(10, yPos, 220, 60) and not TouchBlocked then
+        TouchBlocked = true
+        buy()
       end
     end
     SetTextSize(1)

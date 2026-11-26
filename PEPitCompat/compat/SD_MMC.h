@@ -31,6 +31,20 @@ public:
     void end();
 
     /**
+     * Seed the data directory with minimal factory data (systemConfig.ini,
+     * profiles.ini, /games/, /gfx/) if missing — mirrors the factory-provisioned
+     * SD card of a real device. Never overwrites existing files.
+     */
+    void seedFactoryData();
+
+    /**
+     * Enable/disable automatic factory seeding in begin() (default: enabled).
+     * Unit tests disable it so their SD roots contain only the fixtures they
+     * write themselves.
+     */
+    void setFactorySeeding(bool enabled);
+
+    /**
      * Set SD card pins (no-op on Linux, kept for compatibility)
      */
     void setPins(uint8_t sclk, uint8_t mosi, uint8_t miso);
@@ -93,8 +107,22 @@ public:
      */
     const std::string& getRootDir();
 
+    /**
+     * Redirect the /games subtree to another directory (--wip-games), so the
+     * emulator can run games from the WIP staging directory while prefs,
+     * profiles and system files stay in the normal data dir.
+     */
+    void setGamesOverrideDir(const std::string& path);
+
+    /**
+     * Map a virtual SD path to its location on disk, honoring the games override.
+     */
+    std::string mapToDisk(const char* path) const;
+
     // Internal state
     std::string rootDir_;             // Root directory path (from --data-dir)
+    std::string gamesOverrideDir_;    // Empty = no override; else absolute dir with trailing slash
+    bool factorySeeding_ = true;      // begin() seeds factory data unless tests disable it
     bool initialized_ = false;        // True if begin() was called successfully
 };
 

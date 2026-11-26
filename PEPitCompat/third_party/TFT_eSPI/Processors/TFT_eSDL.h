@@ -31,6 +31,9 @@ extern uint8_t   sdl_track_cmd;        // Pending command (0x2A=CASET, 0x2B=PASE
 extern uint8_t   sdl_track_idx;        // Data byte index (0 or 1 for 16-bit coord)
 extern uint16_t  sdl_track_acc;        // Accumulator for byte-level tracking
 
+// Panel inversion state (INVON/INVOFF commands), applied at flush time
+extern bool      sdl_invert;
+
 #include <SDL2/SDL.h>
 
 void initSDLBuffer(void);
@@ -49,6 +52,8 @@ inline void sdl_track_cmd_raw(uint8_t c) {
     if (c == 0x2A) { sdl_track_cmd = 0x2A; sdl_track_idx = 0; }
     else if (c == 0x2B) { sdl_track_cmd = 0x2B; sdl_track_idx = 0; }
     else if (c == 0x2C) { sdl_track_cmd = 0x2C; sdl_track_idx = 0; } // RAMWR — next tft_Write_16 is a pixel
+    else if (c == 0x21) { sdl_invert = true; }  // INVON
+    else if (c == 0x20) { sdl_invert = false; } // INVOFF
     else sdl_track_cmd = 0;
 }
 

@@ -32,6 +32,9 @@ inline std::filesystem::path makeSdRoot(const std::string& name) {
     std::string root = dir.generic_string();
     if (root.empty() || root.back() != '/') root += '/';
     SD_MMC.setRootDir(root);
+    // Fixture roots must contain only what the test writes — seeded factory
+    // games/files would silently change counts and readdir order.
+    SD_MMC.setFactorySeeding(false);
     SD_MMC.begin(nullptr, false);
     return dir;
 }

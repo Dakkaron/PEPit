@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "servers": {
+      "pepit_compat": {
+        "type": "local",
+        "command": [
+          "python3",
+          "/root/repos/PEPit/PEPitMCP/server.py"
+        ]
+      }
+    }
+  }
+}
