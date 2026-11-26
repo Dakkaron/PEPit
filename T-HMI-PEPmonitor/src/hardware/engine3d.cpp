@@ -12,20 +12,10 @@
 #include <ctype.h>
 
 /*
- * Software 3D engine for the Lua game engine, modelled after the Blitz3D
- * function reference.
- *
- * Pipeline: entities are transformed to view space, per-vertex Gouraud lighting
- * is evaluated against ambient/point/spot/directional lights, faces are frustum
- * and backface culled, clipped against the near plane, bucket sorted by depth
- * (painter's algorithm) and finally rasterized with integer span filling.
- *
- * View space convention: +x right, +y up on screen, +z forward (into the scene).
- * Faces are front facing when the cross product of their winding points towards
- * the camera, which matches the standard counter-clockwise winding of OBJ files.
- *
- * Screen coordinates are Q8 fixed point, texture coordinates are Q16 fixed point.
- * All hot loops use hardware float for transforms and int32 for rasterizing.
+ * View space: +x right, +y up, +z forward (into the scene). Faces are front
+ * facing when the cross product of their winding points towards the camera,
+ * which matches the standard counter-clockwise winding of OBJ files.
+ * Screen coordinates are Q8 fixed point, texture coordinates are Q16.
  */
 
 #define BUCKET3D_COUNT 4096
@@ -43,24 +33,21 @@ typedef struct {
 } Face3D;
 
 /*
- * Per-vertex view-space scratch in one 32-byte record. The update loop writes
- * it as a single PSRAM stream and the face loop's random vertex access then
- * needs one cache line per vertex instead of one per scratch array: line
- * transfers to PSRAM dominate both phases on the ESP32-S3.
+ * One 32-byte record per vertex so the face loop's random access to a PSRAM
+ * stream costs one cache line per vertex instead of one per scratch array.
  */
 typedef struct {
-  float x, y, z;     // view-space position
-  float iz;          // 1/viewZ (fastRecip3D), reused by the face loop for texture coords
-  int32_t sx, sy;    // Q8 screen projection, valid when z >= near plane
-  uint32_t color;    // Gouraud color 0x00RRGGBB
-  uint32_t pad;      // 28-byte records straddle 64-byte PSRAM cache lines, so every
-                     // write miss fetches the line before updating it; padding to 32
-                     // tiles records exactly into lines and removes that read.
+  float x, y, z;
+  float iz;          // 1/viewZ, reused by the face loop for texture coords
+  int32_t sx, sy;    // Q8 screen projection, valid only when z >= near plane
+  uint32_t color;    // 0x00RRGGBB
+  // 28-byte records straddle 64-byte PSRAM cache lines, so every write miss
+  // fetches the line before updating it; padding to 32 removes that read.
+  uint32_t pad;
 } ViewVertex3D;
 
-/* Stored vertex record: position and normal in one record so the update
- * loop streams both from the same PSRAM cache lines per vertex instead of
- * following two separate arrays. */
+// pos+nrm interleaved: the update loop streams both from one cache line per
+// vertex instead of following two separate arrays.
 typedef struct {
   Vector3D pos;
   Vector3D nrm;
@@ -71,14 +58,14 @@ typedef struct {
   uint16_t vertexCount;
   uint16_t faceCount;
   MeshVertex3D* vtx;
-  int32_t* uvQ; // Q16 uv pairs, null when the mesh has no texture coords
+  int32_t* uvQ; // Q16 uv pairs, null when untextured
   Face3D* faces;
   uint8_t color[3];
   int16_t textureHandle;
   uint8_t flipped;
   Vector3D boundsCenter;
   float boundsRadius;
-  ViewVertex3D* vs; // per-frame scratch, sized to vertexCount
+  ViewVertex3D* vs; // per-frame transform scratch
 } Mesh3D;
 
 typedef struct {
@@ -117,35 +104,35 @@ typedef struct {
   float dx, dy, dz;     // normalized beam direction (spot and directional)
   float cosInner, cosOuter, cosInvDelta;
   // View space caches, refreshed every updateWorld3D()
-  float vx, vy, vz;     // position
-  float bx, by, bz;     // beam direction
+  float vx, vy, vz;
+  float bx, by, bz;
   float tx, ty, tz;     // direction towards the light (directional lights)
 } Light3D;
 
 typedef struct {
-  int32_t sx[4], sy[4];   // Q8 screen coordinates
-  float ru[4], rv[4];     // Q16 texture coords times 1/viewZ (screen-linear)
-  float rz[4];            // 1/viewZ; dividing ru/rz gives perspective-correct uv
-  uint32_t color[4];      // per-vertex Gouraud color, 0x00RRGGBB
+  int32_t sx[4], sy[4];
+  // Screen-linear uv times 1/viewZ; dividing ru/rz gives perspective-correct uv.
+  float ru[4], rv[4];
+  float rz[4];
+  uint32_t color[4];
   const uint16_t* tex;    // null unless textured
   int16_t texW, texH, texMask;
-  int16_t next;           // next triangle in the depth bucket
-  float zKey;             // average camera-space depth; bucketed in a second pass
-  int8_t orderOff;        // entity draw-order bias applied at bucketing time
-  uint32_t flatColor;     // uniform color for modes 0 and 3, 0x00RRGGBB
-  uint8_t vertexCount;    // 3 normally, 4 after near plane clipping
+  int16_t next;
+  float zKey;
+  int8_t orderOff;
+  uint32_t flatColor;
+  uint8_t vertexCount;    // 4 only after near plane clipping
   uint8_t mode;           // 0 flat, 1 gouraud, 2 gouraud+texture, 3 texture uniform light
 } TriDraw3D;
 
 /*
- * Splitting the xf pass over both cores shares these arrays with a core 0
- * helper task. They live in internal DRAM, which on the ESP32-S3 is not in
- * the cache address space at all (only the external 0x3C000000-0x3DFFFFFF
- * PSRAM mapping has per-core D-caches) - both cores read it straight from
- * memory, so these need no cache maintenance, and esp_cache_msync outright
- * rejects internal addresses. Only the PSRAM streams the split touches -
- * mesh vtx and the per-entity view scratch - need msync legs; see the split
- * section near updateWorld3D. FreeRTOS semaphores order the hand-off.
+ * Arrays the core 0 xf helper shares with core 1. They live in internal DRAM,
+ * which on the ESP32-S3 is not in the cache address space at all (only the
+ * external PSRAM mapping has per-core D-caches), so both cores read it
+ * straight from memory: no cache maintenance possible or needed, and
+ * esp_cache_msync outright rejects internal addresses. Only the PSRAM streams
+ * (mesh vtx, per-entity scratch) get msync legs. Semaphores order the
+ * hand-off; see the split section near updateWorld3D.
  */
 typedef struct {
   Mat3 basis;
@@ -160,8 +147,8 @@ typedef struct {
 
 typedef struct {
   int32_t verts;
-  int32_t failed;  // helper-side cache leg failed; core 1 then skips helper-owned entities
-  int32_t busyUs;  // helper wake-to-drain-end time, cache legs included
+  int32_t failed;  // core 1 skips helper-owned entities when set
+  int32_t busyUs;  // helper wake-to-drain-end time
   uint64_t culledLo, culledHi;
 } XfHelperResult3D;
 
@@ -181,9 +168,8 @@ static W3dSplitShared3D w3dSplitShared3D;
 static Texture3D textures3D[TEXTURE3D_LIMIT];
 static Camera3D cameras3D[CAMERA3D_LIMIT];
 
-// Scratch and vtx allocations are rounded up to whole 64-byte cache lines so
-// every split msync leg on them is line-exact (see the split section near
-// updateWorld3D).
+// Scratch/vtx allocations round up to whole 64-byte cache lines so every
+// split msync leg on them is line-exact.
 static inline size_t viewVertsSpan3D(uint16_t vc) {
   return ((size_t)vc * sizeof(ViewVertex3D) + 63) & ~(size_t)63;
 }
@@ -196,9 +182,7 @@ static int16_t* bucketHeads3D = nullptr;
 static int32_t drawCount3D = 0;
 static float ambient3D[3] = {0.5f, 0.5f, 0.5f};
 static bool world3DReady = false;
-// True while frames are rendered through drawWorld3D: enables the core 0
-// background blanking described in the pipelined blit section further down.
-static bool w3d3DFrameActive3D = false;
+static bool w3d3DFrameActive3D = false; // enables the core 0 gap fill (see blit section)
 // Slot 0 starts as an implicit camera so meshes render before the game makes
 // one; the first CreateCamera replaces it so game camera settings take effect.
 static bool implicitCamera3D = false;
@@ -206,17 +190,14 @@ static bool implicitCamera3D = false;
 static uint16_t* fb3D = nullptr;
 static int32_t fbW3D = 0, fbH3D = 0;
 
-// Mask-mode coverage bookkeeping (design: pipelined blit section further down)
 static bool w3dMaskActive3D = false;
 static uint32_t* w3dDrawMask3D = nullptr; // mask of the current draw target
 
-/* Render viewport: a sub-rectangle of the display that UpdateWorld/DrawWorld
- * project into. The camera axis hits the viewport center, and the projection
- * scale stays tied to the full display height, so the world image is the same
- * one the full-screen projection produces, just windowed: moving a viewport
- * of unchanged size shifts the picture by the same amount. Anything outside
- * the viewport is neither projected, depth-sorted, nor rasterized; the
- * coverage-mask gap fill blacks those rows like any other untouched pixel. */
+/* Render viewport semantics: the projection scale stays tied to the full
+ * display height and the camera axis hits the viewport center, so the
+ * world image is the full-screen one, just windowed — moving a viewport of
+ * unchanged size shifts the picture by the same amount. Pixels outside it
+ * are never drawn, and the gap fill blacks them like any untouched pixel. */
 static int16_t vpX3D = 0, vpY3D = 0, vpW3D = 0, vpH3D = 0; // requested; w/h 0 = whole display
 static int16_t vpL3D = 0, vpT3D = 0, vpR3D = 0, vpB3D = 0; // resolved, right/bottom exclusive
 static float vpCx3D = 0, vpCy3D = 0;                       // resolved center
@@ -247,16 +228,14 @@ static void resolveViewport3D(int32_t sw, int32_t sh) {
   vpCy3D = y + h * 0.5f;
 }
 
-// Phase timings and workload counters. They only cost anything while the
-// debugLogRender3D system config flag turns them on; the game loop reports the
-// frame through reportWorld3DFrame3D() once the sprite has been pushed.
+// Phase timings and workload counters; only cost anything while the
+// debugLogRender3D system config flag turns them on.
 static bool perf3DEnabled = false;
 static World3DPerf3D perf3D = {};
 static World3DPerf3D perf3DReportBase3D = {};
 static uint32_t perf3DReportMs3D = 0;
 static int64_t w3dPerfFrameT3D = 0;
 
-// Blit mode reported in the perf line ("full" pipelined, "sync" diff push)
 static const char* w3dBlitMode3D = "sync";
 
 static void setupDefaultCamera3D() {
@@ -288,9 +267,8 @@ static bool ensureWorld3D() {
   return true;
 }
 
-// grow3D always returns 64-byte aligned buffers with 64-byte rounded sizes:
-// finishMesh3D hands the OBJ build buffers straight to m->vtx, and the split
-// vtx cache leg (M2C) requires line-aligned address and size on PSRAM.
+// 64-byte alignment and rounding: finishMesh3D hands these buffers straight to
+// m->vtx, and the split vtx cache leg (M2C) requires line-exact address and size.
 static void* grow3D(void* ptr, size_t newBytes) {
   size_t alignedBytes = (newBytes + 63) & ~(size_t)63;
   void* p = heap_caps_realloc(ptr, alignedBytes, MALLOC_CAP_SPIRAM);
@@ -360,16 +338,14 @@ static inline int32_t clamp3DI(int32_t v, int32_t lo, int32_t hi) {
 }
 
 /*
- * The ESP32-S3 FPU runs add/sub/mul but has no divide or square root instruction,
- * so 1.0f/x and sqrtf() compile to library calls (__divsf3 and sqrtf relocations
- * are visible in this file's own firmware object). Those calls dominated the hot
- * loops, hence the bit-hack seed plus Newton iterations below: the hot path stays
- * entirely in FPU instructions (wfr + mul.s/msub.s in the firmware disassembly).
- * The bit view uses a union pun because the memcpy idiom is not equivalent on this
- * target — the Xtensa -Os compiler emits real memcpy calls for it. Measured
- * worst-case relative error over 0.001..3000 is
- * 1.6e-6 for the reciprocal and 4.7e-6 for the reciprocal square root, i.e. under
- * 0.001 px of screen movement and under 0.01 texels — below RGB565 resolution.
+ * The S3 FPU runs add/sub/mul but has no divide or square root instruction, so
+ * 1.0f/x and sqrtf() compile to library calls (__divsf3/sqrtf relocations are
+ * visible in this file's firmware object) which dominated the hot loops. The
+ * bit-hack seed plus Newton iterations below keep the hot path entirely in
+ * FPU instructions. The bit view uses a union pun because the memcpy idiom is
+ * not equivalent on this target — Xtensa -Os emits real memcpy calls.
+ * Worst-case relative error over 0.001..3000: 1.6e-6 (reciprocal),
+ * 4.7e-6 (reciprocal sqrt) — below RGB565 resolution.
  */
 union FloatBits32 { float f; uint32_t u; };
 
@@ -424,7 +400,6 @@ static int16_t allocMeshSlot3D() {
 
 static void normalizeNormals3D(Mesh3D* m, const uint8_t* hasNrm) {
   if (!m->vtx) return;
-  // Faces must contribute their normal to merged vertices that have no OBJ normal
   if (hasNrm && m->faces && m->vtx) {
     for (uint16_t fi = 0; fi < m->faceCount; fi++) {
       Face3D* f = &m->faces[fi];
@@ -485,9 +460,7 @@ static bool buildMeshScratch3D(Mesh3D* m) {
   if (!m->vs) return false;
   return true;
 }
-// ---------------------------------------------------------------------------
-// OBJ loading
-// ---------------------------------------------------------------------------
+
 
 typedef struct {
   int32_t vi, vti, vni;
@@ -876,9 +849,7 @@ int16_t loadMesh3D(String path) {
   Serial.println(" faces)");
   return slot;
 }
-// ---------------------------------------------------------------------------
-// Textures
-// ---------------------------------------------------------------------------
+
 
 int16_t loadTexture3D(String path) {
   if (!ensureWorld3D()) return -1;
@@ -887,9 +858,8 @@ int16_t loadTexture3D(String path) {
     TFT_eSprite* s = &textureSprites3D[i];
     if (s->created()) s->deleteSprite();
     s->setColorDepth(16);
-    // Rasterizer texture sampling is random access: texture pixel buffers
-    // live in internal RAM so that traffic never touches the PSRAM bus the
-    // mesh streams and the core 0 blit task already saturate.
+    // Texture sampling is random access: keep the pixel buffers in internal
+    // RAM so they never touch the PSRAM bus the mesh streams and blit saturate.
     s->setPsram(false);
     if (!loadBmp(s, path) && !s->created()) {
       s->setPsram(true); // internal heap exhausted: fall back to PSRAM
@@ -932,9 +902,7 @@ bool freeTexture3D(int16_t handle) {
   return true;
 }
 
-// ---------------------------------------------------------------------------
-// Mesh management and procedural primitives
-// ---------------------------------------------------------------------------
+
 
 bool freeMesh3D(int16_t handle) {
   if (handle < 0 || handle >= MESH3D_LIMIT || !meshes3D[handle].inUse) return false;
@@ -989,8 +957,7 @@ static bool setupPrimitiveMesh3D(Mesh3D* m, uint16_t vc, uint16_t fc) {
   return true;
 }
 
-// Each quad is wound so its winding cross product points outwards, matching
-// the standard OBJ front facing convention.
+// Quads wound so the cross product points outwards (OBJ front facing).
 int16_t createMesh3DCube() {
   if (!ensureWorld3D()) return -1;
   int16_t slot = allocMeshSlot3D();
@@ -1101,9 +1068,7 @@ int16_t createMesh3DPlane(float width, float height) {
   return slot;
 }
 
-// ---------------------------------------------------------------------------
-// Entities
-// ---------------------------------------------------------------------------
+
 
 int16_t createEntity3D(int16_t meshHandle) {
   if (!ensureWorld3D()) return -1;
@@ -1191,9 +1156,7 @@ void entityOrder3D(int16_t handle, int8_t order) {
   entities3D[handle].order = order;
 }
 
-// ---------------------------------------------------------------------------
-// Cameras
-// ---------------------------------------------------------------------------
+
 
 int16_t createCamera3D() {
   if (!ensureWorld3D()) return -1;
@@ -1256,9 +1219,7 @@ void cameraRange3D(int16_t handle, float nearPlane, float farPlane) {
   cameras3D[handle].farPlane = farPlane;
 }
 
-// ---------------------------------------------------------------------------
-// Lights
-// ---------------------------------------------------------------------------
+
 
 void ambientLight3D(uint8_t r, uint8_t g, uint8_t b) {
   ambient3D[0] = (float)r / 255.0f;
@@ -1346,9 +1307,7 @@ void resetWorld3D() {
   setWorld3DViewport3D(0, 0, 0, 0); // viewport is a per-game setting
   setupDefaultCamera3D();
 }
-// ---------------------------------------------------------------------------
-// World update: transforms, culling, Gouraud lighting, depth sorting
-// ---------------------------------------------------------------------------
+
 
 static void entityWorldTransform3D(int16_t handle, float* rot9, float* pos3, uint8_t guard) {
   Entity3D* e = &entities3D[handle];
@@ -1383,8 +1342,7 @@ static uint32_t lerpColor3D(uint32_t ca, uint32_t cb, float t) {
   return ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
 }
 
-// Sutherland-Hodgman clip of a triangle against the near plane, interpolating
-// position, color and texture coordinates. Returns 3 or 4 clipped vertices.
+// Sutherland-Hodgman near-plane clip; returns 3 or 4 clipped vertices.
 static uint8_t clipTriangleNear3D(float nearPlane,
     const float* pa, const float* pb, const float* pc,
     uint32_t colA, uint32_t colB, uint32_t colC,
@@ -1428,9 +1386,8 @@ static uint8_t clipTriangleNear3D(float nearPlane,
   return outCount;
 }
 
-// scale carries projScale * (1/viewZ): the divide is hoisted to the callers, which
-// need 1/z for their texture coordinates anyway. Callers only project vertices at
-// or beyond the near plane, so scale is always finite.
+// scale carries projScale * (1/viewZ); the divide is hoisted to callers which
+// need 1/z for texture coords anyway, and only call this at/beyond near plane.
 static void projectClipPoint3D(const float* viewPos, float scale, float cx, float cy,
     int32_t* outX, int32_t* outY) {
   float sxf = viewPos[0] * scale;
@@ -1462,14 +1419,11 @@ void resetWorld3DPerf3D() {
   w3dPerfFrameT3D = 0;
 }
 
-// Accumulates externally measured time (pressure sensor reads) into the perf
-// window so the frame budget gap can be attributed.
 void addWorld3DSensorUs3D(int32_t us) {
   if (!perf3DEnabled) return;
   perf3D.sensorUs += us;
 }
 
-// Prints the averages of the window since the previous report, once per second.
 void reportWorld3DFrame3D(int32_t pushUs) {
   if (!perf3DEnabled) return;
   int64_t frameT = esp_timer_get_time();
@@ -1517,40 +1471,34 @@ void reportWorld3DFrame3D(int32_t pushUs) {
 }
 
 /*
- * Pipelined display blit. Pushing a full screen costs ~15ms of 8-bit
- * parallel bus time no matter which core issues it, so a task pinned to
- * core 0 pushes the frame that was just rendered while the game core
- * rasterizes the next frame into the sprite's other frame buffer. The two
- * cores never touch the same buffer in the same frame, and the ESP32-S3
- * MMU/cache is shared between both cores, so handing over PSRAM buffers
- * needs no cache maintenance. The pipelined push is a plain full push: a
- * diff push would re-read the 153KB back buffer from PSRAM every frame,
- * competing with the rendering core on the shared bus, and dynamic frames
- * rarely skip enough runs for the diff to recover that cost. Screens that
- * are not full-frame game loops are never pipelined and keep the
- * synchronous diff push.
+ * Pipelined display blit: a full-screen push costs ~15ms of parallel bus time
+ * no matter which core issues it, so a task pinned to core 0 pushes the frame
+ * just rendered while the game core rasterizes the next frame into the
+ * sprite's other buffer; the two cores never touch the same buffer in the
+ * same frame. The pipelined push is a plain full push: a diff push would
+ * re-read the 153KB back buffer from PSRAM every frame, and dynamic frames
+ * rarely skip enough runs to recover that. Screens that are not full-frame
+ * game loops keep the synchronous diff push.
  */
 static SemaphoreHandle_t w3dPushReady3D = nullptr;
 static SemaphoreHandle_t w3dPushDone3D = nullptr;
 static SemaphoreHandle_t w3dFillDone3D = nullptr;
-// Work drain: taken by a blit that must know the task consumed the previous
-// hand-off before overwriting the hand-off variables, given back by the task
+// Work drain: a blit that must know the task consumed the previous hand-off
+// before overwriting the hand-off variables takes it, the task gives it back
 // once push and fill bookkeeping are finished.
 static SemaphoreHandle_t w3dWorkDone3D = nullptr;
 static TaskHandle_t w3dPushTask3DHandle = nullptr;
 static bool w3dPushPending3D = false;
 static bool w3dPipelineEnabled3D = true;
-static bool w3dI80Push3D = true; // full-frame pushes go through the LCD_CAM peripheral when available
+static bool w3dI80Push3D = true;
 static uint16_t* w3dPushNew3D = nullptr; // buffer holding the frame to display
 static int16_t w3dPushW3D = 0, w3dPushH3D = 0;
 static volatile int32_t w3dPushUs3D = 0;
-// Background blanking via coverage masks. Each double-buffer frame has a
-// 1-bit-per-pixel mask: the rasterizer sets bits as it writes spans, 2D
-// writers claim rects before drawing, and the core 0 task memsets every
-// unmasked run of the buffer right before pushing it. A frame buffer that
-// is pushed is therefore fully valid (drawn pixels + black gaps) without
-// core 1 ever memsetting the 153KB buffer, and core 0 only touches the
-// uncovered remainder (~35KB for a typical 3D scene instead of 153KB).
+// Coverage masks, one per double buffer: the rasterizer sets bits as it writes
+// spans, 2D writers claim rects before drawing, and the core 0 task memsets
+// only the unmasked runs right before pushing. A pushed buffer is therefore
+// fully valid without core 1 ever memseting the 153KB buffer (~35KB touched
+// for a typical 3D scene).
 static uint32_t* w3dMask3D[2] = {nullptr, nullptr};
 static int16_t w3dMaskWords3D = 0;
 static int16_t w3dMaskRows3D = 0;
@@ -1572,8 +1520,6 @@ static inline uint32_t maskRange3D(int32_t lo, int32_t hi) {
   return (((1u << (hi - lo + 1)) - 1u) << lo);
 }
 
-// Memset every run of zero bits in one mask word (pixels start at fbRow);
-// returns the number of pixels filled.
 static uint32_t gapFillWord3D(uint16_t* fbRow, uint32_t uncovered) {
   uint32_t filled = 0;
   while (uncovered) {
@@ -1587,7 +1533,6 @@ static uint32_t gapFillWord3D(uint16_t* fbRow, uint32_t uncovered) {
   return filled;
 }
 
-// Mark the pixels a rasterizer span wrote; the gap fill will skip them.
 static inline void markSpanMask3D(int32_t row, int32_t x0, int32_t x1) {
   uint32_t* m = w3dDrawMask3D + row * w3dMaskWords3D;
   int32_t w0 = x0 >> 5, w1 = x1 >> 5;
@@ -1697,8 +1642,7 @@ void quiesceWorld3DBlit3D() {
 }
 
 // Wait until the core 0 task has finished its legacy full-buffer fill of the
-// frame buffer this frame will draw into. Mask mode never fills on core 0
-// ahead of time, so there the check is a flag test.
+// buffer this frame will draw into; mask mode never pre-fills on core 0.
 void barrierWorld3DFill3D() {
   if (w3dFillWait3D) {
     xSemaphoreTake(w3dFillDone3D, portMAX_DELAY);
@@ -1717,12 +1661,9 @@ bool world3DMaskMode3D(DISPLAY_T* display) {
   return currentDrawMask3D(display) != nullptr;
 }
 
-// Frame start for full-screen game loops, in place of fillSprite(TFT_BLACK).
-// In mask mode the frame buffers are never wiped whole: clearing this draw
-// target's coverage mask is the whole "clear", and the core 0 task memsets
-// the uncovered pixels of each buffer right before pushing it. Without mask
-// mode this keeps the previous behavior (pipelined background fill of the
-// next buffer, or a synchronous fill here).
+// Frame start for full-screen game loops, in place of fillSprite(TFT_BLACK):
+// in mask mode clearing the coverage mask is the whole "clear" (core 0 memsets
+// the uncovered pixels at push time); otherwise the previous fill behavior.
 void beginWorld3DFill3D(DISPLAY_T* display) {
   if (!display || !display->created()) return;
   barrierWorld3DFill3D();
@@ -1742,10 +1683,9 @@ void beginWorld3DFill3D(DISPLAY_T* display) {
   display->fillSprite(TFT_BLACK);
 }
 
-// 2D writers on the framebuffer call this BEFORE drawing: the region's still
-// uncovered pixels are blacked and the region is marked covered, so the
-// pending gap fill can neither leave stale pixels in the region nor erase
-// what the 2D write is about to paint there. Outside mask mode it is a no-op.
+// 2D writers must claim BEFORE drawing: the region's uncovered pixels are
+// blacked now and the region marked covered, so the pending gap fill can
+// neither leave stale pixels there nor erase what is about to be painted.
 void claimFramebufferRect3D(DISPLAY_T* display, int16_t x, int16_t y, int16_t w, int16_t h) {
   uint32_t* mask = currentDrawMask3D(display);
   if (!mask || w <= 0 || h <= 0) return;
@@ -1772,11 +1712,9 @@ void claimFramebufferRect3D(DISPLAY_T* display, int16_t x, int16_t y, int16_t w,
   }
 }
 
-// FillSprite semantics for a mask-mode framebuffer: black only needs the
-// mask cleared (the gap fill will black every untouched pixel at push time);
-// any other colour must really paint the buffer and then mark it fully
-// covered so the gap fill leaves it alone. Returns true when mask mode
-// handled the call, false when the caller has to fill itself.
+// FillSprite for a mask-mode framebuffer: black just clears the mask (the gap
+// fill blacks untouched pixels at push time); other colors paint the buffer
+// and mark it fully covered. False means the caller must fill itself.
 bool fillFramebufferMasked3D(DISPLAY_T* display, uint16_t color) {
   uint32_t* mask = currentDrawMask3D(display);
   if (!mask) return false;
@@ -1789,8 +1727,8 @@ bool fillFramebufferMasked3D(DISPLAY_T* display, uint16_t color) {
   return true;
 }
 
-// Claim the rectangle a drawString/print call at (x, y) can paint, honoring
-// the current text datum; over-claiming is safe, it only costs memset.
+// Claim the box a drawString/print at (x, y) can paint, honoring the text
+// datum; over-claiming only costs memset.
 void claimTextRect3D(DISPLAY_T* display, const char* text, int16_t x, int16_t y) {
   if (!world3DMaskMode3D(display)) return;
   int32_t tw = display->textWidth(text);
@@ -1807,26 +1745,19 @@ void claimTextRect3D(DISPLAY_T* display, const char* text, int16_t x, int16_t y)
                          (int16_t)(x1 - x0 + 2), (int16_t)(y1 - y0 + 2));
 }
 
-// Switch between pipelined and synchronous blit for on-device perf A/B
-// (systemconfig.ini renderPipeline3D).
 void setWorld3DPipeline3D(bool enabled) {
   w3dPipelineEnabled3D = enabled;
   if (!enabled) quiesceWorld3DBlit3D();
 }
 
-// Switch the pipelined full-frame push between the LCD_CAM/GDMA bus driver and
-// bit-banged pushRect for on-device perf A/B (systemconfig.ini renderI80Push3D).
 void setWorld3DI80Push3D(bool enabled) {
   w3dI80Push3D = enabled;
 }
 
-// End-of-frame display push for full-screen game loops: pipelined whenever
-// the display sprite is double-buffered, the plain synchronous sprite push
-// otherwise. Reports the frame to the perf counters when debug logging is
-// on, including the blit time the push task measured (or the synchronous
-// push time). TFT_eSPI::pushImage and pushImageFast hold a bus mutex, so a
-// synchronous push from another context waits for an in-flight pipelined
-// push instead of interleaving with it.
+// Pipelined while the display sprite is double-buffered, synchronous push
+// otherwise. TFT_eSPI pushImage/pushImageFast hold a bus mutex, so a
+// synchronous push from another context cannot interleave with an in-flight
+// pipelined push.
 void blitWorld3DFrame3D(DISPLAY_T* display) {
   if (!display || !display->created()) return;
   int64_t perfT0 = perf3DEnabled ? esp_timer_get_time() : 0;
@@ -1834,9 +1765,8 @@ void blitWorld3DFrame3D(DISPLAY_T* display) {
   int8_t drawn = display->frameBufferId();
   if (w3dPipelineEnabled3D && drawn && w3dPipelineReady3D()) {
     if (w3dPushPending3D) {
-      // Commit wait: the displayed buffer must be fully pushed before it is
-      // redrawn, and the task must have consumed the previous hand-off
-      // variables before this blit rewrites them.
+      // The displayed buffer must be fully pushed before it is redrawn, and
+      // the task must have consumed the previous hand-off before we rewrite it.
       xSemaphoreTake(w3dPushDone3D, portMAX_DELAY);
       xSemaphoreTake(w3dWorkDone3D, portMAX_DELAY);
     }
@@ -1874,27 +1804,23 @@ void blitWorld3DFrame3D(DISPLAY_T* display) {
 }
 
 /*
- * Splitting the xf pass over both cores. A core 0 helper task transforms and
- * lights entities it claims from a shared queue (longest mesh first so the
- * big jobs start first on both cores, which auto-balances the tail), core 1
- * claims the rest; the fused pass has no inter-entity dependencies.
+ * Split xf pass over both cores. A core 0 helper task transforms and lights
+ * entities it claims from a shared queue (longest mesh first, so both cores
+ * start on the big jobs and the tail of small meshes absorbs the imbalance);
+ * core 1 claims the rest. The fused pass has no inter-entity dependencies.
  *
- * The split xf phase transforms every entity before any face pass reads
- * scratch, but mesh->vs is a single per-mesh buffer: several entities can
- * share one mesh (the 3ddemo car's four wheels reuse two wheel meshes), so
- * one instance's transform would clobber another's before the face loop ever
- * sees it. Every entity therefore gets its own scratch slice each frame: the
- * first instance of a mesh uses mesh->vs, extra instances get a slice from a
- * PSRAM pool. Slices are aligned to whole 64-byte cache lines, so no cache
- * line is ever written by both cores in one frame. Before releasing the
- * helper, core 1 writes its queued vtx streams to memory and invalidates its
- * cached copies of every candidate scratch slice; the helper discards its
- * stale vtx copies before reading and writes back each scratch slice it owns
- * before signaling done. Only PSRAM streams get legs - the shared statics
- * live in internal DRAM, which the S3 does not cache and esp_cache_msync
- * rejects. The legs are exact-line ranges: esp_cache_msync rejects the
- * UNALIGNED flag for M2C, and an invalidate leg must never reach into data
- * it does not own.
+ * Because the split xf phase transforms every entity before any face pass
+ * reads scratch, and mesh->vs is a single per-mesh buffer, entities sharing
+ * one mesh (the 3ddemo car's four wheels reuse two wheel meshes) would
+ * clobber each other's transforms. Every entity therefore gets its own
+ * scratch slice each frame (first instance uses mesh->vs, extras get a
+ * 64-byte aligned slice from a PSRAM pool), so no cache line is ever written
+ * by both cores in one frame. Only the PSRAM streams get cache legs: vtx
+ * write-back before the helper reads it, scratch invalidate before the helper
+ * writes it, helper scratch write-back before done. Statics in internal DRAM
+ * are not cached on the S3 at all and esp_cache_msync rejects them. M2C legs
+ * reject the UNALIGNED flag, so every leg is an exact cache-line range that
+ * never reaches into data it does not own.
  */
 #define w3dXfCtx3D (w3dSplitShared3D.ctx)
 #define w3dXfHelperRes3D (w3dSplitShared3D.res)
@@ -1908,7 +1834,7 @@ static QueueHandle_t w3dXfQueue3D = nullptr;
 static TaskHandle_t w3dXfTask3DHandle = nullptr;
 static ViewVertex3D* w3dXfPool3D = nullptr;
 static size_t w3dXfPoolVerts3D = 0;
-static const size_t W3D_XF_POOL_MAX_VERTS = 8192; // 256 KB PSRAM ceiling for shared-instance scratch
+static const size_t W3D_XF_POOL_MAX_VERTS = 8192; // PSRAM ceiling for shared-instance scratch
 
 static bool xfCacheWarn3D(const char* what) {
   static bool warned3D = false;
@@ -1927,10 +1853,8 @@ static inline bool xfCacheInvalidate3D(void* addr, size_t len, const char* what)
   return xfCacheWarn3D(what);
 }
 
-// Fused transform/project/light pass for one entity, writing into that
-// entity's scratch slice. Returns the number of vertices transformed and
-// marks the culled bit when the bounding-sphere frustum test skips the
-// entity, so the face loop skips it exactly like the original fused loop did.
+// Writes into the entity's scratch slice; the culled bit lets the face loop
+// skip exactly like the sequential fused loop did.
 static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* culledBits, ViewVertex3D* vs) {
   Entity3D* e = &entities3D[ei];
   if (!e->inUse || e->hidden) return 0;
@@ -1951,7 +1875,6 @@ static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* cu
   float ty = basis[3]*ex + basis[4]*ey + basis[5]*ez;
   float tz = basis[6]*ex + basis[7]*ey + basis[8]*ez;
 
-  // Frustum cull using the transformed bounding sphere
   float maxScale = fabsf(e->sx);
   if (fabsf(e->sy) > maxScale) maxScale = fabsf(e->sy);
   if (fabsf(e->sz) > maxScale) maxScale = fabsf(e->sz);
@@ -1971,12 +1894,8 @@ static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* cu
   uint32_t baseG = ((uint32_t)e->color[1] * mesh->color[1] + 128) / 255;
   uint32_t baseB = ((uint32_t)e->color[2] * mesh->color[2] + 128) / 255;
 
-  /*
-   * One fused pass transforms, projects and lights each vertex. These
-   * scratch arrays are PSRAM streams far larger than the ESP32-S3 data
-   * cache, so running the passes as separate loops reloads nearly every
-   * vertex from PSRAM a second time.
-   */
+  /* Fused transform+project+light loop: the PSRAM scratch streams far exceed
+   * the S3 data cache, so separate loops would reload nearly every vertex. */
   const bool dynamicLighting = ctx->dynamicLighting;
   const float nearPlane = ctx->nearPlane;
   for (uint16_t vi = 0; vi < vertexCount; vi++) {
@@ -2011,8 +1930,8 @@ static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* cu
           float ldx = l->vx - vpX, ldy = l->vy - vpY, ldz = l->vz - vpZ;
           float d2 = ldx*ldx + ldy*ldy + ldz*ldz;
           if (d2 >= l->rangeSq) continue;
-          // dist only feeds an 8-bit light term and a cone test, so the approximate
-          // reciprocal square root replaces both a sqrtf() call and a float divide.
+          // dist feeds an 8-bit light term and a cone test: the approximate
+          // reciprocal square root replaces a sqrtf call and a float divide.
           float inv = (d2 < 1e-6f) ? 1000.0f : fastInvSqrt3D(d2);
           float dist = d2 * inv;
           float ndl = (nx*ldx + ny*ldy + nz*ldz) * inv;
@@ -2045,9 +1964,7 @@ static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* cu
   return vertexCount;
 }
 
-// Face-building pass for one entity: reads the scratch slice the xf pass
-// produced, runs backface/viewport rejection and near-plane clipping and
-// appends draw records. Core 1 only.
+// Core 1 only: builds draw records from the xf scratch slice.
 static void faceEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, ViewVertex3D* vs, float* zLo, float* zHi) {
   Entity3D* e = &entities3D[ei];
   if (!e->inUse || e->hidden) return;
@@ -2180,9 +2097,8 @@ static void w3dXfTaskLoop3D(void*) {
     while (xQueueReceive(w3dXfQueue3D, &ei, 0) == pdTRUE) {
       Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
       ViewVertex3D* sc = w3dXfScratch3D[ei];
-      // vtx and scratch are PSRAM, so each core sees the other's writes only
-      // through these legs. Core 1 may have re-uploaded vtx data whose
-      // write-back still sits in its private cache; drop stale copies first.
+      // Core 1's vtx write-back may still sit in its private cache; drop the
+      // stale copy before streaming from PSRAM.
       if (m->vtx && !xfCacheInvalidate3D(m->vtx, meshVtxSpan3D(m->vertexCount), "helper vtx M2C")) { failed3D = true; break; }
       uint32_t n = xfEntityPass3D(ei, &w3dXfCtx3D, culled, sc);
       verts += (int32_t)n;
@@ -2242,11 +2158,9 @@ void updateWorld3D(DISPLAY_T* display) {
   if (cam->zoom < 0.01f) cam->zoom = 0.01f;
   resolveViewport3D(display->width(), display->height());
   float screenH = (float)display->height();
-  // Fixed projection scale relative to the viewport center: the same world
-  // point projects to the same pixel offset no matter where the viewport sits,
-  // so moving a viewport of unchanged size shifts the image by exactly that
-  // offset; resizing it crops or reveals, never zooms. The frustum window is
-  // then the viewport's angular extent at this scale.
+  // Projection scale stays tied to the full display height, so a viewport of
+  // unchanged size just shifts the image; the frustum window is the viewport's
+  // angular extent at this scale.
   float projScale = cam->zoom * screenH * PROJ3D_FACTOR;
   float tanHalfX = (vpR3D - vpL3D) * 0.5f / projScale;
   float tanHalfY = (vpB3D - vpT3D) * 0.5f / projScale;
@@ -2275,13 +2189,11 @@ void updateWorld3D(DISPLAY_T* display) {
   bool dynamicLighting = activeLightCount > 0;
 
   memset(bucketHeads3D, 0xFF, sizeof(int16_t) * BUCKET3D_COUNT);
-  // Bucket the sorted span of actually-drawn triangles rather than the
-  // camera's near..far range: with a large farPlane the bucket width exceeds
-  // the depth gap between adjacent surfaces, so small view rotations flip
-  // draw order and surfaces flicker against each other.
+  // Buckets span the actually-drawn depth range, not near..far: with a large
+  // farPlane the bucket width exceeds the gap between adjacent surfaces and
+  // small view rotations flip draw order (flicker).
   float zLo = 1e30f, zHi = -1e30f;
 
-  /* Per-frame setup shared with the core 0 helper (core 1 uses it too). */
   XfFrameCtx3D* ctx = &w3dXfCtx3D;
   memcpy(ctx->basis.m, basis.m, sizeof(ctx->basis.m));
   ctx->camX = cam->x; ctx->camY = cam->y; ctx->camZ = cam->z;
@@ -2303,9 +2215,9 @@ void updateWorld3D(DISPLAY_T* display) {
   if (perf3DEnabled) perfSub3D = esp_timer_get_time();
 
   if (w3dSplitXf3D && w3dSplitReady3D()) {
-    // Queue every valid entity, longest mesh first: the big jobs are claimed
-    // before either core runs dry and the tail of small meshes absorbs the
-    // imbalance. Culling stays inside the passes so both cores decide alike.
+    // Longest mesh first: both cores start on the big jobs and the tail of
+    // small meshes absorbs the imbalance. Culling stays inside the passes so
+    // both cores decide alike.
     for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
       Entity3D* e = &entities3D[ei];
       if (!e->inUse || e->hidden) continue;
@@ -2319,13 +2231,10 @@ void updateWorld3D(DISPLAY_T* display) {
       }
       xfQueued3D[pos] = ei;
     }
-    /* mesh->vs scratch is per-mesh, but several live entities can share one
-     * mesh (the 3ddemo car's four wheels reuse two wheel meshes). The split
-     * xf phase transforms every entity before any face pass reads scratch,
-     * so each instance past the first gets its own 64-byte aligned slice
-     * from a PSRAM pool; when the pool cannot cover the scene, this frame
-     * runs sequentially instead (sequential interleaves xf and face per
-     * entity, where shared scratch is safe). */
+    /* Each instance past the first gets its own pooled slice because the split
+     * xf transforms every instance before any face pass reads scratch; when
+     * the pool cannot cover the scene this frame runs sequentially instead
+     * (interleaved xf/face is safe with shared scratch). */
     static int8_t instSeen3D[MESH3D_LIMIT];
     size_t poolVerts = 0;
     memset(instSeen3D, 0, sizeof(instSeen3D));
@@ -2360,9 +2269,8 @@ void updateWorld3D(DISPLAY_T* display) {
           ? xfCacheFlush3D(m->vtx, meshVtxSpan3D(m->vertexCount), "vtx C2M")
           : true;
       }
-      // Whichever core ends up claiming a slice, core 1's previous-frame
-      // copies of every candidate slice must be gone from its cache before
-      // the helper writes them. Invalidate only: no PSRAM traffic.
+      // Whichever core claims a slice, core 1's previous-frame copies must be
+      // gone from its cache before the helper writes them. Invalidate only.
       for (int16_t qi = 0; synced && qi < xfQueuedCount3D; qi++) {
         int16_t ei = xfQueued3D[qi];
         Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
@@ -2390,10 +2298,9 @@ void updateWorld3D(DISPLAY_T* display) {
       xfVerts3D += (int32_t)xfEntityPass3D(ei, ctx, xfCulled3D, w3dXfScratch3D[ei]);
     }
     const int32_t drainUs3D = (int32_t)(esp_timer_get_time() - drainT0);
-    /* Build faces for the entities this core already transformed while the
-     * helper still runs: their scratch was written by this core and is final
-     * now. This keeps core 1 busy through the done-wait, so the helper's
-     * core 0 contention (blit memcpy bursts, WiFi) costs less wall time. */
+    /* Face-pass the entities this core claimed while the helper still runs:
+     * their scratch was written by this core and is final, so core 1 stays
+     * busy through the done-wait instead of idling on core 0's slowness. */
     {
       const int64_t faceT0 = perf3DEnabled ? esp_timer_get_time() : 0;
       for (int16_t ei2 = 0; ei2 < ENTITY3D_LIMIT; ei2++) {
@@ -2405,8 +2312,7 @@ void updateWorld3D(DISPLAY_T* display) {
     }
     xSemaphoreTake(w3dXfDone3D, portMAX_DELAY);
     int32_t helperVerts3D = 0;
-    // res lives in internal DRAM, shared directly; the done semaphore orders
-    // the hand-off. Helper-owned scratch is untrusted if a helper leg failed.
+    // Internal DRAM is shared directly; the done semaphore orders the read.
     splitResOk3D = (w3dXfHelperRes3D.failed == 0);
     if (splitResOk3D) {
       helperVerts3D = w3dXfHelperRes3D.verts;
@@ -2429,8 +2335,8 @@ void updateWorld3D(DISPLAY_T* display) {
       perfSub3D = esp_timer_get_time();
     }
   } else {
-    // Sequential fused order, matching the original loop: xf and face
-    // interleave per entity, so shared mesh scratch cannot clobber instances.
+    // Sequential fallback keeps the original fused order: xf and face
+    // interleave per entity, where shared mesh scratch is safe.
     for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
       Entity3D* e = &entities3D[ei];
       if (!e->inUse || e->hidden) continue;
@@ -2456,8 +2362,7 @@ void updateWorld3D(DISPLAY_T* display) {
     for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
       if (xfClaimed3D[ei >> 6] & (1ULL << (ei & 63))) continue;  // face-passed already
       if (xfCulled3D[ei >> 6] & (1ULL << (ei & 63))) continue;
-      // With the helper's done-result lost, helper-owned entities have scratch
-      // state that cannot be trusted; skip them this frame.
+      // Helper-owned scratch is untrusted once its done-result failed.
       if (!splitResOk3D) continue;
       faceEntityPass3D(ei, ctx, w3dXfScratch3D[ei], &zLo, &zHi);
     }
@@ -2485,17 +2390,11 @@ void updateWorld3D(DISPLAY_T* display) {
     perf3D.updateUs += (int32_t)(perfT1 - perfT0);
   }
 }
-// ---------------------------------------------------------------------------
-// Rasterizer: integer span filling with Gouraud shading (screen-space) and
-// perspective-correct textures (u/z and 1/z interpolated, divided per pixel)
-// ---------------------------------------------------------------------------
-
 static inline uint16_t sampleTexel3D(const uint16_t* tex, int32_t tw, int32_t th,
     int32_t mask, int32_t uQ16, int32_t vQ16) {
-  // uvQ is normalized (1.0 == one full texture repeat, clamped to +-16 at
-  // load), so scale by the texture size before wrapping. Without the scale,
-  // u=0..1 would only ever hit texels 0..1 and faces get tinted by a single
-  // texture column.
+  // uvQ is normalized (1.0 == one texture repeat, clamped to +-16 at load),
+  // so scale by texture size before wrapping; otherwise u=0..1 would only ever
+  // hit texels 0..1.
   int32_t tx = (uQ16 * tw) >> 16;
   int32_t ty = (vQ16 * th) >> 16;
   if (mask >= 0) {
@@ -2612,12 +2511,10 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
     }
   }
 
-  /* Screen-space interpolation is affine, so the step from the left edge of a
-   * span to its right edge is identical on every scanline of one triangle half:
-   * both edges start at the same vertex, so their attribute difference and their
-   * x difference grow with the same factor. Evaluating the ratio once per half
-   * (at a representative scanline, where both are well conditioned) removes the
-   * three colour and three texture divides from every scanline of the frame. */
+  /* Screen-space interpolation is affine: both triangle edges start at the
+   * same vertex, so a span's left-to-right attribute step is identical on
+   * every scanline of one half. Evaluating the ratio once per half removes
+   * six divides from every scanline of the frame. */
   int32_t midUp = (syStart + syMid - 1) >> 1;
   if (midUp < syStart) midUp = syStart;
   int32_t midDn = (syMid + syEnd) >> 1;
@@ -2719,7 +2616,6 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
           if (r8 < 0) r8 = 0; else if (r8 > 255) r8 = 255;
           if (g8 < 0) g8 = 0; else if (g8 > 255) g8 = 255;
           if (b8 < 0) b8 = 0; else if (b8 > 255) b8 = 255;
-          // framebuffer holds byte-swapped RGB565 words (TFT_eSPI convention)
           row[x] = __builtin_bswap16((uint16_t)(((r8 >> 3) << 11) | ((g8 >> 2) << 5) | (b8 >> 3)));
           curR += dR;
           curG += dG;
@@ -2745,7 +2641,6 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
           uint32_t r5 = (((smp >> 11) & 31) * (uint32_t)lightR5) >> 5;
           uint32_t g6 = (((smp >> 5) & 63) * (uint32_t)lightG6) >> 6;
           uint32_t b5 = ((smp & 31) * (uint32_t)lightB5) >> 5;
-          // framebuffer holds byte-swapped RGB565 words (TFT_eSPI convention)
           row[x] = __builtin_bswap16((uint16_t)((r5 << 11) | (g6 << 5) | b5));
           curUw += dUw; curVw += dVw; curW += dW;
         }
@@ -2785,7 +2680,6 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
           uint32_t r5 = (((smp >> 11) & 31) * (uint32_t)(r8 >> 3)) >> 5;
           uint32_t g6 = (((smp >> 5) & 63) * (uint32_t)(g8 >> 2)) >> 6;
           uint32_t b5 = ((smp & 31) * (uint32_t)(b8 >> 3)) >> 5;
-          // framebuffer holds byte-swapped RGB565 words (TFT_eSPI convention)
           row[x] = __builtin_bswap16((uint16_t)((r5 << 11) | (g6 << 5) | b5));
           curR += dR;
           curG += dG;

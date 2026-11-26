@@ -128,8 +128,6 @@ String lua_dofile(const String path, bool dontCache) {
       }
     }
     if (compiledRef[cacheSlot] != LUA_NOREF) {
-      // Compiled chunk hit: push the stored prototype and call it. This is
-      // what every repeated game frame pays for.
       lua_rawgeti(luaState, LUA_REGISTRYINDEX, compiledRef[cacheSlot]);
       if (lua_pcall(luaState, 0, LUA_MULTRET, 0)) {
         result = "# lua error:\n" + String(lua_tostring(luaState, -1));
@@ -167,8 +165,7 @@ String lua_dofile(const String path, bool dontCache) {
       script[cacheSlot] = nullptr;
       return result;
     }
-    // Chunk on the stack -> registry reference; the source text is no longer
-    // needed. A failed compile would leave NOREF, so the next frame retries.
+    // A failed compile stores NOREF, so the next frame retries from disk.
     compiledRef[cacheSlot] = luaL_ref(luaState, LUA_REGISTRYINDEX);
     free(script[cacheSlot]);
     script[cacheSlot] = nullptr;
@@ -1051,9 +1048,7 @@ static void warnfoff (void *ud, const char *message, int tocont) {
   checkcontrol((lua_State *)ud, message, tocont);
 }
 
-// ---------------------------------------------------------------------------
-// 3D world wrappers (engine3d), function names modelled after Blitz3D
-// ---------------------------------------------------------------------------
+
 
 static uint8_t luaColorArg(lua_State* luaState, int32_t index) {
   int32_t value = luaL_checkinteger(luaState, index);

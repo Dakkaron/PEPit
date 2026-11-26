@@ -6589,12 +6589,10 @@ bool TFT_eSPI::pushRectI80(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t 
   begin_tft_write();
   inTransaction = true;
 
-  // Each chunk starts with its own RAMWR (0x2C) command phase, and RAMWR
-  // restarts the panel write pointer at the top-left of the CURRENT window
-  // (Espressif's own panel drivers re-issue CASET/RASET per sub-rectangle for
-  // the same reason). So every chunk needs its own band window, set while the
-  // bus is idle with the pads handed back to GPIO; one transfer is in flight
-  // at a time, but the memcpy of chunk ci still overlaps the DMA of ci-1.
+  // RAMWR (0x2C) restarts the panel write pointer at the top-left of the
+  // CURRENT window, so every chunk gets its own band window, set while the bus
+  // is idle with the pads handed back to GPIO; one transfer is in flight at a
+  // time, but the memcpy of chunk ci still overlaps the DMA of ci-1.
   bool ok = true;
   size_t sent = 0, done = 0;
   for (size_t ci = 0; ci < nchunks; ci++) {
