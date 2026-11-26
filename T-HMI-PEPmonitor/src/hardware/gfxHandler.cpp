@@ -1209,19 +1209,29 @@ void drawSystemStats() {
   spr.setTextDatum(TL_DATUM);
   spr.setTextSize(1);
   spr.drawString(String(1000L/_max(1,ms-lastMs)), 64, 11); //FPS counter
+  static String shownTimeString = "";
+  static bool wasShowingTime = false;
   if ((millis()>>12)&0x01) { // switch between battery voltage and time every 4 seconds
+    wasShowingTime = false;
     spr.drawString(String(batteryVoltage/1000) + "." + leftPad(String((batteryVoltage/10)%100), 2, "0") + "V", 64, 1); // Battery voltage
   } else {
-    String timeString;
-    String dateString;
-    String errorMessage;
-    getFormattedTime(&dateString, &timeString, &errorMessage);
-    if (timeString.equals("N/A")) {
+    // getFormattedTime churns Strings and rewrites the prefs-backed datetime;
+    // fetching once per 4-second time window instead of every frame keeps the
+    // HUD from taxing the game frame.
+    if (!wasShowingTime) {
+      String timeString;
+      String dateString;
+      String errorMessage;
+      getFormattedTime(&dateString, &timeString, &errorMessage);
+      shownTimeString = timeString;
+    }
+    wasShowingTime = true;
+    if (shownTimeString.equals("N/A")) {
       if (!((millis()>>9)&0x01)) { // blink 2x per second
         spr.drawString("00:00", 64, 1); // Clock
       }
     } else {
-      spr.drawString(timeString, 64, 1); // Clock
+      spr.drawString(shownTimeString, 64, 1); // Clock
     }
   }
   lastMs = ms;
