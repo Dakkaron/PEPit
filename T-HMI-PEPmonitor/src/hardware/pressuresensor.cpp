@@ -3,6 +3,39 @@
 #include <algorithm>
 #include "systemconfig.h"
 
+// Auto-tare runs in physical signed mbar: raw counts / (PRESSURE_SENSOR_DIVISOR * 1000)
+// with the natural sensor sign (push positive, suction negative; flip SIGN if inverted).
+#define PRESSURE_SENSOR_DIVISOR 65L
+#define PRESSURE_SENSOR_SIGN 1.0f
+#define PRESSURE_MBAR_CUTOFF 60.0f
+#define PRESSURE_MA_READINGS 5
+#define PRESSURE_SPIKE_JUMP 5.0f
+#define PRESSURE_SPIKE_CONFIRM 4
+#define PRESSURE_TARE_BUCKET_MS 500
+#define PRESSURE_TARE_BUCKETS 120
+#define PRESSURE_MIN_BUCKET_SAMPLES 4
+#define PRESSURE_TRANS_RANGE 2.5f
+#define PRESSURE_CLUSTER_SPAN 0.7f
+#define PRESSURE_IDLE_TOLERANCE 1.8f
+#define PRESSURE_IDLE_STEP 0.3f
+#define PRESSURE_TREND_MAX 0.6f
+#define PRESSURE_CAND_MAX_AGE 40
+#define PRESSURE_ANCHOR_FOLLOW_MAX 0.7f
+#define PRESSURE_ANCHOR_RATE 0.01f
+#define PRESSURE_ANCHOR_TAKE 40
+#define PRESSURE_ANCHOR_CONFIRM 24
+#define PRESSURE_ANCHOR_LIMIT 1.5f
+#define PRESSURE_ANCHOR_MATCH 1.0f
+#define PRESSURE_SUSPECT_ADJ 2
+#define PRESSURE_CHASE_REFILL 0.025f
+#define PRESSURE_CHASE_CAP 0.5f
+#define PRESSURE_REC_REFILL 0.1f
+#define PRESSURE_REC_CAP 2.0f
+#define PRESSURE_CROSS_TOL 0.6f
+#define PRESSURE_CROSS_STEP 0.4f
+#define PRESSURE_XSCAN_MAX 4
+#define PRESSURE_SENSOR_CUMULATIVE_ERROR_FACTOR 16
+
 static Adafruit_HX711 hx711 = Adafruit_HX711(HX7711_DATA_PIN, HX7711_CLOCK_PIN);
 
 void initPressureSensor(String* errorMessage) {
