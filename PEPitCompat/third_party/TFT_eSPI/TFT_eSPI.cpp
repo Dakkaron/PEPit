@@ -6589,10 +6589,14 @@ bool TFT_eSPI::pushRectI80(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t 
   size_t nchunks = ((size_t)h * rowBytes) / chunk;
   const uint8_t* src = (const uint8_t*)data;
 
-  setWindow(x, y, x + w - 1, y + h - 1); // bit-banged CASET/RASET, rotation-aware
+  // Same transaction discipline as pushImage: setWindow deliberately leaves
+  // CS handling to its caller, and ST7789 drops bus traffic while CS is high,
+  // so the CASET/RASET/RAMWR commands need begin_tft_write asserting CS first.
+  begin_tft_write();
+  inTransaction = true;
+  setWindow(x, y, x + w - 1, y + h - 1);
 
   i80RoutePins(true);
-  CS_L;
   size_t sent = 0, done = 0;
   bool ok = true;
   for (size_t ci = 0; ci < nchunks; ci++) {
@@ -6610,8 +6614,9 @@ bool TFT_eSPI::pushRectI80(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t 
     if (xSemaphoreTake(i80DoneSem, pdMS_TO_TICKS(500)) != pdTRUE) { ok = false; break; }
     done++;
   }
-  CS_H;
   i80RoutePins(false);
+  inTransaction = lockTransaction;
+  end_tft_write();
   if (!ok) {
     i80Broken = true;
     Serial.println("TFT_eSPI i80: transfer stalled, falling back to pushRect");
