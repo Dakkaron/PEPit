@@ -139,12 +139,13 @@ typedef struct {
 
 /*
  * Splitting the xf pass over both cores shares these arrays with a core 0
- * helper task. The S3's per-core data caches are not coherent and
- * esp_cache_msync's M2C (invalidate) direction only accepts ranges aligned
- * exactly to cache lines, so everything the split hand-off touches lives in
- * one 64-byte-aligned block whose total size is a whole number of cache
- * lines: a single msync leg per hand-off then cannot bleed into unrelated
- * core-1-dirtied static data. See the split section near updateWorld3D.
+ * helper task. They live in internal DRAM, which on the ESP32-S3 is not in
+ * the cache address space at all (only the external 0x3C000000-0x3DFFFFFF
+ * PSRAM mapping has per-core D-caches) - both cores read it straight from
+ * memory, so these need no cache maintenance, and esp_cache_msync outright
+ * rejects internal addresses. Only the PSRAM streams the split touches -
+ * mesh vtx and the per-entity view scratch - need msync legs; see the split
+ * section near updateWorld3D. FreeRTOS semaphores order the hand-off.
  */
 typedef struct {
   Mat3 basis;
@@ -159,10 +160,11 @@ typedef struct {
 
 typedef struct {
   int32_t verts;
+  int32_t failed;  // helper-side cache leg failed; core 1 then skips helper-owned entities
   uint64_t culledLo, culledHi;
 } XfHelperResult3D;
 
-typedef struct __attribute__((aligned(64))) {
+typedef struct {
   XfFrameCtx3D ctx;
   XfHelperResult3D res;
   ViewVertex3D* scratch[ENTITY3D_LIMIT];
@@ -171,8 +173,6 @@ typedef struct __attribute__((aligned(64))) {
   Light3D lights[LIGHT3D_LIMIT];
 } W3dSplitShared3D;
 static W3dSplitShared3D w3dSplitShared3D;
-static_assert(sizeof(W3dSplitShared3D) % 64 == 0 && alignof(W3dSplitShared3D) % 64 == 0,
-              "split hand-off block must span whole 64-byte cache lines");
 
 #define meshes3D (w3dSplitShared3D.meshes)
 #define entities3D (w3dSplitShared3D.entities)
@@ -1873,15 +1873,16 @@ void blitWorld3DFrame3D(DISPLAY_T* display) {
  * one instance's transform would clobber another's before the face loop ever
  * sees it. Every entity therefore gets its own scratch slice each frame: the
  * first instance of a mesh uses mesh->vs, extra instances get a slice from a
- * PSRAM pool. Slices and their msync legs are aligned to whole 64-byte cache
- * lines, so no cache line is ever written by both cores in one frame. Before
- * releasing the helper, core 1 flushes the shared block and invalidates its
- * own copies of every candidate scratch slice; the helper invalidates the
- * shared block and the vtx streams it reads, and writes back each scratch
- * slice it owns before signaling done. Core 1 then re-reads the helper's
- * result. The hand-off legs are exact-line ranges: esp_cache_msync rejects
- * the UNALIGNED flag for M2C, and an invalidate leg must never reach into
- * data it does not own.
+ * PSRAM pool. Slices are aligned to whole 64-byte cache lines, so no cache
+ * line is ever written by both cores in one frame. Before releasing the
+ * helper, core 1 writes its queued vtx streams to memory and invalidates its
+ * cached copies of every candidate scratch slice; the helper discards its
+ * stale vtx copies before reading and writes back each scratch slice it owns
+ * before signaling done. Only PSRAM streams get legs - the shared statics
+ * live in internal DRAM, which the S3 does not cache and esp_cache_msync
+ * rejects. The legs are exact-line ranges: esp_cache_msync rejects the
+ * UNALIGNED flag for M2C, and an invalidate leg must never reach into data
+ * it does not own.
  */
 #define w3dXfCtx3D (w3dSplitShared3D.ctx)
 #define w3dXfHelperRes3D (w3dSplitShared3D.res)
@@ -2161,24 +2162,23 @@ static void w3dXfTaskLoop3D(void*) {
     xSemaphoreTake(w3dXfStart3D, portMAX_DELAY);
     uint64_t culled[2] = {0, 0};
     int32_t verts = 0;
-    bool usable = xfCacheInvalidate3D(&w3dSplitShared3D, sizeof(w3dSplitShared3D), "shared M2C");
+    bool failed3D = false;
     int16_t ei;
-    if (usable) {
-      while (xQueueReceive(w3dXfQueue3D, &ei, 0) == pdTRUE) {
-        Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
-        ViewVertex3D* sc = w3dXfScratch3D[ei];
-        // Core 1 may have re-uploaded vtx data whose write-back still sits in
-        // its private cache; drop any stale local copy before streaming it.
-        if (m->vtx && !xfCacheInvalidate3D(m->vtx, meshVtxSpan3D(m->vertexCount), "helper vtx M2C")) break;
-        uint32_t n = xfEntityPass3D(ei, &w3dXfCtx3D, culled, sc);
-        verts += (int32_t)n;
-        if (n && !xfCacheFlush3D(sc, viewVertsSpan3D(m->vertexCount), "helper scratch C2M")) break; // leave the rest to core 1
-      }
+    while (xQueueReceive(w3dXfQueue3D, &ei, 0) == pdTRUE) {
+      Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
+      ViewVertex3D* sc = w3dXfScratch3D[ei];
+      // vtx and scratch are PSRAM, so each core sees the other's writes only
+      // through these legs. Core 1 may have re-uploaded vtx data whose
+      // write-back still sits in its private cache; drop stale copies first.
+      if (m->vtx && !xfCacheInvalidate3D(m->vtx, meshVtxSpan3D(m->vertexCount), "helper vtx M2C")) { failed3D = true; break; }
+      uint32_t n = xfEntityPass3D(ei, &w3dXfCtx3D, culled, sc);
+      verts += (int32_t)n;
+      if (n && !xfCacheFlush3D(sc, viewVertsSpan3D(m->vertexCount), "helper scratch C2M")) { failed3D = true; break; } // leave the rest to core 1
     }
     w3dXfHelperRes3D.verts = verts;
     w3dXfHelperRes3D.culledLo = culled[0];
     w3dXfHelperRes3D.culledHi = culled[1];
-    xfCacheFlush3D(&w3dSplitShared3D.res, sizeof(w3dSplitShared3D.res), "helper result C2M");
+    w3dXfHelperRes3D.failed = failed3D ? 1 : 0;
     xSemaphoreGive(w3dXfDone3D);
   }
 }
@@ -2339,7 +2339,7 @@ void updateWorld3D(DISPLAY_T* display) {
           w3dXfScratch3D[ei] = m->vs;
         }
       }
-      bool synced = xfCacheFlush3D(&w3dSplitShared3D, sizeof(w3dSplitShared3D), "shared C2M");
+      bool synced = true;  // the shared statics need no leg; vtx and scratch do
       for (int16_t qi = 0; synced && qi < xfQueuedCount3D; qi++) {
         Mesh3D* m = &meshes3D[entities3D[xfQueued3D[qi]].meshHandle];
         synced = m->vtx && m->vertexCount
@@ -2375,9 +2375,9 @@ void updateWorld3D(DISPLAY_T* display) {
     }
     xSemaphoreTake(w3dXfDone3D, portMAX_DELAY);
     int32_t helperVerts3D = 0;
-    // The helper's result lives in the shared block; this core's copies of
-    // it (and of everything the helper may have touched) are stale now.
-    splitResOk3D = xfCacheInvalidate3D(&w3dSplitShared3D, sizeof(w3dSplitShared3D), "shared result M2C");
+    // res lives in internal DRAM, shared directly; the done semaphore orders
+    // the hand-off. Helper-owned scratch is untrusted if a helper leg failed.
+    splitResOk3D = (w3dXfHelperRes3D.failed == 0);
     if (splitResOk3D) {
       helperVerts3D = w3dXfHelperRes3D.verts;
       xfCulled3D[0] |= w3dXfHelperRes3D.culledLo;
