@@ -20,7 +20,6 @@ void doSystemTasks() {
   buttonPwr.tick();
   buttonUsr.tick();
   joystickButtonTick();
-  vTaskDelay(1);
 }
 
 #ifdef INIT_MODE

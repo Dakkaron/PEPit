@@ -118,7 +118,10 @@ void* TFT_eSprite::createSprite(int16_t w, int16_t h, uint8_t frames)
 void* TFT_eSprite::getPointer(void)
 {
   if (!_created) return nullptr;
-  return _img8_1;
+  // Multi-frame sprites swap the active buffer (_img8/_img) with
+  // frameBuffer()/pushSpriteFast(); direct pixel access must follow the
+  // active buffer or writes land in a buffer that is not being pushed.
+  return _img8;
 }
 
 
@@ -299,6 +302,27 @@ void* TFT_eSprite::frameBuffer(int8_t f)
   if (_bpp == 4) _img4 = _img8;
 
   return _img8;
+}
+
+/***************************************************************************************
+** Function name:           frameBufferId
+** Description:             Which frame buffer is receiving drawing right now:
+                            1 or 2, or 0 when the sprite is not double buffered
+***************************************************************************************/
+int8_t TFT_eSprite::frameBufferId(void)
+{
+  if (!_created || _img8_2 == _img8_1) return 0;
+  return _img8 == _img8_2 ? 2 : 1;
+}
+
+/***************************************************************************************
+** Function name:           setPsram
+** Description:             Choose whether the next createSprite() allocates in
+                            PSRAM (default) or internal RAM
+***************************************************************************************/
+void TFT_eSprite::setPsram(bool enable)
+{
+  _psram_enable = enable;
 }
 
 

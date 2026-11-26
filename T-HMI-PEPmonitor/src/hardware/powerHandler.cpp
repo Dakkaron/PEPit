@@ -24,6 +24,38 @@ static SemaphoreHandle_t resetMutex = xSemaphoreCreateMutex();
 static adc_oneshot_unit_handle_t adc1Handle;
 static adc_cali_handle_t adcCalibration;
 
+// Battery polling lives in a core 0 task: the ADC conversion busy-waits for
+// its result, and drawSystemStats only needs fresh millivolts a few times a
+// second, not once per rendered frame on the core that rasterizes the game.
+static TaskHandle_t batteryMonitorTaskHandle = nullptr;
+static volatile uint32_t cachedBatteryMillivolts = 0; // 0 = not yet seeded
+
+// At power-on the first ADC conversions on this divider can read ~0, and an
+// average seeded with 0 at a 500ms cadence would take tens of seconds to
+// reach the true voltage - long past the low-battery shutdown timeout. Only
+// the first plausible reading may seed the average.
+#define BATTERY_MIN_PLAUSIBLE_MILLIVOLTS 1000
+
+static void batteryMonitorTask(void*) {
+  float averaged = 0;
+  bool seeded = false;
+  for (;;) {
+    uint32_t millivolts = readBatteryVoltage();
+    if (!seeded) {
+      if (millivolts < BATTERY_MIN_PLAUSIBLE_MILLIVOLTS) {
+        vTaskDelay(100);
+        continue;
+      }
+      averaged = (float)millivolts;
+      seeded = true;
+    } else {
+      averaged = 0.95f*averaged + 0.05f*millivolts;
+    }
+    cachedBatteryMillivolts = (uint32_t)averaged;
+    vTaskDelay(500); // CONFIG_FREERTOS_HZ=1000: 500 ticks = 500 ms
+  }
+}
+
 static void initializeBatteryAdc() {
     adc_oneshot_unit_init_cfg_t unitConfig{};
     unitConfig.unit_id = ADC_UNIT_1;
@@ -47,6 +79,10 @@ static void initializeBatteryAdc() {
 
 void initializePowerHandler() {
     initializeBatteryAdc();
+    if (xTaskCreatePinnedToCore(batteryMonitorTask, "battmon", 4096, nullptr, 1,
+                                &batteryMonitorTaskHandle, 0) != pdPASS) {
+        batteryMonitorTaskHandle = nullptr; // out of memory: fall back to inline reads
+    }
 }
 
 /**
@@ -65,6 +101,10 @@ uint32_t readBatteryVoltage() {
  * Returns the voltage in mV
  */
 uint32_t readBatteryVoltageAveraged() {
+    // Before the monitor task has a plausible sample, fall back to the old
+    // inline averaging rather than reporting the unseeded 0 (which used to
+    // trip the low-battery shutdown at boot).
+    if (batteryMonitorTaskHandle && cachedBatteryMillivolts) return cachedBatteryMillivolts;
     static float averagedVoltage = readBatteryVoltage();
     averagedVoltage = 0.95*averagedVoltage + 0.05*readBatteryVoltage();
     return (uint32_t)averagedVoltage;

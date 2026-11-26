@@ -127,3 +127,100 @@ TaskHandle_t xTaskGetCurrentTaskHandle() {
 
 // Note: vTaskDelay is implemented in arduino.cpp (usleep wrapper)
 // Note: yield() is implemented in arduino.cpp (1ms usleep)
+
+// ============================================================
+// Binary semaphores — FreeRTOS-compatible counting-limited-to-1
+// semantics, used by the engine3d pipelined blit.
+// ============================================================
+
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
+
+struct CompatBinarySemaphore {
+    std::mutex mtx;
+    std::condition_variable cv;
+    int count = 0;
+};
+
+SemaphoreHandle_t xSemaphoreCreateBinary(void) {
+    return new CompatBinarySemaphore();
+}
+
+BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, uint32_t ticks) {
+    if (!sem || sem == reinterpret_cast<SemaphoreHandle_t>(1)) return 1; // mutex stub handle
+    auto* s = static_cast<CompatBinarySemaphore*>(sem);
+    std::unique_lock<std::mutex> lk(s->mtx);
+    if (ticks == 0) return s->count > 0 ? (--s->count, 1) : 0;
+    if (ticks == portMAX_DELAY) {
+        s->cv.wait(lk, [s] { return s->count > 0; });
+        --s->count;
+        return 1;
+    }
+    bool ok = s->cv.wait_for(lk, std::chrono::milliseconds(ticks), [s] { return s->count > 0; });
+    if (ok) { --s->count; return 1; }
+    return 0;
+}
+
+BaseType_t xSemaphoreGive(SemaphoreHandle_t sem) {
+    if (!sem || sem == reinterpret_cast<SemaphoreHandle_t>(1)) return 1; // mutex stub handle
+    auto* s = static_cast<CompatBinarySemaphore*>(sem);
+    {
+        std::lock_guard<std::mutex> lk(s->mtx);
+        if (s->count == 0) s->count = 1; // FreeRTOS binary semaphores clamp at 1
+    }
+    s->cv.notify_one();
+    return 1;
+}
+
+// ============================================================
+// Queue — FIFO of fixed-size POD items (int16_t only, which is what the
+// engine3d split-xf claim protocol uses). No blocking sends/receives.
+// ============================================================
+
+#include <deque>
+
+struct CompatQueue {
+    std::mutex mtx;
+    std::deque<uint16_t> items;
+    uint32_t length;
+};
+
+QueueHandle_t xQueueCreate(uint32_t length, uint32_t itemSize) {
+    if (itemSize != sizeof(uint16_t)) return nullptr; // shim covers the engine's int16 claims only
+    auto* q = new CompatQueue();
+    q->length = length;
+    return q;
+}
+
+BaseType_t xQueueSend(QueueHandle_t queue, const void* item, uint32_t ticks) {
+    (void)ticks; // never blocks in the shim
+    if (!queue) return 0;
+    auto* q = static_cast<CompatQueue*>(queue);
+    std::lock_guard<std::mutex> lk(q->mtx);
+    if (q->items.size() >= q->length) return 0;
+    uint16_t v;
+    memcpy(&v, item, sizeof(v));
+    q->items.push_back(v);
+    return 1;
+}
+
+BaseType_t xQueueReceive(QueueHandle_t queue, void* item, uint32_t ticks) {
+    (void)ticks; // never blocks in the shim
+    if (!queue) return 0;
+    auto* q = static_cast<CompatQueue*>(queue);
+    std::lock_guard<std::mutex> lk(q->mtx);
+    if (q->items.empty()) return 0;
+    uint16_t v = q->items.front();
+    q->items.pop_front();
+    memcpy(item, &v, sizeof(v));
+    return 1;
+}
+
+BaseType_t xQueueReset(QueueHandle_t queue) {
+    if (!queue) return 0;
+    auto* q = static_cast<CompatQueue*>(queue);
+    std::lock_guard<std::mutex> lk(q->mtx);
+    q->items.clear();
+    return 1;
+}

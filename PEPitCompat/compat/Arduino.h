@@ -112,6 +112,10 @@ public:
         size_t pos = data.find(cstr, from);
         return pos == std::string::npos ? -1 : (int32_t)pos;
     }
+    int32_t lastIndexOf(char c) const {
+        size_t pos = data.rfind(c);
+        return pos == std::string::npos ? -1 : (int32_t)pos;
+    }
 
     // Substring
     String substring(uint32_t start) const {
@@ -348,11 +352,20 @@ long random(long min, long max);
 // ============================================================
 
 #define MALLOC_CAP_SPIRAM 0
+#define MALLOC_CAP_INTERNAL 0
+#define MALLOC_CAP_8BIT 0
 #define MALLOC_CAP_DMA 0
 #define MALLOC_CAP_DEFAULT 0
 
 inline void* heap_caps_malloc(size_t size, int caps) { return malloc(size); }
 inline void* heap_caps_realloc(void* ptr, size_t size, int caps) { return realloc(ptr, size); }
+inline void* heap_caps_aligned_alloc(size_t alignment, size_t size, int caps) {
+  (void)caps;
+  void* p = nullptr;
+  if (posix_memalign(&p, alignment, size) != 0) return nullptr;
+  return p;
+}
+inline void heap_caps_free(void* ptr) { free(ptr); }
 
 // ============================================================
 // ESP32 Attributes (no-op on Linux)
@@ -508,10 +521,26 @@ typedef int UBaseType_t;
 typedef void* TaskHandle_t;
 typedef void* SemaphoreHandle_t;
 
-// FreeRTOS mutex stubs (no real contention on Linux — always succeed)
+#define pdPASS 1
+#define pdFAIL 0
+#define pdTRUE 1
+#define pdFALSE 0
+#define portMAX_DELAY 0xFFFFFFFFu
+
+// FreeRTOS mutex handles stay contention-free stubs; binary semaphores are
+// real because the engine3d blit pipeline synchronizes on them.
+SemaphoreHandle_t xSemaphoreCreateBinary(void);
 inline SemaphoreHandle_t xSemaphoreCreateMutex() { return reinterpret_cast<void*>(1); }
-inline BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, uint32_t ticks) { (void)sem; (void)ticks; return 1; }
-inline BaseType_t xSemaphoreGive(SemaphoreHandle_t sem) { (void)sem; return 1; }
+BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, uint32_t ticks);
+BaseType_t xSemaphoreGive(SemaphoreHandle_t sem);
+
+// FreeRTOS queue shim (used by the engine3d split-xf work hand-off; the
+// engine only queues int16_t items and never blocks on queue operations).
+typedef void* QueueHandle_t;
+QueueHandle_t xQueueCreate(uint32_t length, uint32_t itemSize);
+BaseType_t xQueueSend(QueueHandle_t queue, const void* item, uint32_t ticks);
+BaseType_t xQueueReceive(QueueHandle_t queue, void* item, uint32_t ticks);
+BaseType_t xQueueReset(QueueHandle_t queue);
 
 void yield();
 void vTaskDelay(uint32_t ticks);

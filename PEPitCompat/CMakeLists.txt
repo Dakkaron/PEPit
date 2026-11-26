@@ -80,6 +80,8 @@ set(ORIGINAL_SOURCES
     src/hardware/joystickHandler.h
     src/hardware/matrix.cpp
     src/hardware/matrix.h
+    src/hardware/engine3d.cpp
+    src/hardware/engine3d.hpp
     # NOTE: xpt2046.cpp is EXCLUDED — replaced by shim/touch.cpp
     src/hardware/xpt2046.h
     src/games/games.cpp

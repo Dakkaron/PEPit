@@ -5,6 +5,8 @@
 #include "hardware/powerHandler.h"
 #include "hardware/touchHandler.h"
 #include "hardware/pressuresensor.h"
+#include "hardware/engine3d.hpp"
+#include <esp_timer.h>
 #include "hardware/serialHandler.h"
 #include "games/games.h"
 #include "constants.h"
@@ -184,6 +186,7 @@ inline static bool isInhalationTask() {
 }
 
 static void drawManometerModeDisplay() {
+  quiesceWorld3DBlit3D(); // pending 3D-frame pipeline work would race with these direct writes
   spr.fillSprite(TFT_BLACK);
   if (isTrampolineTask()) {
     if (jumpData.msLeft > 0) {
@@ -239,6 +242,7 @@ static void drawManometerModeDisplay() {
 }
 
 static void drawInhalationDisplay() {
+  quiesceWorld3DBlit3D(); // pending 3D-frame pipeline work would race with these direct writes
   spr.fillSprite(TFT_BLACK);
   String errorMessage;
   drawInhalationGame(&spr, &blowData, &errorMessage);
@@ -274,14 +278,16 @@ static void drawInhaleExhaleIcons(BlowData* blowData) {
     loadBmp(&exhaleIcon, EXHALE_ICON_PATH);
   }
   if (blowData->negativePressure) {
+    claimFramebufferRect3D(&spr, PRESSURE_BAR_X + PRESSURE_BAR_WIDTH - 33, PRESSURE_BAR_Y - 33, 34, 34);
     inhaleIcon.pushToSprite(&spr, PRESSURE_BAR_X + PRESSURE_BAR_WIDTH - 32, PRESSURE_BAR_Y - 32, 0xf81f);
   } else {
+    claimFramebufferRect3D(&spr, PRESSURE_BAR_X + PRESSURE_BAR_WIDTH - 33, PRESSURE_BAR_Y - 33, 34, 34);
     exhaleIcon.pushToSprite(&spr, PRESSURE_BAR_X + PRESSURE_BAR_WIDTH - 32, PRESSURE_BAR_Y - 32, 0xf81f);
   }
 }
 
 static void drawPEPDisplay() {
-  spr.fillSprite(TFT_BLACK);
+  beginWorld3DFill3D(&spr);
   String errorMessage;
   switch (blowData.taskType) {
     case PROFILE_TASK_TYPE_LONGBLOWS:
@@ -293,6 +299,7 @@ static void drawPEPDisplay() {
     case PROFILE_TASK_TYPE_INHALATIONPEP:
       drawInhalationBlowGame(&spr, &blowData, &errorMessage);break;
   }
+  barrierWorld3DFill3D(); // HUD writes below target the same buffer
   drawProgressBar(&spr, blowData.currentlyBlowing ? (100 * (blowData.ms - blowData.blowStartMs) / blowData.targetDurationMs) : 0, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y+25, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
   checkFailWithMessage(errorMessage);
   
@@ -313,27 +320,31 @@ static void drawPEPDisplay() {
   if (blowData.taskType == PROFILE_TASK_TYPE_INHALATIONPEP) {
     drawInhaleExhaleIcons(&blowData);
     if (blowData.blowCount >= blowData.totalBlowCount) {
+      claimFramebufferRect3D(&spr, 239, 209, 82, 32);
       spr.fillRect(240, 210, 80, 30, TFT_BLUE);
       spr.drawString("Fertig", 255, 220);
     }
   }
 
   doSystemTasks();
-  spr.pushSpriteFast(0, 0);
+  blitWorld3DFrame3D(&spr);
 }
 
 static void drawTrampolineDisplay() {
-  spr.fillSprite(TFT_BLACK);
+  beginWorld3DFill3D(&spr);
   String errorMessage;
   drawTrampolineGame(&spr, &jumpData, &errorMessage);
   checkFailWithMessage(errorMessage);
+  barrierWorld3DFill3D(); // HUD writes below target the same buffer
   if (jumpData.msLeft > 0) {
+    claimFramebufferRect3D(&spr, PRESSURE_BAR_X - 1, PRESSURE_BAR_Y - 15, PRESSURE_BAR_WIDTH + 2, 15); // count text above the bar
     drawProgressBar(&spr, (100L*(jumpData.totalTime-jumpData.msLeft))/jumpData.totalTime, 0, PRESSURE_BAR_X, PRESSURE_BAR_Y, PRESSURE_BAR_WIDTH, PRESSURE_BAR_HEIGHT);
     spr.setTextSize(2);
     spr.drawString(String(jumpData.jumpCount) + "/" + String(jumpData.highscore), PRESSURE_BAR_X + 20, PRESSURE_BAR_Y - 14);
     spr.setCursor(100, 5);
     spr.setTextSize(3);
     int32_t secondsLeft = _max(0, jumpData.msLeft/1000);
+    claimFramebufferRect3D(&spr, 99, 4, 102, 26); // mm:ss timer at top center
     spr.print(secondsLeft / 60);
     spr.print(":");
     if ((secondsLeft % 60) < 10) {
@@ -342,7 +353,7 @@ static void drawTrampolineDisplay() {
     spr.print(secondsLeft % 60);
   }
   doSystemTasks();
-  spr.pushSpriteFast(0, 0);
+  blitWorld3DFrame3D(&spr);
 }
 
 static void handleLogExecutions() {
@@ -385,6 +396,7 @@ static void handleLogExecutions() {
 }
 
 static void drawFinished() {
+  quiesceWorld3DBlit3D(); // menu paths below write the TFT directly
   static uint32_t winscreenTimeout = 0;
   static String winScreenPath = "";
   if (winscreenTimeout == 0) { // Only runs on first execution
@@ -524,6 +536,7 @@ static void drawFinished() {
 }
 
 void displayPhysioRotateScreen() {
+  quiesceWorld3DBlit3D(); // direct TFT writes below must not race with a pipelined push
   if (profileData.taskChangeImagePath[currentTask].isEmpty() && profileData.taskChangeMessage[currentTask].isEmpty()) {
     return;
   }
@@ -628,7 +641,9 @@ void handlePhysioTask() {
       drawFinished();
       return;
     }
+    int64_t sensorT0 = esp_timer_get_time();
     readPressure(&blowData);
+    addWorld3DSensorUs3D((int32_t)(esp_timer_get_time() - sensorT0));
     if (blowData.pressure>blowData.minPressure && !blowData.currentlyBlowing) {
       Serial.print(F("Blowing... "));
       blowData.currentlyBlowing = true;

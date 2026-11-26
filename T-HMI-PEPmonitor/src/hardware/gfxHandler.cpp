@@ -13,6 +13,7 @@
 #include "systemStateHandler.h"
 #include "hardware/wifiHandler.h"
 #include "joystickHandler.h"
+#include "hardware/engine3d.hpp"
 
 #define GFXFF 1
 #define MYFONT5x7 &Font5x7Fixed
@@ -725,9 +726,13 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
 }
 
 static void drawProgressBarCommon(DISPLAY_T* display, uint16_t percent, uint16_t greenOffset, int16_t x, int16_t y, int16_t w, int16_t h) {
-  display->drawRect(x, y, w, h, TFT_WHITE);
-
+  // percent may exceed 100 (overshooting target pressure, blowing past the time
+  // limit) and the fill is meant to overdraw past the frame box, so the claim
+  // must cover the fill's actual width or the gap fill would erase the overshoot.
   uint16_t fillWidth = (w * percent) / 100;
+  int16_t drawnW = fillWidth > w ? (int16_t)fillWidth : w;
+  claimFramebufferRect3D(display, x - 1, y - 1, drawnW + 2, h + 2);
+  display->drawRect(x, y, w, h, TFT_WHITE);
 
   uint16_t color;
   uint16_t percentOffset = abs(100-percent);
@@ -778,6 +783,7 @@ void printShaded(DISPLAY_T* display, String text, uint8_t shadeStrength, uint16_
 void printShaded(DISPLAY_T* display, String text, uint8_t shadeStrength, uint16_t textColor, uint16_t shadeColor) {
   int16_t x = display->getCursorX();
   int16_t y = display->getCursorY();
+  claimTextRect3D(display, text.c_str(), x, y);
   display->setTextColor(shadeColor);
   for (int16_t xOffset = -(int8_t)shadeStrength; xOffset<=shadeStrength; xOffset+=2) {
     for (int16_t yOffset = -(int8_t)shadeStrength; yOffset<=shadeStrength; yOffset+=2) {
@@ -1161,6 +1167,7 @@ static void initSystemStatsSprites() {
 // Draws battery icon, battery voltage, FPS
 void drawSystemStats() {
   initSystemStatsSprites();
+  claimFramebufferRect3D(&spr, 0, 0, 120, 26); // battery/wifi icons and the stat texts
   static int32_t lowBatteryCount = -1;
   static uint32_t lowBatteryWarningCount = 0;
   static uint32_t lastMs = millis();
@@ -1181,6 +1188,7 @@ void drawSystemStats() {
     lowBatteryWarningCount = 0;
   }
   if (lowBatteryWarningCount>100 && batteryVoltage<BATTERY_LOW_WARNING_VOLTAGE && (ms/1000)&0x01) {
+    claimFramebufferRect3D(&spr, 143, 109, 50, 50);
     systemStatsSprites[0].pushToSprite(&spr, 144, 110, 0x0000);
   }
   if (batteryVoltage<BATTERY_LOW_SHUTDOWN_VOLTAGE) {
@@ -1201,19 +1209,29 @@ void drawSystemStats() {
   spr.setTextDatum(TL_DATUM);
   spr.setTextSize(1);
   spr.drawString(String(1000L/_max(1,ms-lastMs)), 64, 11); //FPS counter
+  static String shownTimeString = "";
+  static bool wasShowingTime = false;
   if ((millis()>>12)&0x01) { // switch between battery voltage and time every 4 seconds
+    wasShowingTime = false;
     spr.drawString(String(batteryVoltage/1000) + "." + leftPad(String((batteryVoltage/10)%100), 2, "0") + "V", 64, 1); // Battery voltage
   } else {
-    String timeString;
-    String dateString;
-    String errorMessage;
-    getFormattedTime(&dateString, &timeString, &errorMessage);
-    if (timeString.equals("N/A")) {
+    // getFormattedTime churns Strings and rewrites the prefs-backed datetime;
+    // fetching once per 4-second time window instead of every frame keeps the
+    // HUD from taxing the game frame.
+    if (!wasShowingTime) {
+      String timeString;
+      String dateString;
+      String errorMessage;
+      getFormattedTime(&dateString, &timeString, &errorMessage);
+      shownTimeString = timeString;
+    }
+    wasShowingTime = true;
+    if (shownTimeString.equals("N/A")) {
       if (!((millis()>>9)&0x01)) { // blink 2x per second
         spr.drawString("00:00", 64, 1); // Clock
       }
     } else {
-      spr.drawString(timeString, 64, 1); // Clock
+      spr.drawString(shownTimeString, 64, 1); // Clock
     }
   }
   lastMs = ms;

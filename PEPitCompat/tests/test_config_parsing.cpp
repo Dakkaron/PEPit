@@ -34,6 +34,7 @@ const char* FULL_SYSTEM_CONFIG =
     "simulateInhalation = false\n"
     "debugLogBlowPressure = true\n"
     "debugLogTrampoline = false\n"
+    "debugLogRender3D = true\n"
     "logExecutions = true\n"
     "timezoneOffset = 2\n"
     "leftHandMode = false\n"
@@ -62,6 +63,7 @@ TEST_CASE("readSystemConfig: maps all fields", "[config]") {
     REQUIRE(cfg.simulateInhalation == false);
     REQUIRE(cfg.debugLogBlowPressure == true);
     REQUIRE(cfg.debugLogTrampoline == false);
+    REQUIRE(cfg.debugLogRender3D == true);
     REQUIRE(cfg.logExecutions == true);
     REQUIRE(cfg.timezoneOffset == 120);          // 60 * 2
     REQUIRE(cfg.leftHandMode == false);
@@ -83,6 +85,7 @@ TEST_CASE("readSystemConfig: absent keys fall back to defaults", "[config]") {
     REQUIRE(cfg.simulateBlows == false);
     REQUIRE(cfg.leftHandMode == true);
     REQUIRE(cfg.manometerMode == false);
+    REQUIRE(cfg.debugLogRender3D == false);
     REQUIRE(cfg.timezoneOffset == 0);
     REQUIRE(cfg.logExecutions == false);
 }
