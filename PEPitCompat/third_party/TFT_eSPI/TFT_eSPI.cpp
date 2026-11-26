@@ -6498,8 +6498,10 @@ void TFT_eSPI::getSetup(setup_t &tft_settings)
 static esp_lcd_i80_bus_handle_t  i80Bus = nullptr;
 static esp_lcd_panel_io_handle_t i80Io = nullptr;
 static uint8_t* i80Bounce[2] = { nullptr, nullptr };
+static size_t i80ChunkBytes = 0;
 static SemaphoreHandle_t i80DoneSem = nullptr;
 static bool i80TriedInit = false;
+static bool i80Broken = false; // a half-finished transfer leaves the bus unusable, disable further attempts
 
 static bool IRAM_ATTR i80TransDoneCb(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t* edata, void* ctx) {
   BaseType_t woken = pdFALSE;
@@ -6521,8 +6523,8 @@ static void i80RoutePins(bool toPeripheral) {
 static bool i80InitBus() {
   if (i80TriedInit) return i80Io != nullptr;
   i80TriedInit = true;
-  i80DoneSem = xSemaphoreCreateBinary();
-  if (!i80DoneSem) return false;
+  i80DoneSem = xSemaphoreCreateCounting(16, 0); // one credit per completed chunk
+  if (!i80DoneSem) { Serial.println("TFT_eSPI i80: done semaphore alloc failed"); return false; }
   esp_lcd_i80_bus_config_t bus_cfg = {};
   bus_cfg.dc_gpio_num = TFT_DC;
   bus_cfg.wr_gpio_num = TFT_WR;
@@ -6531,7 +6533,13 @@ static bool i80InitBus() {
   bus_cfg.max_transfer_bytes = I80_MAX_CHUNK;
   const int dataPins[8] = { TFT_D0, TFT_D1, TFT_D2, TFT_D3, TFT_D4, TFT_D5, TFT_D6, TFT_D7 };
   for (int i = 0; i < 8; i++) bus_cfg.data_gpio_nums[i] = dataPins[i];
-  if (esp_lcd_new_i80_bus(&bus_cfg, &i80Bus) != ESP_OK) { i80Bus = nullptr; return false; }
+  esp_err_t err = esp_lcd_new_i80_bus(&bus_cfg, &i80Bus);
+  i80RoutePins(false); // bus creation ends by routing the pads to peripheral signals; restore so bit-banging works no matter what
+  if (err != ESP_OK) {
+    i80Bus = nullptr;
+    Serial.printf("TFT_eSPI i80: i80 bus create failed (%s)\n", esp_err_to_name(err));
+    return false;
+  }
   esp_lcd_panel_io_i80_config_t io_cfg = {};
   io_cfg.cs_gpio_num = -1;            // CS stays under the library's manual control
   io_cfg.pclk_hz = I80_PCLK_HZ;
@@ -6540,18 +6548,28 @@ static bool i80InitBus() {
   io_cfg.lcd_cmd_bits = 8;
   io_cfg.lcd_param_bits = 8;
   io_cfg.dc_levels.dc_data_level = 1; // D/C high while color data streams
-  if (esp_lcd_new_panel_io_i80(i80Bus, &io_cfg, &i80Io) != ESP_OK) {
+  err = esp_lcd_new_panel_io_i80(i80Bus, &io_cfg, &i80Io);
+  if (err != ESP_OK) {
     esp_lcd_del_i80_bus(i80Bus); i80Bus = nullptr; i80Io = nullptr;
+    i80RoutePins(false);
+    Serial.printf("TFT_eSPI i80: panel io create failed (%s)\n", esp_err_to_name(err));
     return false;
   }
-  i80Bounce[0] = (uint8_t*)esp_lcd_i80_alloc_draw_buffer(i80Io, I80_MAX_CHUNK, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
-  i80Bounce[1] = (uint8_t*)esp_lcd_i80_alloc_draw_buffer(i80Io, I80_MAX_CHUNK, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
-  if (!i80Bounce[0] || !i80Bounce[1]) {
-    free(i80Bounce[0]); free(i80Bounce[1]); i80Bounce[0] = i80Bounce[1] = nullptr;
+  const size_t chunkSizes[3] = { I80_MAX_CHUNK, 16384, 8192 }; // smaller fallbacks for a fragmented internal heap
+  for (int c = 0; c < 3 && !i80Bounce[0]; c++) {
+    i80ChunkBytes = chunkSizes[c];
+    i80Bounce[0] = (uint8_t*)esp_lcd_i80_alloc_draw_buffer(i80Io, i80ChunkBytes, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
+    i80Bounce[1] = (uint8_t*)esp_lcd_i80_alloc_draw_buffer(i80Io, i80ChunkBytes, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
+    if (!i80Bounce[0] || !i80Bounce[1]) {
+      free(i80Bounce[0]); free(i80Bounce[1]); i80Bounce[0] = i80Bounce[1] = nullptr;
+    }
+  }
+  if (!i80Bounce[0]) {
     i80Io = nullptr;
+    Serial.println("TFT_eSPI i80: bounce buffer alloc failed");
     return false;
   }
-  i80RoutePins(false); // bus creation routes the pins; keep bit-banging until a push needs the peripheral
+  Serial.printf("TFT_eSPI i80: LCD_CAM bus ready (pclk %d Hz, chunk %d)\n", I80_PCLK_HZ, (int)i80ChunkBytes);
   return true;
 }
 
@@ -6559,11 +6577,11 @@ bool TFT_eSPI::pushRectI80(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t 
   if (!data || w <= 0 || h <= 0 || x < 0 || y < 0) return false;
   if (x + w > _width || y + h > _height) return false;
   std::lock_guard<std::mutex> busLock(tftBusMutex);
-  if (!i80InitBus()) return false;
+  if (i80Broken || !i80InitBus()) return false;
 
   size_t rowBytes = (size_t)w * 2;
   int rows = 0;
-  for (int g = (int)(I80_MAX_CHUNK / rowBytes); g >= 1; g--) {
+  for (int g = (int)(i80ChunkBytes / rowBytes); g >= 1; g--) {
     if (((size_t)g * rowBytes % 64) == 0 && h % g == 0) { rows = g; break; }
   }
   if (!rows) return false; // window can't be split into aligned equal chunks
@@ -6579,14 +6597,25 @@ bool TFT_eSPI::pushRectI80(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t 
   bool ok = true;
   for (size_t ci = 0; ci < nchunks; ci++) {
     uint8_t* buf = i80Bounce[ci & 1];
-    while (done + 2 <= ci) { xSemaphoreTake(i80DoneSem, portMAX_DELAY); done++; } // reuse gate
+    while (done + 2 <= ci) { // reuse gate: the buffer was handed to the DMA two chunks ago
+      if (xSemaphoreTake(i80DoneSem, pdMS_TO_TICKS(500)) != pdTRUE) { ok = false; break; }
+      done++;
+    }
+    if (!ok) break;
     memcpy(buf, src + ci * chunk, chunk);
     if (esp_lcd_panel_io_tx_color(i80Io, 0x2C, buf, chunk) != ESP_OK) { ok = false; break; }
     sent++;
   }
-  while (done < sent) { xSemaphoreTake(i80DoneSem, portMAX_DELAY); done++; }
+  while (ok && done < sent) {
+    if (xSemaphoreTake(i80DoneSem, pdMS_TO_TICKS(500)) != pdTRUE) { ok = false; break; }
+    done++;
+  }
   CS_H;
   i80RoutePins(false);
+  if (!ok) {
+    i80Broken = true;
+    Serial.println("TFT_eSPI i80: transfer stalled, falling back to pushRect");
+  }
   return ok;
 }
 
