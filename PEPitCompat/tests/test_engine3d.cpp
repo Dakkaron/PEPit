@@ -16,7 +16,8 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <string>\n#include <vector>
+#include <string>
+#include <vector>
 
 #include "Arduino.h"
 #include "TFT_eSPI.h"
