@@ -736,6 +736,33 @@ TEST_CASE("engine3d: draws into the active buffer of a double-buffered display",
     resetWorld3D();
 }
 
+TEST_CASE("engine3d: progress bar overdraw beyond 100% survives the gap fill", "[engine3d]") {
+    resetWorld3D();
+    TFT_eSprite disp = TFT_eSprite(&tft);
+    disp.setColorDepth(16);
+    disp.createSprite(320, 240, 2);
+    disp.frameBuffer(1);
+    setWorld3DPipeline3D(true);
+
+    beginWorld3DFill3D(&disp);
+    REQUIRE(world3DMaskMode3D(&disp));
+
+    // percent > 100 (overshoot): the fill must paint past the bar's frame box
+    drawProgressBar(&disp, 150, 10, 1, 190, 180, 10);
+
+    blitWorld3DFrame3D(&disp);  // core 0 gap-fills the drawn buffer, then pushes it
+    quiesceWorld3DBlit3D();
+
+    int8_t drawnId = disp.frameBufferId() == 1 ? 2 : 1;
+    const uint16_t* pushed = (const uint16_t*)disp.frameBuffer(drawnId);
+    int overshoot = 0;
+    for (int x = 190; x < 260; x++)
+        if (pushed[195 * 320 + x]) overshoot++;
+    CHECK(overshoot > 60);  // unclaimed pixels would have been blacked by the gap fill
+    disp.deleteSprite();
+    resetWorld3D();
+}
+
 TEST_CASE("engine3d: point light at camera fully lights the front face, range cuts it off", "[engine3d]") {
     resetWorld3D();
     ambientLight3D(0, 0, 0);

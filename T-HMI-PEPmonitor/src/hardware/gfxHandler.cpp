@@ -726,10 +726,13 @@ void drawSpriteScaled(DISPLAY_T* display, TFT_eSprite* sprite, Vector2D* positio
 }
 
 static void drawProgressBarCommon(DISPLAY_T* display, uint16_t percent, uint16_t greenOffset, int16_t x, int16_t y, int16_t w, int16_t h) {
-  claimFramebufferRect3D(display, x - 1, y - 1, w + 2, h + 2);
-  display->drawRect(x, y, w, h, TFT_WHITE);
-
+  // percent may exceed 100 (overshooting target pressure, blowing past the time
+  // limit) and the fill is meant to overdraw past the frame box, so the claim
+  // must cover the fill's actual width or the gap fill would erase the overshoot.
   uint16_t fillWidth = (w * percent) / 100;
+  int16_t drawnW = fillWidth > w ? (int16_t)fillWidth : w;
+  claimFramebufferRect3D(display, x - 1, y - 1, drawnW + 2, h + 2);
+  display->drawRect(x, y, w, h, TFT_WHITE);
 
   uint16_t color;
   uint16_t percentOffset = abs(100-percent);
