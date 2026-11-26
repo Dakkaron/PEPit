@@ -76,6 +76,8 @@ SetLightCone(lightHandle, innerAngle, outerAngle) -- spot cone in degrees
 -- Rendering
 UpdateWorld()                      -- transforms, culls, lights and sorts all faces
 DrawWorld()                        -- rasterizes the sorted faces onto the display
+SetViewport(x, y, w, h)            -- 3D render region; defaults to (0, 21, 320, 168),
+                                   -- the screen area not covered by the system UI bars
 
 -- Housekeeping
 FreeAll3D()                        -- frees every mesh, texture, entity, camera and light

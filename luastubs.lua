@@ -124,6 +124,7 @@ function SetLightDirection(lightHandle, dx, dy, dz) end
 function SetLightCone(lightHandle, innerAngle, outerAngle) end
 function UpdateWorld() end
 function DrawWorld() end
+function SetViewport(x, y, w, h) end
 function FreeAll3D() end
 
 -- Injected variables (globals set by the host each frame)

@@ -19,6 +19,7 @@ The standard Lua libraries `table`, `string` and `math` are also available (see
 - [Sprites — Drawing](#sprites--drawing)
 - [Sprites — Info & Draw Target](#sprites--info--draw-target)
 - [Mode 7 (3D Ground)](#mode-7-3d-ground)
+- [3D Engine (Blitz3D-inspired)](#3d-engine-blitz3d-inspired)
 - [Graphics Primitives](#graphics-primitives)
 - [Text](#text)
 - [Preferences (Persistent Storage)](#preferences-persistent-storage)
@@ -250,6 +251,394 @@ Projects a world-space point onto the screen using the same camera parameters as
 ```lua
 sx, sy, s = Mode7WorldToScreen(wx, wy, camX, camY, camH, yaw, zoom, horizon, startY, endY)
 ```
+
+---
+
+## 3D Engine (Blitz3D-inspired)
+
+The 3D engine ([`engine3d.cpp`](../../T-HMI-PEPmonitor/src/hardware/engine3d.cpp)) is driven by
+**meshes**, **textures**, **entities**, **cameras** and **lights** — all referenced by integer
+handles like the 2D sprite handles. Creation functions return `-1` on failure; the `Free*`
+functions return a boolean. A frame is rendered by calling `UpdateWorld()` and then `DrawWorld()`.
+The engine is internally pipelined and split over both cores; that is invisible to Lua and never
+changes the rendered result.
+
+Fixed capacities ([`engine3d.hpp`](../../T-HMI-PEPmonitor/src/hardware/engine3d.hpp)): **32
+meshes**, **16 textures**, **128 entities**, **8 lights**, **4 cameras**.
+
+Coordinate system: `+x` right, `+y` up, `+z` forward (into the scene). All rotations are in
+degrees: `pitch` turns about the x-axis (positive looks up), `yaw` about the y-axis (positive
+turns right), `roll` about the z-axis. Faces use the standard counter-clockwise OBJ winding; if
+an imported model looks inside out, call `SetMeshFlipped`.
+
+### `LoadMesh(path)`
+Loads a Wavefront `.obj` file. If the file references a `mtllib` material file, it is loaded
+automatically and the first `map_Kd` BMP texture is applied when available. Ngons (faces with
+more than 3 corners) are triangulated on load.
+
+| Param  | Type   | Description                             |
+|--------|--------|-----------------------------------------|
+| `path` | string | OBJ path relative to the game folder    |
+
+**Returns:** mesh handle (int), or `-1` on failure.
+
+### `CreateCube()`
+Creates a procedural Blitz3D-style cube.
+
+**Returns:** mesh handle (int), or `-1` on failure. The cube spans −25..25 on all three axes
+(50 units edge length).
+
+### `CreateSphere(radius, segments = 12)`
+Creates a procedural sphere centered at the origin.
+
+| Param      | Type   | Default | Description                  |
+|------------|--------|---------|------------------------------|
+| `radius`   | float  | —       | Sphere radius                |
+| `segments` | int    | `12`    | Segments per axis            |
+
+**Returns:** mesh handle (int), or `-1` on failure.
+
+### `CreatePlane(width, height)`
+Creates a flat quad in the XZ plane with normal `+y`, centered at the origin.
+
+| Param    | Type  | Description                    |
+|----------|-------|--------------------------------|
+| `width`  | float | Extent along x                 |
+| `height` | float | Extent along z                 |
+
+**Returns:** mesh handle (int), or `-1` on failure.
+
+### `FreeMesh(meshHandle)`
+Frees a mesh and its view scratch buffers. Entities using it stop rendering.
+
+| Param        | Type | Description          |
+|--------------|------|----------------------|
+| `meshHandle` | int  | Handle to free       |
+
+**Returns:** `true` if the handle was in use.
+
+### `SetMeshColor(meshHandle, r, g, b)`
+Base color of every instance of the mesh.
+
+| Param        | Type  | Description                     |
+|--------------|-------|---------------------------------|
+| `meshHandle` | int   | Mesh handle                     |
+| `r`, `g`, `b`| int   | 0..255 per channel, default 255 |
+
+**Returns:** nothing.
+
+### `SetMeshTexture(meshHandle, textureHandle)`
+Assigns a loaded texture to the mesh, or disables texturing with `-1`.
+
+| Param          | Type | Description                        |
+|----------------|------|------------------------------------|
+| `meshHandle`   | int  | Mesh handle                        |
+| `textureHandle`| int  | Texture handle, or `-1` to clear   |
+
+**Returns:** nothing.
+
+### `SetMeshFlipped(meshHandle, flipped)`
+Reverses face winding at load level for models that appear mirrored / inside out.
+
+| Param        | Type | Description                          |
+|--------------|------|--------------------------------------|
+| `meshHandle` | int  | Mesh handle                          |
+| `flipped`    | int  | Non-zero flips the winding           |
+
+**Returns:** nothing.
+
+### `LoadTexture(path)`
+Loads a 16-bit BMP texture (same loader as 2D sprites) for use on meshes.
+
+| Param  | Type   | Description                            |
+|--------|--------|----------------------------------------|
+| `path` | string | BMP path relative to the game folder   |
+
+**Returns:** texture handle (int), or `-1` on failure.
+
+### `FreeTexture(textureHandle)`
+Frees a texture; any mesh using it falls back to untextured.
+
+| Param           | Type | Description        |
+|-----------------|------|--------------------|
+| `textureHandle` | int  | Handle to free     |
+
+**Returns:** `true` if the handle was in use.
+
+### `CreateEntity(meshHandle)`
+Places an instance of a mesh into the world. Several entities may share one mesh; each instance
+has its own transform and color.
+
+| Param        | Type | Description       |
+|--------------|------|-------------------|
+| `meshHandle` | int  | Mesh to instance  |
+
+**Returns:** entity handle (int), or `-1` on failure.
+
+### `FreeEntity(entityHandle)`
+Removes an instance.
+
+| Param          | Type | Description        |
+|----------------|------|--------------------|
+| `entityHandle` | int  | Handle to free     |
+
+**Returns:** `true` if the handle was in use.
+
+### `PositionEntity(entityHandle, x, y, z)`
+Sets the absolute position. With a parent (see `LinkEntity`), the position is relative to the
+parent.
+
+| Param          | Type  | Description            |
+|----------------|-------|------------------------|
+| `entityHandle` | int   | Entity handle          |
+| `x`, `y`, `z`  | float | World coordinates      |
+
+**Returns:** nothing.
+
+### `RotateEntity(entityHandle, pitch, yaw, roll)`
+Sets absolute rotation angles in degrees.
+
+| Param          | Type  | Description                 |
+|----------------|-------|-----------------------------|
+| `entityHandle` | int   | Entity handle               |
+| `pitch`        | float | Rotation about x (up +)     |
+| `yaw`          | float | Rotation about y (right +)  |
+| `roll`         | float | Rotation about z            |
+
+**Returns:** nothing.
+
+### `TurnEntity(entityHandle, pitch, yaw, roll)`
+Adds relative rotation, e.g. `TurnEntity(wheel, 10, 0, 0)` rolls 10 degrees per call.
+
+| Param          | Type  | Description                |
+|----------------|-------|----------------------------|
+| `entityHandle` | int   | Entity handle              |
+| `pitch`        | float | Added rotation about x     |
+| `yaw`          | float | Added rotation about y     |
+| `roll`         | float | Added rotation about z     |
+
+**Returns:** nothing.
+
+### `ScaleEntity(entityHandle, sx, sy, sz)`
+Non-uniform scale of the instance.
+
+| Param          | Type  | Description          |
+|----------------|-------|----------------------|
+| `entityHandle` | int   | Entity handle        |
+| `sx`, `sy`, `sz` | float | Scale per axis     |
+
+**Returns:** nothing.
+
+### `EntityColor(entityHandle, r, g, b)`
+Per-instance tint, multiplied with the mesh color.
+
+| Param          | Type  | Description                     |
+|----------------|-------|---------------------------------|
+| `entityHandle` | int   | Entity handle                   |
+| `r`, `g`, `b`  | int   | 0..255 per channel              |
+
+**Returns:** nothing.
+
+### `HideEntity(entityHandle, hidden)`
+Excludes the instance from the scene while hidden.
+
+| Param          | Type | Description                   |
+|----------------|------|-------------------------------|
+| `entityHandle` | int  | Entity handle                 |
+| `hidden`       | int  | Non-zero hides the entity     |
+
+**Returns:** nothing.
+
+### `LinkEntity(childHandle, parentHandle)`
+Makes the child follow the parent's transform (position and rotation are composed, nested links
+are followed up to 8 levels). A child is unlinked automatically when its parent is freed.
+
+| Param         | Type | Description                        |
+|---------------|------|------------------------------------|
+| `childHandle` | int  | Child entity                       |
+| `parentHandle`| int  | Parent entity handle               |
+
+**Returns:** `true` on success.
+
+### `EntityOrder(entityHandle, order)`
+Bias applied to the painter's depth sort: the entity's faces are shifted `order × 32` buckets
+out of 4096 depth buckets. Positive values draw earlier (behind other geometry), negative
+values draw later (in front). Used for coplanar surfaces to stop z-fighting flicker.
+
+| Param          | Type | Description                    |
+|----------------|------|--------------------------------|
+| `entityHandle` | int  | Entity handle                  |
+| `order`        | int  | Signed bias, clamped to int8   |
+
+**Returns:** nothing.
+
+### `CreateCamera()`
+Creates a camera. The camera with the **lowest handle** is the active one. Defaults: zoom 1,
+near plane 1, far plane 5000.
+
+**Returns:** camera handle (int), or `-1` on failure.
+
+### `FreeCamera(cameraHandle)`
+Frees a camera.
+
+| Param          | Type | Description        |
+|----------------|------|--------------------|
+| `cameraHandle` | int  | Handle to free     |
+
+**Returns:** `true` if the handle was in use.
+
+### `PositionCamera(cameraHandle, x, y, z)`
+Sets the absolute camera position.
+
+| Param          | Type  | Description            |
+|----------------|-------|------------------------|
+| `cameraHandle` | int   | Camera handle          |
+| `x`, `y`, `z`  | float | World coordinates      |
+
+**Returns:** nothing.
+
+### `RotateCamera(cameraHandle, pitch, yaw, roll)`
+Sets absolute camera rotation angles in degrees.
+
+| Param          | Type  | Description   |
+|----------------|-------|---------------|
+| `cameraHandle` | int   | Camera handle |
+| `pitch`        | float | Degrees       |
+| `yaw`          | float | Degrees       |
+| `roll`         | float | Degrees       |
+
+**Returns:** nothing.
+
+### `TurnCamera(cameraHandle, pitch, yaw, roll)`
+Adds relative camera rotation.
+
+| Param          | Type  | Description   |
+|----------------|-------|---------------|
+| `cameraHandle` | int   | Camera handle |
+| `pitch`        | float | Degrees       |
+| `yaw`          | float | Degrees       |
+| `roll`         | float | Degrees       |
+
+**Returns:** nothing.
+
+### `CameraZoom(cameraHandle, zoom)`
+Sets the zoom factor; `zoom = 1` is a 60° vertical field of view.
+
+| Param          | Type  | Description   |
+|----------------|-------|---------------|
+| `cameraHandle` | int   | Camera handle |
+| `zoom`         | float | Zoom factor   |
+
+**Returns:** nothing.
+
+### `CameraRange(cameraHandle, near, far)`
+Sets the near and far clipping planes. Faces outside this range are culled.
+
+| Param          | Type  | Description   |
+|----------------|-------|---------------|
+| `cameraHandle` | int   | Camera handle |
+| `near`         | float | Near plane    |
+| `far`          | float | Far plane     |
+
+**Returns:** nothing.
+
+### `AmbientLight(r, g, b)`
+Sets the global ambient light level. Device default: `127, 127, 127`.
+
+| Param       | Type | Description        |
+|-------------|------|--------------------|
+| `r`, `g`, `b` | int | 0..255 per channel |
+
+**Returns:** nothing.
+
+### `CreateLight(r, g, b, x, y, z, range = 0, lightType = POINTLIGHT)`
+Creates a point, spot or directional light (per-vertex Gouraud lighting with distance
+attenuation for point/spot lights).
+
+| Param       | Type  | Default          | Description                                        |
+|-------------|-------|------------------|----------------------------------------------------|
+| `r`, `g`, `b` | int | —                | 0..255 per channel                                 |
+| `x`, `y`, `z` | float | —              | Light position (direction ignored for directional) |
+| `range`     | float | `0`              | Attenuation range; `0` = infinite                  |
+| `lightType` | int   | `POINTLIGHT`     | `POINTLIGHT`, `SPOTLIGHT` or `DIRECTIONALLIGHT`    |
+
+**Returns:** light handle (int), or `-1` on failure. Spot and directional lights aim along
+`(0, -1, 0)` until `SetLightDirection` is called.
+
+### `FreeLight(lightHandle)`
+Removes a light.
+
+| Param         | Type | Description        |
+|---------------|------|--------------------|
+| `lightHandle` | int  | Handle to free     |
+
+**Returns:** `true` if the handle was in use.
+
+### `SetLightDirection(lightHandle, dx, dy, dz)`
+Beam direction for spot and directional lights (the vector is normalized).
+
+| Param         | Type  | Description        |
+|---------------|-------|--------------------|
+| `lightHandle` | int   | Light handle       |
+| `dx`, `dy`, `dz` | float | Direction vector |
+
+**Returns:** nothing.
+
+### `SetLightCone(lightHandle, innerAngle, outerAngle)`
+Spot light cone angles in degrees: full brightness inside `innerAngle`, falling off to zero at
+`outerAngle`.
+
+| Param         | Type  | Description             |
+|---------------|-------|-------------------------|
+| `lightHandle` | int   | Light handle            |
+| `innerAngle`  | float | Full-brightness cone °  |
+| `outerAngle`  | float | Edge of falloff cone °  |
+
+**Returns:** nothing.
+
+### `UpdateWorld()`
+Transforms, culls, lights and depth-sorts every entity's faces into the draw list. Must run
+before `DrawWorld()` each frame.
+
+**Returns:** nothing.
+
+### `DrawWorld()`
+Rasterizes the sorted draw list into the game display (fills the current 3D viewport; pixels not
+covered by geometry are blanked, so each frame starts clean).
+
+**Returns:** nothing.
+
+### `SetViewport(x, y, w, h)`
+Sets the screen region the 3D engine renders into. At game start the viewport defaults to
+`SetViewport(0, 21, 320, 168)` — the area not covered by the system UI bars.
+
+| Param | Type | Description                |
+|-------|------|----------------------------|
+| `x`   | int  | Viewport left edge         |
+| `y`   | int  | Viewport top edge          |
+| `w`   | int  | Viewport width in pixels   |
+| `h`   | int  | Viewport height in pixels  |
+
+**Returns:** nothing.
+
+### `FreeAll3D()`
+Frees every mesh, texture, entity, camera and light. Safe to call at any point; used by the host
+when a game ends.
+
+**Returns:** nothing.
+
+### 3D light type constants
+
+These globals are predefined in the Lua state:
+
+| Constant            | Value | Meaning                     |
+|---------------------|-------|-----------------------------|
+| `POINTLIGHT`        | `1`   | Omnidirectional, attenuated |
+| `SPOTLIGHT`         | `2`   | Coned beam                  |
+| `DIRECTIONALLIGHT`  | `4`   | Parallel rays (sun-like)    |
+
+> A fuller conceptual overview with a complete example is in [LuaAPI.md](../LuaAPI.md);
+> `SDCardContent/games/3ddemo` is a runnable demo game.
 
 ---
 

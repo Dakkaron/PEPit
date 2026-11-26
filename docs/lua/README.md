@@ -5,7 +5,7 @@ Games on the PEPit are written in **Lua** and run inside an embedded Lua state
 game scripts can use:
 
 - **[functions.md](functions.md)** — every function registered with `lua_register()`, organized
-  by category (sprites, graphics, text, input, Mode 7, road renderer, preferences, …).
+  by category (sprites, graphics, text, input, Mode 7, 3D engine, road renderer, preferences, …).
 - **[variables.md](variables.md)** — the global variables injected into Lua each frame, with a
   table showing which variable is available in which game state (Init / PEP-Inhalation /
   Trampoline).
