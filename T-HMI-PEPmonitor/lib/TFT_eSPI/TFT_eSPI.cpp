@@ -6581,27 +6581,32 @@ bool TFT_eSPI::pushRectI80(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t 
   }
   if (!rows) return false; // window can't be split into aligned equal chunks
   size_t chunk = (size_t)rows * rowBytes;
-  size_t nchunks = ((size_t)h * rowBytes) / chunk;
+  size_t nchunks = (size_t)h / rows;
   const uint8_t* src = (const uint8_t*)data;
 
   // Same transaction discipline as pushImage: setWindow deliberately leaves
-  // CS handling to its caller, and ST7789 drops bus traffic while CS is high,
-  // so the CASET/RASET/RAMWR commands need begin_tft_write asserting CS first.
+  // CS handling to its caller, and ST7789 drops bus traffic while CS is high.
   begin_tft_write();
   inTransaction = true;
-  setWindow(x, y, x + w - 1, y + h - 1);
 
-  i80RoutePins(true);
-  size_t sent = 0, done = 0;
+  // Each chunk starts with its own RAMWR (0x2C) command phase, and RAMWR
+  // restarts the panel write pointer at the top-left of the CURRENT window
+  // (Espressif's own panel drivers re-issue CASET/RASET per sub-rectangle for
+  // the same reason). So every chunk needs its own band window, set while the
+  // bus is idle with the pads handed back to GPIO; one transfer is in flight
+  // at a time, but the memcpy of chunk ci still overlaps the DMA of ci-1.
   bool ok = true;
+  size_t sent = 0, done = 0;
   for (size_t ci = 0; ci < nchunks; ci++) {
-    uint8_t* buf = i80Bounce[ci & 1];
-    while (done + 2 <= ci) { // reuse gate: the buffer was handed to the DMA two chunks ago
+    uint8_t* buf = i80Bounce[ci & 1]; // ci-1's transfer uses the other buffer
+    memcpy(buf, src + ci * chunk, chunk);
+    if (ci) {
       if (xSemaphoreTake(i80DoneSem, pdMS_TO_TICKS(500)) != pdTRUE) { ok = false; break; }
       done++;
+      i80RoutePins(false);
     }
-    if (!ok) break;
-    memcpy(buf, src + ci * chunk, chunk);
+    setWindow(x, y + (int32_t)ci * rows, x + w - 1, y + (int32_t)ci * rows + rows - 1);
+    i80RoutePins(true);
     if (esp_lcd_panel_io_tx_color(i80Io, 0x2C, buf, chunk) != ESP_OK) { ok = false; break; }
     sent++;
   }
