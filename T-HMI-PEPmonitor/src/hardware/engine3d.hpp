@@ -11,7 +11,7 @@
  * from. A mesh is object data; CreateEntity instantiates a visible entity.
  */
 #define MESH3D_LIMIT 32
-#define TEXTURE3D_LIMIT 16
+#define TEXTURE3D_LIMIT 64
 #define ENTITY3D_LIMIT 128
 #define LIGHT3D_LIMIT 8
 #define CAMERA3D_LIMIT 4
@@ -61,6 +61,9 @@ void rotateEntity3D(int16_t handle, float pitch, float yaw, float roll);
 void turnEntity3D(int16_t handle, float pitch, float yaw, float roll);
 void scaleEntity3D(int16_t handle, float sx, float sy, float sz);
 void entityColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b);
+// Texture override for one entity; -1 falls back to the mesh's texture.
+// Lets entities that share a mesh render with different textures.
+void setEntityTexture3D(int16_t handle, int16_t textureHandle);
 void hideEntity3D(int16_t handle, bool hidden);
 // Unlinks automatically when the parent is freed.
 bool linkEntity3D(int16_t childHandle, int16_t parentHandle);

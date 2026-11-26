@@ -41,7 +41,7 @@ SetMeshColor(meshHandle, r, g, b)  -- 0..255 per channel, default 255,255,255
 SetMeshTexture(meshHandle, textureHandle)  -- textureHandle -1 disables texture
 SetMeshFlipped(meshHandle, flipped)        -- flip winding for mirrored models
 
--- Textures (16-bit BMP files, same loader as 2D sprites)
+-- Textures (16-bit BMP files, same loader as 2D sprites; up to 64 loaded)
 LoadTexture(path)                  -- texture handle
 FreeTexture(textureHandle)
 
@@ -56,6 +56,10 @@ RotateEntity(entityHandle, pitch, yaw, roll)   -- absolute angles
 TurnEntity(entityHandle, pitch, yaw, roll)     -- relative angles
 ScaleEntity(entityHandle, sx, sy, sz)
 EntityColor(entityHandle, r, g, b)             -- multiplied with the mesh color
+SetEntityTexture(entityHandle, textureHandle)  -- per-entity texture override;
+                                               -- -1 falls back to the mesh's
+                                               -- texture; lets entities sharing
+                                               -- a mesh render differently
 HideEntity(entityHandle, hidden)
 LinkEntity(childHandle, parentHandle)          -- child follows parent transform
 EntityOrder(entityHandle, order)               -- shifts the painter sort order

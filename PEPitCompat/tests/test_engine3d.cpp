@@ -248,6 +248,9 @@ void stripeColor(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b) {
     else { *r = 30; *g = 30; *b = 180; }
 }
 
+void redFill(int, int, uint8_t* r, uint8_t* g, uint8_t* b) { *r = 235; *g = 40; *b = 40; }
+void greenFill(int, int, uint8_t* r, uint8_t* g, uint8_t* b) { *r = 40; *g = 220; *b = 60; }
+
 /*
  * Single planar quad tilted so depth varies from 55 (left) to 95 (right):
  * perspective-correct mapping compresses stripe density toward the far side,
@@ -1184,5 +1187,49 @@ TEST_CASE("engine3d: a light parented to a pivot travels with it", "[engine3d]")
     moveEntity3D(pivot, 0, 0, 900);      // the light flies to z=+800, out of range
     d.render();
     CHECK(d.pixel(160, 120) == 0);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: entities sharing a mesh can carry different textures", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_entity_textures");
+    writeSdFile(root, "models/red.bmp", makeBmp24(16, 16, redFill));
+    writeSdFile(root, "models/green.bmp", makeBmp24(16, 16, greenFill));
+    resetWorld3D();
+
+    int16_t mesh = createMesh3DCube();   // one shared mesh object, no texture of its own
+    int16_t red = loadTexture3D(String("/models/red.bmp"));
+    int16_t green = loadTexture3D(String("/models/green.bmp"));
+    REQUIRE(mesh >= 0); REQUIRE(red >= 0); REQUIRE(green >= 0);
+
+    int16_t left = createEntity3D(mesh);
+    int16_t right = createEntity3D(mesh);
+    REQUIRE(left >= 0); REQUIRE(right >= 0);
+    positionEntity3D(left, -40, 0, 0);
+    positionEntity3D(right, 40, 0, 0);
+    setEntityTexture3D(left, red);
+    setEntityTexture3D(right, green);
+
+    Display3D d;
+    d.render();
+    CHECK(d.litPixels() > 10000);
+    int r, g, b;
+    Display3D::rgb(d.pixel(49, 120), r, g, b);   // left cube's front face centre
+    CHECK(r > 90); CHECK(r > g + 60); CHECK(r > b + 60);
+    Display3D::rgb(d.pixel(271, 120), r, g, b);  // right cube's front face centre
+    CHECK(g > 90); CHECK(g > r + 60); CHECK(g > b + 40);
+
+    // Freeing a texture clears the entity overrides that referenced it
+    REQUIRE(freeTexture3D(green));
+    d.render();
+    Display3D::rgb(d.pixel(271, 120), r, g, b);
+    CHECK(r > 100); CHECK(r < 160); CHECK(g > 100); CHECK(b > 100);  // back to untextured ambient grey
+    Display3D::rgb(d.pixel(49, 120), r, g, b);
+    CHECK(r > 90); CHECK(r > g + 60);                  // left one still red
+
+    // An explicit -1 override also falls back to the (untextured) mesh
+    setEntityTexture3D(left, -1);
+    d.render();
+    Display3D::rgb(d.pixel(49, 120), r, g, b);
+    CHECK(r > 100); CHECK(r < 160); CHECK(g > 100); CHECK(b > 100);
     resetWorld3D();
 }

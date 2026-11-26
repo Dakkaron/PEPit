@@ -89,6 +89,7 @@ typedef struct {
   int8_t order;
   int8_t kind;         // ENTITY3D_KIND_*
   int16_t compIndex;   // lights3D/cameras3D slot for light/camera entities
+  int16_t textureIndex; // raw textures3D override, -1 = use the mesh's texture
 } Entity3D;
 
 typedef struct {
@@ -267,6 +268,7 @@ static void setupDefaultCamera3D() {
   e->compIndex = 0;
   e->meshIndex = -1;
   e->parentIndex = -1;
+  e->textureIndex = -1;
   e->z = -100;
   implicitCamera3D = true;
 }
@@ -923,6 +925,11 @@ bool freeTexture3D(int16_t handle) {
       meshes3D[mi].textureIndex = -1;
     }
   }
+  for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
+    if (entities3D[ei].inUse && entities3D[ei].textureIndex == idx) {
+      entities3D[ei].textureIndex = -1;
+    }
+  }
   return true;
 }
 
@@ -1115,6 +1122,7 @@ static int16_t allocEntitySlot3D() {
     e->meshIndex = -1;
     e->parentIndex = -1;
     e->compIndex = -1;
+    e->textureIndex = -1;
     e->sx = 1.0f; e->sy = 1.0f; e->sz = 1.0f;
     e->color[0] = 255; e->color[1] = 255; e->color[2] = 255;
     return i;
@@ -1220,6 +1228,19 @@ void entityColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b) {
   e->color[0] = r;
   e->color[1] = g;
   e->color[2] = b;
+}
+
+void setEntityTexture3D(int16_t handle, int16_t textureHandle) {
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e) return;
+  if (textureHandle == -1) {
+    e->textureIndex = -1;
+    return;
+  }
+  if (textureHandle < TEXTURE3D_HANDLE_BASE || textureHandle >= TEXTURE3D_HANDLE_BASE + TEXTURE3D_LIMIT) return;
+  int16_t idx = textureHandle - TEXTURE3D_HANDLE_BASE;
+  if (!textures3D[idx].inUse) return;
+  e->textureIndex = idx;
 }
 
 void hideEntity3D(int16_t handle, bool hidden) {
@@ -2101,9 +2122,10 @@ static void faceEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, ViewVertex3D* 
 
   const int32_t* uvQ = mesh->uvQ;
   const Texture3D* tex = nullptr;
-  if (mesh->textureIndex >= 0 && mesh->textureIndex < TEXTURE3D_LIMIT &&
-      textures3D[mesh->textureIndex].inUse && uvQ) {
-    tex = &textures3D[mesh->textureIndex];
+  int16_t texIndex = e->textureIndex >= 0 ? e->textureIndex : mesh->textureIndex;
+  if (texIndex >= 0 && texIndex < TEXTURE3D_LIMIT &&
+      textures3D[texIndex].inUse && uvQ) {
+    tex = &textures3D[texIndex];
   }
   uint8_t mode = tex ? (dynamicLighting ? 2 : 3) : (dynamicLighting ? 1 : 0);
 

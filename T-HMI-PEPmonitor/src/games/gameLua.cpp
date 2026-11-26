@@ -1154,6 +1154,11 @@ static int lua_wrapper_entityColor(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_setEntityTexture(lua_State* luaState) {
+  setEntityTexture3D(luaL_checkinteger(luaState, 1), luaL_checkinteger(luaState, 2));
+  return 0;
+}
+
 static int lua_wrapper_hideEntity(lua_State* luaState) {
   hideEntity3D(luaL_checkinteger(luaState, 1), luaL_checkinteger(luaState, 2) != 0);
   return 0;
@@ -1381,6 +1386,7 @@ void initLua() {
   lua_register(luaState, "TurnEntity", (lua_CFunction) &lua_wrapper_turnEntity);
   lua_register(luaState, "ScaleEntity", (lua_CFunction) &lua_wrapper_scaleEntity);
   lua_register(luaState, "EntityColor", (lua_CFunction) &lua_wrapper_entityColor);
+  lua_register(luaState, "SetEntityTexture", (lua_CFunction) &lua_wrapper_setEntityTexture);
   lua_register(luaState, "HideEntity", (lua_CFunction) &lua_wrapper_hideEntity);
   lua_register(luaState, "LinkEntity", (lua_CFunction) &lua_wrapper_linkEntity);
   lua_register(luaState, "EntityOrder", (lua_CFunction) &lua_wrapper_entityOrder);
