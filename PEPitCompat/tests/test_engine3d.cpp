@@ -738,11 +738,20 @@ TEST_CASE("engine3d: draws into the active buffer of a double-buffered display",
 
 TEST_CASE("engine3d: progress bar overdraw beyond 100% survives the gap fill", "[engine3d]") {
     resetWorld3D();
+    int16_t mesh = createMesh3DCube();
+    createEntity3D(mesh);
+
     TFT_eSprite disp = TFT_eSprite(&tft);
     disp.setColorDepth(16);
     disp.createSprite(320, 240, 2);
     disp.frameBuffer(1);
     setWorld3DPipeline3D(true);
+
+    // mask mode only arms after the engine rasterized a 3D frame on the display
+    beginWorld3DFill3D(&disp);
+    updateWorld3D(&disp);
+    drawWorld3D(&disp);
+    blitWorld3DFrame3D(&disp);
 
     beginWorld3DFill3D(&disp);
     REQUIRE(world3DMaskMode3D(&disp));

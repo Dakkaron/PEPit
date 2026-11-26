@@ -1664,10 +1664,14 @@ bool world3DMaskMode3D(DISPLAY_T* display) {
 // Frame start for full-screen game loops, in place of fillSprite(TFT_BLACK):
 // in mask mode clearing the coverage mask is the whole "clear" (core 0 memsets
 // the uncovered pixels at push time); otherwise the previous fill behavior.
+// Mask mode only covers frames where the engine rasterized the 3D world: game
+// art drawn through plain sprite calls (racing variants' pushToSprite and
+// drawFastHLine, mode7/road drawing) cannot claim coverage, so the gap fill
+// would black it out.
 void beginWorld3DFill3D(DISPLAY_T* display) {
   if (!display || !display->created()) return;
   barrierWorld3DFill3D();
-  if (w3dPipelineEnabled3D && display->frameBufferId() && w3dPipelineReady3D()
+  if (w3dPipelineEnabled3D && w3d3DFrameActive3D && display->frameBufferId() && w3dPipelineReady3D()
       && ensureMask3D(display->width(), display->height())) {
     memset(w3dMask3D[display->frameBufferId() - 1], 0,
            (size_t)w3dMaskWords3D * w3dMaskRows3D * 4);

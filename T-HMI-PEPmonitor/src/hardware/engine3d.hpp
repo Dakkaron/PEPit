@@ -97,7 +97,7 @@ void setWorld3DI80Push3D(bool enabled);
 void setWorld3DSplitXf3D(bool enabled);
 // Frame start in place of fillSprite(TFT_BLACK); in mask mode this only clears
 // the coverage mask and the core 0 blit task gap-fills the uncovered pixels at
-// push time.
+// push time. Mask mode only applies once the 3D world has been drawn.
 void beginWorld3DFill3D(DISPLAY_T* display);
 // Writers that do not go through begin/barrier (HUD code, Lua draw wrappers)
 // call this before touching the frame buffer so the gap fill neither leaves

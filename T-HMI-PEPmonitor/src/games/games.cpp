@@ -4,6 +4,7 @@
 #include "gameLua.h"
 #include "systemStateHandler.h"
 #include "hardware/powerHandler.h"
+#include "hardware/engine3d.hpp"
 
 #define EXECUTION_LOG_MAX_LINES 24
 
@@ -11,6 +12,8 @@ static String currentGamePath;
 static GameConfig gameConfig;
 void initGames(String gamePath, String* errorMessage) {
   currentGamePath = gamePath;
+  // 3D handles and mask-mode eligibility are per-game state.
+  resetWorld3D();
   readGameConfig(gamePath, &gameConfig, errorMessage);
   if (gameConfig.templateName == "monster") {
     initGames_monsterCatcher(gamePath, &gameConfig, errorMessage);
