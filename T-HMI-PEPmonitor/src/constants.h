@@ -20,13 +20,6 @@
 #define PRESSURE_BAR_X 1
 #define PRESSURE_BAR_Y 190
 
-// Display-only calibration of the manometer dial: physical pressure in mbar is
-//   compensatedPercent * targetStrength / PRESSURE_MBAR_CALIBRATION
-// Measured on real hardware against a physical manometer (5->25, 10->49, 15->75
-// at targetStrength 200), i.e. ~65000 HX711 counts per mbar at gain 64.
-// Deliberately NOT applied to PRESSURE_SENSOR_DIVISOR: the profile targetStrength
-// values are empirically tuned to the raw percent-of-target scaling, and changing
-// the divisor would shift every game threshold by the same factor.
 #define PRESSURE_MBAR_CALIBRATION 1000L
 
 #define SCREEN_BRIGHTNESS_STEPS 16
