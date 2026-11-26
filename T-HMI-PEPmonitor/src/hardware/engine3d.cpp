@@ -1,7 +1,10 @@
 #include "engine3d.hpp"
 #include "hardware/sdHandler.h"
+#include <esp_cache.h>
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -1614,7 +1617,7 @@ static bool w3dPipelineReady3D() {  if (w3dPushTask3DHandle) return true;
   w3dFillDone3D = xSemaphoreCreateBinary();
   w3dWorkDone3D = xSemaphoreCreateBinary();
   if (!w3dPushReady3D || !w3dPushDone3D || !w3dFillDone3D || !w3dWorkDone3D) return false;
-  if (xTaskCreatePinnedToCore(w3dPushTaskLoop3D, "w3dblit", 8192, nullptr, 1,
+  if (xTaskCreatePinnedToCore(w3dPushTaskLoop3D, "w3dblit", 8192, nullptr, 2,
                               &w3dPushTask3DHandle, 0) != pdPASS) {
     w3dPushTask3DHandle = nullptr;
     return false;
@@ -1811,6 +1814,220 @@ void blitWorld3DFrame3D(DISPLAY_T* display) {
   }
 }
 
+/*
+ * Splitting the xf pass over both cores. A core 0 helper task transforms and
+ * lights entities it claims from a shared queue (longest mesh first so the
+ * big jobs start first on both cores, which auto-balances the tail), core 1
+ * claims the rest; the fused pass has no inter-entity dependencies and a
+ * mesh's whole ViewVertex3D array is always written by exactly one core, and
+ * the 32-byte padding guarantees no two cores ever share a cache line. The
+ * S3's data caches are per-core and not coherent, so every hand-off goes
+ * through esp_cache_msync: core 1 pushes the frame setup to memory before
+ * releasing the helper, the helper writes back each scratch array it wrote
+ * before signaling done, and core 1 invalidates its stale copies of
+ * helper-owned scratch before the face loop reads them.
+ */
+typedef struct {
+  Mat3 basis;
+  float camX, camY, camZ;
+  float nearPlane, farPlane;
+  float projScale, vpCx, vpCy, tanHalfX, tanHalfY;
+  float ambient[3];
+  int8_t activeLights[LIGHT3D_LIMIT];
+  int8_t activeLightCount;
+  bool dynamicLighting;
+} XfFrameCtx3D;
+
+typedef struct {
+  int32_t verts;
+  uint64_t culledLo, culledHi;
+} XfHelperResult3D;
+
+static XfFrameCtx3D w3dXfCtx3D;
+static XfHelperResult3D w3dXfHelperRes3D;
+static bool w3dSplitXf3D = true;
+static bool w3dSplitTried3D = false;
+static SemaphoreHandle_t w3dXfStart3D = nullptr;
+static SemaphoreHandle_t w3dXfDone3D = nullptr;
+static QueueHandle_t w3dXfQueue3D = nullptr;
+static TaskHandle_t w3dXfTask3DHandle = nullptr;
+
+static inline bool xfCacheSync3D(void* addr, size_t len, uint32_t dirFlag) {
+  return esp_cache_msync(addr, len, dirFlag | ESP_CACHE_MSYNC_FLAG_UNALIGNED) == ESP_OK;
+}
+
+// Fused transform/project/light pass for one entity. Returns the number of
+// vertices transformed and marks the culled bit when the bounding-sphere
+// frustum test skips the entity, so the face loop skips it exactly like the
+// original fused loop did.
+static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* culledBits) {
+  Entity3D* e = &entities3D[ei];
+  if (!e->inUse || e->hidden) return 0;
+  if (e->meshHandle < 0 || e->meshHandle >= MESH3D_LIMIT || !meshes3D[e->meshHandle].inUse) return 0;
+  Mesh3D* mesh = &meshes3D[e->meshHandle];
+  uint16_t vertexCount = mesh->vertexCount;
+
+  float rot[9], epos[3];
+  entityWorldTransform3D(ei, rot, epos, 0);
+  Mat3 rotMat, basisMat, cMat;
+  memcpy(rotMat.m, rot, sizeof(rotMat.m));
+  memcpy(basisMat.m, ctx->basis.m, sizeof(basisMat.m));
+  mat3Mul3D(&basisMat, &rotMat, &cMat);
+  const float* c = cMat.m;
+  const float* basis = ctx->basis.m;
+  float ex = epos[0] - ctx->camX, ey = epos[1] - ctx->camY, ez = epos[2] - ctx->camZ;
+  float tx = basis[0]*ex + basis[1]*ey + basis[2]*ez;
+  float ty = basis[3]*ex + basis[4]*ey + basis[5]*ez;
+  float tz = basis[6]*ex + basis[7]*ey + basis[8]*ez;
+
+  // Frustum cull using the transformed bounding sphere
+  float maxScale = fabsf(e->sx);
+  if (fabsf(e->sy) > maxScale) maxScale = fabsf(e->sy);
+  if (fabsf(e->sz) > maxScale) maxScale = fabsf(e->sz);
+  const Vector3D* bc = &mesh->boundsCenter;
+  float ccx = c[0]*bc->x*e->sx + c[1]*bc->y*e->sy + c[2]*bc->z*e->sz + tx;
+  float ccy = c[3]*bc->x*e->sx + c[4]*bc->y*e->sy + c[5]*bc->z*e->sz + ty;
+  float ccz = c[6]*bc->x*e->sx + c[7]*bc->y*e->sy + c[8]*bc->z*e->sz + tz;
+  float boundsRadius = mesh->boundsRadius * maxScale;
+  if (ccz + boundsRadius < ctx->nearPlane) { culledBits[ei >> 6] |= 1ULL << (ei & 63); return 0; }
+  if (ccz - boundsRadius > ctx->farPlane) { culledBits[ei >> 6] |= 1ULL << (ei & 63); return 0; }
+  if (ccz - boundsRadius > ctx->nearPlane) {
+    if (fabsf(ccx) > (ccz - boundsRadius) * ctx->tanHalfX + boundsRadius) { culledBits[ei >> 6] |= 1ULL << (ei & 63); return 0; }
+    if (fabsf(ccy) > (ccz - boundsRadius) * ctx->tanHalfY + boundsRadius) { culledBits[ei >> 6] |= 1ULL << (ei & 63); return 0; }
+  }
+
+  uint32_t baseR = ((uint32_t)e->color[0] * mesh->color[0] + 128) / 255;
+  uint32_t baseG = ((uint32_t)e->color[1] * mesh->color[1] + 128) / 255;
+  uint32_t baseB = ((uint32_t)e->color[2] * mesh->color[2] + 128) / 255;
+
+  /*
+   * One fused pass transforms, projects and lights each vertex. These
+   * scratch arrays are PSRAM streams far larger than the ESP32-S3 data
+   * cache, so running the passes as separate loops reloads nearly every
+   * vertex from PSRAM a second time.
+   */
+  const bool dynamicLighting = ctx->dynamicLighting;
+  const float nearPlane = ctx->nearPlane;
+  for (uint16_t vi = 0; vi < vertexCount; vi++) {
+    const MeshVertex3D* mv = &mesh->vtx[vi];
+    const Vector3D* p = &mv->pos;
+    float px = p->x * e->sx, py = p->y * e->sy, pz = p->z * e->sz;
+    float vpX = c[0]*px + c[1]*py + c[2]*pz + tx;
+    float vpY = c[3]*px + c[4]*py + c[5]*pz + ty;
+    float vpZ = c[6]*px + c[7]*py + c[8]*pz + tz;
+    ViewVertex3D* v = &mesh->vs[vi];
+    v->x = vpX; v->y = vpY; v->z = vpZ;
+    if (vpZ >= nearPlane) {
+      v->iz = fastRecip3D(vpZ);
+      projectClipPoint3D(&v->x, ctx->projScale * v->iz, ctx->vpCx, ctx->vpCy, &v->sx, &v->sy);
+    }
+    if (dynamicLighting) {
+      const Vector3D* n = &mv->nrm;
+      float nx = c[0]*n->x + c[1]*n->y + c[2]*n->z;
+      float ny = c[3]*n->x + c[4]*n->y + c[5]*n->z;
+      float nz = c[6]*n->x + c[7]*n->y + c[8]*n->z;
+      float lr = ctx->ambient[0], lg = ctx->ambient[1], lb = ctx->ambient[2];
+      for (int8_t la = 0; la < ctx->activeLightCount; la++) {
+        const Light3D* l = &lights3D[ctx->activeLights[la]];
+        if (l->type == LIGHT3D_TYPE_DIRECTIONAL) {
+          float ndl = nx*l->tx + ny*l->ty + nz*l->tz;
+          if (ndl > 0.0f) {
+            lr += l->r * ndl;
+            lg += l->g * ndl;
+            lb += l->b * ndl;
+          }
+        } else {
+          float ldx = l->vx - vpX, ldy = l->vy - vpY, ldz = l->vz - vpZ;
+          float d2 = ldx*ldx + ldy*ldy + ldz*ldz;
+          if (d2 >= l->rangeSq) continue;
+          // dist only feeds an 8-bit light term and a cone test, so the approximate
+          // reciprocal square root replaces both a sqrtf() call and a float divide.
+          float inv = (d2 < 1e-6f) ? 1000.0f : fastInvSqrt3D(d2);
+          float dist = d2 * inv;
+          float ndl = (nx*ldx + ny*ldy + nz*ldz) * inv;
+          if (ndl <= 0.0f) continue;
+          float att = 1.0f - dist * l->invRange;
+          if (att <= 0.0f) continue;
+          if (l->type == LIGHT3D_TYPE_SPOT) {
+            float ca = -(ldx*l->bx + ldy*l->by + ldz*l->bz) * inv;
+            if (ca <= l->cosOuter) continue;
+            if (ca < l->cosInner) {
+              float ct = (ca - l->cosOuter) * l->cosInvDelta;
+              att *= ct * ct * (3.0f - 2.0f * ct);
+              if (att <= 0.0f) continue;
+            }
+          }
+          lr += l->r * ndl * att;
+          lg += l->g * ndl * att;
+          lb += l->b * ndl * att;
+        }
+      }
+      if (lr > 1.0f) lr = 1.0f; else if (lr < 0.0f) lr = 0.0f;
+      if (lg > 1.0f) lg = 1.0f; else if (lg < 0.0f) lg = 0.0f;
+      if (lb > 1.0f) lb = 1.0f; else if (lb < 0.0f) lb = 0.0f;
+      uint32_t cr = clamp3DI((int32_t)(lr * baseR), 0, 255);
+      uint32_t cg = clamp3DI((int32_t)(lg * baseG), 0, 255);
+      uint32_t cb = clamp3DI((int32_t)(lb * baseB), 0, 255);
+      mesh->vs[vi].color = (cr << 16) | (cg << 8) | cb;
+    }
+  }
+  return vertexCount;
+}
+
+static void w3dXfTaskLoop3D(void*) {
+  for (;;) {
+    xSemaphoreTake(w3dXfStart3D, portMAX_DELAY);
+    uint64_t culled[2] = {0, 0};
+    int32_t verts = 0;
+    bool usable =
+      xfCacheSync3D(&w3dXfCtx3D, sizeof(w3dXfCtx3D), ESP_CACHE_MSYNC_FLAG_DIR_M2C) &&
+      xfCacheSync3D(entities3D, sizeof(entities3D), ESP_CACHE_MSYNC_FLAG_DIR_M2C) &&
+      xfCacheSync3D(meshes3D, sizeof(meshes3D), ESP_CACHE_MSYNC_FLAG_DIR_M2C) &&
+      xfCacheSync3D(lights3D, sizeof(lights3D), ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+    int16_t ei;
+    if (usable) {
+      while (xQueueReceive(w3dXfQueue3D, &ei, 0) == pdTRUE) {
+        Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
+        // Core 1 may have re-uploaded vtx data whose write-back still sits in
+        // its private cache; drop any stale local copy before streaming it.
+        if (m->vtx && !xfCacheSync3D(m->vtx, sizeof(MeshVertex3D) * (size_t)m->vertexCount,
+                                     ESP_CACHE_MSYNC_FLAG_DIR_M2C)) break;
+        uint32_t n = xfEntityPass3D(ei, &w3dXfCtx3D, culled);
+        verts += (int32_t)n;
+        if (n && !xfCacheSync3D(m->vs,
+                                sizeof(ViewVertex3D) * (size_t)m->vertexCount,
+                                ESP_CACHE_MSYNC_FLAG_DIR_C2M)) break; // leave the rest to core 1
+      }
+    }
+    w3dXfHelperRes3D.verts = verts;
+    w3dXfHelperRes3D.culledLo = culled[0];
+    w3dXfHelperRes3D.culledHi = culled[1];
+    xfCacheSync3D(&w3dXfHelperRes3D, sizeof(w3dXfHelperRes3D), ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+    xSemaphoreGive(w3dXfDone3D);
+  }
+}
+
+// Created on the first split frame so single-core builds pay nothing.
+static bool w3dSplitReady3D() {
+  if (w3dXfTask3DHandle) return true;
+  if (w3dSplitTried3D) return false;
+  w3dSplitTried3D = true;
+  w3dXfStart3D = xSemaphoreCreateBinary();
+  w3dXfDone3D = xSemaphoreCreateBinary();
+  w3dXfQueue3D = xQueueCreate(ENTITY3D_LIMIT, sizeof(int16_t));
+  if (!w3dXfStart3D || !w3dXfDone3D || !w3dXfQueue3D) return false;
+  if (xTaskCreatePinnedToCore(w3dXfTaskLoop3D, "w3dxf", 6144, nullptr, 1,
+                              &w3dXfTask3DHandle, 0) != pdPASS) {
+    w3dXfTask3DHandle = nullptr;
+    return false;
+  }
+  return true;
+}
+
+void setWorld3DSplitXf3D(bool enabled) {
+  w3dSplitXf3D = enabled;
+}
+
 void updateWorld3D(DISPLAY_T* display) {
   if (!ensureWorld3D()) return;
   int64_t perfT0 = perf3DEnabled ? esp_timer_get_time() : 0;
@@ -1870,40 +2087,102 @@ void updateWorld3D(DISPLAY_T* display) {
   // draw order and surfaces flicker against each other.
   float zLo = 1e30f, zHi = -1e30f;
 
+  /* Per-frame setup shared with the core 0 helper (core 1 uses it too). */
+  XfFrameCtx3D* ctx = &w3dXfCtx3D;
+  memcpy(ctx->basis.m, basis.m, sizeof(ctx->basis.m));
+  ctx->camX = cam->x; ctx->camY = cam->y; ctx->camZ = cam->z;
+  ctx->nearPlane = cam->nearPlane; ctx->farPlane = cam->farPlane;
+  ctx->projScale = projScale; ctx->vpCx = vpCx3D; ctx->vpCy = vpCy3D;
+  ctx->tanHalfX = tanHalfX; ctx->tanHalfY = tanHalfY;
+  ctx->ambient[0] = ambient3D[0]; ctx->ambient[1] = ambient3D[1]; ctx->ambient[2] = ambient3D[2];
+  memcpy(ctx->activeLights, activeLights, sizeof(activeLights));
+  ctx->activeLightCount = (int8_t)activeLightCount;
+  ctx->dynamicLighting = dynamicLighting;
+
+  uint64_t xfCulled3D[2] = {0, 0};
+  uint64_t xfClaimed3D[2] = {0, 0};
+  static int16_t xfQueued3D[ENTITY3D_LIMIT];
+  int16_t xfQueuedCount3D = 0;
+  int32_t xfVerts3D = 0;
+  bool splitXf3D = false;
+
+  if (perf3DEnabled) perfSub3D = esp_timer_get_time();
+
+  if (w3dSplitXf3D && w3dSplitReady3D()) {
+    // Queue every valid entity, longest mesh first: the big jobs are claimed
+    // before either core runs dry and the tail of small meshes absorbs the
+    // imbalance. Culling stays inside the passes so both cores decide alike.
+    for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
+      Entity3D* e = &entities3D[ei];
+      if (!e->inUse || e->hidden) continue;
+      if (e->meshHandle < 0 || e->meshHandle >= MESH3D_LIMIT || !meshes3D[e->meshHandle].inUse) continue;
+      uint16_t vc = meshes3D[e->meshHandle].vertexCount;
+      int16_t pos = xfQueuedCount3D++;
+      while (pos > 0 &&
+             meshes3D[entities3D[xfQueued3D[pos - 1]].meshHandle].vertexCount < vc) {
+        xfQueued3D[pos] = xfQueued3D[pos - 1];
+        pos--;
+      }
+      xfQueued3D[pos] = ei;
+    }
+    bool synced =
+      xfCacheSync3D(ctx, sizeof(*ctx), ESP_CACHE_MSYNC_FLAG_DIR_C2M) &&
+      xfCacheSync3D(entities3D, sizeof(entities3D), ESP_CACHE_MSYNC_FLAG_DIR_C2M) &&
+      xfCacheSync3D(meshes3D, sizeof(meshes3D), ESP_CACHE_MSYNC_FLAG_DIR_C2M) &&
+      xfCacheSync3D(lights3D, sizeof(lights3D), ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+    for (int16_t qi = 0; synced && qi < xfQueuedCount3D; qi++) {
+      Mesh3D* m = &meshes3D[entities3D[xfQueued3D[qi]].meshHandle];
+      synced = m->vtx && m->vertexCount
+        ? xfCacheSync3D(m->vtx, sizeof(MeshVertex3D) * (size_t)m->vertexCount, ESP_CACHE_MSYNC_FLAG_DIR_C2M)
+        : true;
+    }
+    if (synced && xQueueReset(w3dXfQueue3D) == pdTRUE) {
+      for (int16_t qi = 0; qi < xfQueuedCount3D; qi++)
+        if (xQueueSend(w3dXfQueue3D, &xfQueued3D[qi], 0) != pdTRUE) { synced = false; break; }
+      if (synced) synced = (xSemaphoreGive(w3dXfStart3D) == pdTRUE);
+    }
+    if (!synced) w3dSplitXf3D = false; // drop permanently to the single-core path
+    splitXf3D = synced;
+  }
+
+  if (splitXf3D) {
+    int16_t ei;
+    while (xQueueReceive(w3dXfQueue3D, &ei, 0) == pdTRUE) {
+      xfClaimed3D[ei >> 6] |= 1ULL << (ei & 63);
+      xfVerts3D += (int32_t)xfEntityPass3D(ei, ctx, xfCulled3D);
+    }
+    xSemaphoreTake(w3dXfDone3D, portMAX_DELAY);
+    if (xfCacheSync3D(&w3dXfHelperRes3D, sizeof(w3dXfHelperRes3D), ESP_CACHE_MSYNC_FLAG_DIR_M2C)) {
+      xfCulled3D[0] |= w3dXfHelperRes3D.culledLo;
+      xfCulled3D[1] |= w3dXfHelperRes3D.culledHi;
+      xfVerts3D += w3dXfHelperRes3D.verts;
+    }
+    // Helper-owned scratch is authoritative in memory now; this core must not
+    // serve last frame's cached copies to the face loop.
+    for (int16_t qi = 0; qi < xfQueuedCount3D; qi++) {
+      int16_t ei = xfQueued3D[qi];
+      if (xfClaimed3D[ei >> 6] & (1ULL << (ei & 63))) continue;
+      Mesh3D* m = &meshes3D[entities3D[ei].meshHandle];
+      if (m->vs && m->vertexCount)
+        xfCacheSync3D(m->vs, sizeof(ViewVertex3D) * (size_t)m->vertexCount, ESP_CACHE_MSYNC_FLAG_DIR_M2C);
+    }
+  } else {
+    for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++)
+      xfVerts3D += (int32_t)xfEntityPass3D(ei, ctx, xfCulled3D);
+  }
+  if (perf3DEnabled) {
+    perf3D.vertsTransformed += xfVerts3D;
+    perf3D.xfUs += (int32_t)(esp_timer_get_time() - perfSub3D);
+    perfSub3D = esp_timer_get_time();
+  }
+
   for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
+    if (xfCulled3D[ei >> 6] & (1ULL << (ei & 63))) continue;
     Entity3D* e = &entities3D[ei];
     if (!e->inUse || e->hidden) continue;
     if (e->meshHandle < 0 || e->meshHandle >= MESH3D_LIMIT || !meshes3D[e->meshHandle].inUse) continue;
     Mesh3D* mesh = &meshes3D[e->meshHandle];
     uint16_t vertexCount = mesh->vertexCount;
-
-    float rot[9], epos[3];
-    entityWorldTransform3D(ei, rot, epos, 0);
-    Mat3 rotMat, basisMat, cMat;
-    memcpy(rotMat.m, rot, sizeof(rotMat.m));
-    memcpy(basisMat.m, basis.m, sizeof(basisMat.m));
-    mat3Mul3D(&basisMat, &rotMat, &cMat);
-    const float* c = cMat.m;
-    float ex = epos[0] - cam->x, ey = epos[1] - cam->y, ez = epos[2] - cam->z;
-    float tx = basis.m[0]*ex + basis.m[1]*ey + basis.m[2]*ez;
-    float ty = basis.m[3]*ex + basis.m[4]*ey + basis.m[5]*ez;
-    float tz = basis.m[6]*ex + basis.m[7]*ey + basis.m[8]*ez;
-
-    // Frustum cull using the transformed bounding sphere
-    float maxScale = fabsf(e->sx);
-    if (fabsf(e->sy) > maxScale) maxScale = fabsf(e->sy);
-    if (fabsf(e->sz) > maxScale) maxScale = fabsf(e->sz);
-    const Vector3D* bc = &mesh->boundsCenter;
-    float ccx = c[0]*bc->x*e->sx + c[1]*bc->y*e->sy + c[2]*bc->z*e->sz + tx;
-    float ccy = c[3]*bc->x*e->sx + c[4]*bc->y*e->sy + c[5]*bc->z*e->sz + ty;
-    float ccz = c[6]*bc->x*e->sx + c[7]*bc->y*e->sy + c[8]*bc->z*e->sz + tz;
-    float boundsRadius = mesh->boundsRadius * maxScale;
-    if (ccz + boundsRadius < cam->nearPlane) continue;
-    if (ccz - boundsRadius > cam->farPlane) continue;
-    if (ccz - boundsRadius > cam->nearPlane) {
-      if (fabsf(ccx) > (ccz - boundsRadius) * tanHalfX + boundsRadius) continue;
-      if (fabsf(ccy) > (ccz - boundsRadius) * tanHalfY + boundsRadius) continue;
-    }
 
     uint32_t baseR = ((uint32_t)e->color[0] * mesh->color[0] + 128) / 255;
     uint32_t baseG = ((uint32_t)e->color[1] * mesh->color[1] + 128) / 255;
@@ -1913,81 +2192,6 @@ void updateWorld3D(DISPLAY_T* display) {
     uint32_t uniformB = clamp3DI((int32_t)(ambient3D[2] * baseB + 0.5f), 0, 255);
     uint32_t uniformColor = (uniformR << 16) | (uniformG << 8) | uniformB;
 
-    /*
-     * One fused pass transforms, projects and lights each vertex. These
-     * scratch arrays are PSRAM streams far larger than the ESP32-S3 data
-     * cache, so running the passes as separate loops reloads nearly every
-     * vertex from PSRAM a second time.
-     */
-    if (perf3DEnabled) perfSub3D = esp_timer_get_time();
-    for (uint16_t vi = 0; vi < vertexCount; vi++) {
-      const MeshVertex3D* mv = &mesh->vtx[vi];
-      const Vector3D* p = &mv->pos;
-      float px = p->x * e->sx, py = p->y * e->sy, pz = p->z * e->sz;
-      float vpX = c[0]*px + c[1]*py + c[2]*pz + tx;
-      float vpY = c[3]*px + c[4]*py + c[5]*pz + ty;
-      float vpZ = c[6]*px + c[7]*py + c[8]*pz + tz;
-      ViewVertex3D* v = &mesh->vs[vi];
-      v->x = vpX; v->y = vpY; v->z = vpZ;
-      if (vpZ >= cam->nearPlane) {
-        v->iz = fastRecip3D(vpZ);
-        projectClipPoint3D(&v->x, projScale * v->iz, vpCx3D, vpCy3D, &v->sx, &v->sy);
-      }
-      if (dynamicLighting) {
-        const Vector3D* n = &mv->nrm;
-        float nx = c[0]*n->x + c[1]*n->y + c[2]*n->z;
-        float ny = c[3]*n->x + c[4]*n->y + c[5]*n->z;
-        float nz = c[6]*n->x + c[7]*n->y + c[8]*n->z;
-        float lr = ambient3D[0], lg = ambient3D[1], lb = ambient3D[2];
-        for (int8_t la = 0; la < activeLightCount; la++) {
-          const Light3D* l = &lights3D[activeLights[la]];
-          if (l->type == LIGHT3D_TYPE_DIRECTIONAL) {
-            float ndl = nx*l->tx + ny*l->ty + nz*l->tz;
-            if (ndl > 0.0f) {
-              lr += l->r * ndl;
-              lg += l->g * ndl;
-              lb += l->b * ndl;
-            }
-          } else {
-            float ldx = l->vx - vpX, ldy = l->vy - vpY, ldz = l->vz - vpZ;
-            float d2 = ldx*ldx + ldy*ldy + ldz*ldz;
-            if (d2 >= l->rangeSq) continue;
-            // dist only feeds an 8-bit light term and a cone test, so the approximate
-            // reciprocal square root replaces both a sqrtf() call and a float divide.
-            float inv = (d2 < 1e-6f) ? 1000.0f : fastInvSqrt3D(d2);
-            float dist = d2 * inv;
-            float ndl = (nx*ldx + ny*ldy + nz*ldz) * inv;
-            if (ndl <= 0.0f) continue;
-            float att = 1.0f - dist * l->invRange;
-            if (att <= 0.0f) continue;
-            if (l->type == LIGHT3D_TYPE_SPOT) {
-              float ca = -(ldx*l->bx + ldy*l->by + ldz*l->bz) * inv;
-              if (ca <= l->cosOuter) continue;
-              if (ca < l->cosInner) {
-                float ct = (ca - l->cosOuter) * l->cosInvDelta;
-                att *= ct * ct * (3.0f - 2.0f * ct);
-                if (att <= 0.0f) continue;
-              }
-            }
-            lr += l->r * ndl * att;
-            lg += l->g * ndl * att;
-            lb += l->b * ndl * att;
-          }
-        }
-        if (lr > 1.0f) lr = 1.0f; else if (lr < 0.0f) lr = 0.0f;
-        if (lg > 1.0f) lg = 1.0f; else if (lg < 0.0f) lg = 0.0f;
-        if (lb > 1.0f) lb = 1.0f; else if (lb < 0.0f) lb = 0.0f;
-        uint32_t cr = clamp3DI((int32_t)(lr * baseR), 0, 255);
-        uint32_t cg = clamp3DI((int32_t)(lg * baseG), 0, 255);
-        uint32_t cb = clamp3DI((int32_t)(lb * baseB), 0, 255);
-        mesh->vs[vi].color = (cr << 16) | (cg << 8) | cb;
-      }
-    }
-    if (perf3DEnabled) {
-      perf3D.vertsTransformed += vertexCount;
-      perf3D.xfUs += (int32_t)(esp_timer_get_time() - perfSub3D);
-      perfSub3D = esp_timer_get_time();
-    }
     const int32_t* uvQ = mesh->uvQ;
     const Texture3D* tex = nullptr;
     if (mesh->textureHandle >= 0 && mesh->textureHandle < TEXTURE3D_LIMIT &&

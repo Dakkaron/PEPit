@@ -1412,6 +1412,7 @@ void initGames_lua(String gamePath, GameConfig* pGameConfig, String* errorMessag
   setWorld3DDebug3D(systemConfig.debugLogRender3D);
   setWorld3DPipeline3D(systemConfig.renderPipeline3D);
   setWorld3DI80Push3D(systemConfig.renderI80Push3D);
+  setWorld3DSplitXf3D(systemConfig.renderSplitXf3D);
   // Games default to the area not covered by system UI and the pressure/time
   // bars; a game can change it with SetViewport(x, y, w, h).
   setWorld3DViewport3D(0, 21, SCREEN_WIDTH, SCREEN_HEIGHT - 72);

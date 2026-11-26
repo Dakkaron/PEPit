@@ -517,6 +517,8 @@ typedef void* SemaphoreHandle_t;
 
 #define pdPASS 1
 #define pdFAIL 0
+#define pdTRUE 1
+#define pdFALSE 0
 #define portMAX_DELAY 0xFFFFFFFFu
 
 // FreeRTOS mutex handles stay contention-free stubs; binary semaphores are
@@ -525,6 +527,14 @@ SemaphoreHandle_t xSemaphoreCreateBinary(void);
 inline SemaphoreHandle_t xSemaphoreCreateMutex() { return reinterpret_cast<void*>(1); }
 BaseType_t xSemaphoreTake(SemaphoreHandle_t sem, uint32_t ticks);
 BaseType_t xSemaphoreGive(SemaphoreHandle_t sem);
+
+// FreeRTOS queue shim (used by the engine3d split-xf work hand-off; the
+// engine only queues int16_t items and never blocks on queue operations).
+typedef void* QueueHandle_t;
+QueueHandle_t xQueueCreate(uint32_t length, uint32_t itemSize);
+BaseType_t xQueueSend(QueueHandle_t queue, const void* item, uint32_t ticks);
+BaseType_t xQueueReceive(QueueHandle_t queue, void* item, uint32_t ticks);
+BaseType_t xQueueReset(QueueHandle_t queue);
 
 void yield();
 void vTaskDelay(uint32_t ticks);

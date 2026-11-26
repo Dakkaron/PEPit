@@ -67,6 +67,7 @@ void readSystemConfig(SystemConfig* systemConfig, String* errorMessage) {
     systemConfig->debugLogRender3D      = getBoolIniValueFromSection(resBuffer, "debugLogRender3D", &ignoreErrors, false);
     systemConfig->renderPipeline3D      = getBoolIniValueFromSection(resBuffer, "renderPipeline3D", &ignoreErrors, true);
     systemConfig->renderI80Push3D       = getBoolIniValueFromSection(resBuffer, "renderI80Push3D", &ignoreErrors, true);
+    systemConfig->renderSplitXf3D       = getBoolIniValueFromSection(resBuffer, "renderSplitXf3D", &ignoreErrors, true);
     systemConfig->logExecutions         = getBoolIniValueFromSection(resBuffer, "logExecutions", errorMessage, false);
     systemConfig->timezoneOffset        = 60*getIntIniValueFromSection(resBuffer, "timezoneOffset", &ignoreErrors, 0);
     systemConfig->leftHandMode          = getBoolIniValueFromSection(resBuffer, "leftHandMode", &ignoreErrors, true);

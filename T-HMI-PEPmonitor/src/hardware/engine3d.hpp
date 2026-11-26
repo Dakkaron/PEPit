@@ -109,6 +109,7 @@ void blitWorld3DFrame3D(DISPLAY_T* display);
 void quiesceWorld3DBlit3D();
 void setWorld3DPipeline3D(bool enabled);
 void setWorld3DI80Push3D(bool enabled);
+void setWorld3DSplitXf3D(bool enabled);
 // Frame start for full-screen game loops, replacing fillSprite(TFT_BLACK).
 // In mask mode (3D frames on the pipelined double-buffered sprite) it only
 // clears the coverage mask; the core 0 blit task then memsets just the

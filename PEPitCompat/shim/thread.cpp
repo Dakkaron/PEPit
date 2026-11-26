@@ -172,3 +172,55 @@ BaseType_t xSemaphoreGive(SemaphoreHandle_t sem) {
     s->cv.notify_one();
     return 1;
 }
+
+// ============================================================
+// Queue — FIFO of fixed-size POD items (int16_t only, which is what the
+// engine3d split-xf claim protocol uses). No blocking sends/receives.
+// ============================================================
+
+#include <deque>
+
+struct CompatQueue {
+    std::mutex mtx;
+    std::deque<uint16_t> items;
+    uint32_t length;
+};
+
+QueueHandle_t xQueueCreate(uint32_t length, uint32_t itemSize) {
+    if (itemSize != sizeof(uint16_t)) return nullptr; // shim covers the engine's int16 claims only
+    auto* q = new CompatQueue();
+    q->length = length;
+    return q;
+}
+
+BaseType_t xQueueSend(QueueHandle_t queue, const void* item, uint32_t ticks) {
+    (void)ticks; // never blocks in the shim
+    if (!queue) return 0;
+    auto* q = static_cast<CompatQueue*>(queue);
+    std::lock_guard<std::mutex> lk(q->mtx);
+    if (q->items.size() >= q->length) return 0;
+    uint16_t v;
+    memcpy(&v, item, sizeof(v));
+    q->items.push_back(v);
+    return 1;
+}
+
+BaseType_t xQueueReceive(QueueHandle_t queue, void* item, uint32_t ticks) {
+    (void)ticks; // never blocks in the shim
+    if (!queue) return 0;
+    auto* q = static_cast<CompatQueue*>(queue);
+    std::lock_guard<std::mutex> lk(q->mtx);
+    if (q->items.empty()) return 0;
+    uint16_t v = q->items.front();
+    q->items.pop_front();
+    memcpy(item, &v, sizeof(v));
+    return 1;
+}
+
+BaseType_t xQueueReset(QueueHandle_t queue) {
+    if (!queue) return 0;
+    auto* q = static_cast<CompatQueue*>(queue);
+    std::lock_guard<std::mutex> lk(q->mtx);
+    q->items.clear();
+    return 1;
+}
