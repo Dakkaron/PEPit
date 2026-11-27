@@ -62,6 +62,7 @@ typedef struct {
   int32_t* uvQ; // Q16 uv pairs, null when untextured
   Face3D* faces;
   uint8_t color[3];
+  uint8_t emissive[3]; // self-illumination added to the light term
   int16_t textureIndex;
   uint8_t flipped;
   Vector3D boundsCenter;
@@ -85,6 +86,7 @@ typedef struct {
   float pitch, yaw, roll;
   float sx, sy, sz;
   uint8_t color[3];
+  int16_t emissive[3];   // added to the light term, -1 = use the mesh's emissive
   uint8_t hidden;
   int8_t order;
   int8_t kind;         // ENTITY3D_KIND_*
@@ -358,6 +360,12 @@ static inline int32_t clamp3DI(int32_t v, int32_t lo, int32_t hi) {
   if (v < lo) return lo;
   if (v > hi) return hi;
   return v;
+}
+
+// Emissive term as a 0..1 light level added to whatever the surface receives;
+// the entity value overrides the mesh's, -1 inherits the mesh.
+static inline float emissiveLight3D(int16_t entityValue, uint8_t meshValue) {
+  return (entityValue >= 0 ? (float)entityValue : (float)meshValue) * (1.0f / 255.0f);
 }
 
 /*
@@ -964,6 +972,14 @@ void setMeshColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b) {
   m->color[2] = b;
 }
 
+void setMeshEmissive3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b) {
+  Mesh3D* m = meshFromHandle3D(handle);
+  if (!m) return;
+  m->emissive[0] = r;
+  m->emissive[1] = g;
+  m->emissive[2] = b;
+}
+
 void setMeshTexture3D(int16_t meshHandle, int16_t textureHandle) {
   Mesh3D* m = meshFromHandle3D(meshHandle);
   if (!m) return;
@@ -1123,6 +1139,7 @@ static int16_t allocEntitySlot3D() {
     e->parentIndex = -1;
     e->compIndex = -1;
     e->textureIndex = -1;
+    e->emissive[0] = -1; e->emissive[1] = -1; e->emissive[2] = -1;
     e->sx = 1.0f; e->sy = 1.0f; e->sz = 1.0f;
     e->color[0] = 255; e->color[1] = 255; e->color[2] = 255;
     return i;
@@ -1228,6 +1245,14 @@ void entityColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b) {
   e->color[0] = r;
   e->color[1] = g;
   e->color[2] = b;
+}
+
+void entityEmissive3D(int16_t handle, int16_t r, int16_t g, int16_t b) {
+  Entity3D* e = entityFromHandle3D(handle);
+  if (!e) return;
+  e->emissive[0] = r;
+  e->emissive[1] = g;
+  e->emissive[2] = b;
 }
 
 void setEntityTexture3D(int16_t handle, int16_t textureHandle) {
@@ -2051,6 +2076,9 @@ static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* cu
   uint32_t baseR = ((uint32_t)e->color[0] * mesh->color[0] + 128) / 255;
   uint32_t baseG = ((uint32_t)e->color[1] * mesh->color[1] + 128) / 255;
   uint32_t baseB = ((uint32_t)e->color[2] * mesh->color[2] + 128) / 255;
+  const float lightBaseR = ctx->ambient[0] + emissiveLight3D(e->emissive[0], mesh->emissive[0]);
+  const float lightBaseG = ctx->ambient[1] + emissiveLight3D(e->emissive[1], mesh->emissive[1]);
+  const float lightBaseB = ctx->ambient[2] + emissiveLight3D(e->emissive[2], mesh->emissive[2]);
 
   /* Fused transform+project+light loop: the PSRAM scratch streams far exceed
    * the S3 data cache, so separate loops would reload nearly every vertex. */
@@ -2074,7 +2102,7 @@ static uint32_t xfEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, uint64_t* cu
       float nx = c[0]*n->x + c[1]*n->y + c[2]*n->z;
       float ny = c[3]*n->x + c[4]*n->y + c[5]*n->z;
       float nz = c[6]*n->x + c[7]*n->y + c[8]*n->z;
-      float lr = ctx->ambient[0], lg = ctx->ambient[1], lb = ctx->ambient[2];
+      float lr = lightBaseR, lg = lightBaseG, lb = lightBaseB;
       for (int8_t la = 0; la < ctx->activeLightCount; la++) {
         const Light3D* l = &lights3D[ctx->activeLights[la]];
         if (l->type == LIGHT3D_TYPE_DIRECTIONAL) {
@@ -2135,9 +2163,18 @@ static void faceEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, ViewVertex3D* 
   uint32_t baseR = ((uint32_t)e->color[0] * mesh->color[0] + 128) / 255;
   uint32_t baseG = ((uint32_t)e->color[1] * mesh->color[1] + 128) / 255;
   uint32_t baseB = ((uint32_t)e->color[2] * mesh->color[2] + 128) / 255;
-  uint32_t uniformR = clamp3DI((int32_t)(ctx->ambient[0] * baseR + 0.5f), 0, 255);
-  uint32_t uniformG = clamp3DI((int32_t)(ctx->ambient[1] * baseG + 0.5f), 0, 255);
-  uint32_t uniformB = clamp3DI((int32_t)(ctx->ambient[2] * baseB + 0.5f), 0, 255);
+  /* Emissive surfaces still receive light but never fall below their own
+   * emission; the term is capped at 1.0 so a surface can't exceed base color,
+   * matching the per-vertex path. */
+  float lightR = ctx->ambient[0] + emissiveLight3D(e->emissive[0], mesh->emissive[0]);
+  float lightG = ctx->ambient[1] + emissiveLight3D(e->emissive[1], mesh->emissive[1]);
+  float lightB = ctx->ambient[2] + emissiveLight3D(e->emissive[2], mesh->emissive[2]);
+  if (lightR > 1.0f) lightR = 1.0f;
+  if (lightG > 1.0f) lightG = 1.0f;
+  if (lightB > 1.0f) lightB = 1.0f;
+  uint32_t uniformR = clamp3DI((int32_t)(lightR * baseR + 0.5f), 0, 255);
+  uint32_t uniformG = clamp3DI((int32_t)(lightG * baseG + 0.5f), 0, 255);
+  uint32_t uniformB = clamp3DI((int32_t)(lightB * baseB + 0.5f), 0, 255);
   uint32_t uniformColor = (uniformR << 16) | (uniformG << 8) | uniformB;
 
   const int32_t* uvQ = mesh->uvQ;

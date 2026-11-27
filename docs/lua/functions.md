@@ -332,6 +332,18 @@ Base color of every instance of the mesh.
 
 **Returns:** nothing.
 
+### `SetMeshEmissive(meshHandle, r, g, b)`
+Self-illumination added to the light the mesh receives, so its instances never render dark.
+`0,0,0` (default) means the mesh is lit only by ambient and lights. Emission adds to incoming
+light and is capped at 1.0 per channel, so a surface can never be brighter than its base color.
+
+| Param        | Type  | Description                     |
+|--------------|-------|---------------------------------|
+| `meshHandle` | int   | Mesh handle                     |
+| `r`, `g`, `b`| int   | 0..255 per channel, default 0   |
+
+**Returns:** nothing.
+
 ### `SetMeshTexture(meshHandle, textureHandle)`
 Assigns a loaded texture to the mesh, or disables texturing with `-1`.
 
@@ -459,6 +471,16 @@ Per-instance tint, multiplied with the mesh color.
 |----------------|-------|---------------------------------|
 | `entityHandle` | int   | Entity handle                   |
 | `r`, `g`, `b`  | int   | 0..255 per channel              |
+
+**Returns:** nothing.
+
+### `EntityEmissive(entityHandle, r, g, b)`
+Per-instance emission; overrides the mesh's emissive. `-1` per channel falls back to the mesh's value.
+
+| Param          | Type  | Description                          |
+|----------------|-------|--------------------------------------|
+| `entityHandle` | int   | Entity handle                        |
+| `r`, `g`, `b`  | int   | 0..255 per channel, or `-1` to inherit the mesh |
 
 **Returns:** nothing.
 

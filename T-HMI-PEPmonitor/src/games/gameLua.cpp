@@ -1073,6 +1073,14 @@ static uint8_t luaColorArg(lua_State* luaState, int32_t index) {
   return (uint8_t)value;
 }
 
+// Emissive channel, with -1 kept as the "inherit the mesh" sentinel
+static int16_t luaEmissiveArg(lua_State* luaState, int32_t index) {
+  int32_t value = luaL_checkinteger(luaState, index);
+  if (value < -1) value = -1;
+  if (value > 255) value = 255;
+  return (int16_t)value;
+}
+
 static int lua_wrapper_loadMesh(lua_State* luaState) {
   String path = luaGamePath + luaL_checkstring(luaState, 1);
   lua_pushinteger(luaState, loadMesh3D(path));
@@ -1105,6 +1113,11 @@ static int lua_wrapper_freeMesh(lua_State* luaState) {
 
 static int lua_wrapper_setMeshColor(lua_State* luaState) {
   setMeshColor3D(luaL_checkinteger(luaState, 1), luaColorArg(luaState, 2), luaColorArg(luaState, 3), luaColorArg(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_setMeshEmissive(lua_State* luaState) {
+  setMeshEmissive3D(luaL_checkinteger(luaState, 1), luaColorArg(luaState, 2), luaColorArg(luaState, 3), luaColorArg(luaState, 4));
   return 0;
 }
 
@@ -1171,6 +1184,11 @@ static int lua_wrapper_scaleEntity(lua_State* luaState) {
 
 static int lua_wrapper_entityColor(lua_State* luaState) {
   entityColor3D(luaL_checkinteger(luaState, 1), luaColorArg(luaState, 2), luaColorArg(luaState, 3), luaColorArg(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_entityEmissive(lua_State* luaState) {
+  entityEmissive3D(luaL_checkinteger(luaState, 1), luaEmissiveArg(luaState, 2), luaEmissiveArg(luaState, 3), luaEmissiveArg(luaState, 4));
   return 0;
 }
 
@@ -1404,6 +1422,7 @@ void initLua() {
   lua_register(luaState, "CreatePlane", (lua_CFunction) &lua_wrapper_createPlane);
   lua_register(luaState, "FreeMesh", (lua_CFunction) &lua_wrapper_freeMesh);
   lua_register(luaState, "SetMeshColor", (lua_CFunction) &lua_wrapper_setMeshColor);
+  lua_register(luaState, "SetMeshEmissive", (lua_CFunction) &lua_wrapper_setMeshEmissive);
   lua_register(luaState, "LoadTexture", (lua_CFunction) &lua_wrapper_loadTexture);
   lua_register(luaState, "FreeTexture", (lua_CFunction) &lua_wrapper_freeTexture);
   lua_register(luaState, "SetMeshTexture", (lua_CFunction) &lua_wrapper_setMeshTexture);
@@ -1417,6 +1436,7 @@ void initLua() {
   lua_register(luaState, "TurnEntity", (lua_CFunction) &lua_wrapper_turnEntity);
   lua_register(luaState, "ScaleEntity", (lua_CFunction) &lua_wrapper_scaleEntity);
   lua_register(luaState, "EntityColor", (lua_CFunction) &lua_wrapper_entityColor);
+  lua_register(luaState, "EntityEmissive", (lua_CFunction) &lua_wrapper_entityEmissive);
   lua_register(luaState, "SetEntityTexture", (lua_CFunction) &lua_wrapper_setEntityTexture);
   lua_register(luaState, "HideEntity", (lua_CFunction) &lua_wrapper_hideEntity);
   lua_register(luaState, "LinkEntity", (lua_CFunction) &lua_wrapper_linkEntity);

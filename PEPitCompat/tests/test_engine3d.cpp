@@ -251,6 +251,7 @@ void stripeColor(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b) {
 }
 
 void redFill(int, int, uint8_t* r, uint8_t* g, uint8_t* b) { *r = 235; *g = 40; *b = 40; }
+void flameFill(int, int, uint8_t* r, uint8_t* g, uint8_t* b) { *r = 220; *g = 120; *b = 40; }
 void greenFill(int, int, uint8_t* r, uint8_t* g, uint8_t* b) { *r = 40; *g = 220; *b = 60; }
 
 /*
@@ -894,6 +895,72 @@ TEST_CASE("engine3d: directional beam lights only faces it hits head-on", "[engi
     CHECK(r > 200); CHECK(g > 200); CHECK(b > 200);
 
     freeLight3D(light);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: emissive entity keeps its own brightness in an unlit world", "[engine3d]") {
+    resetWorld3D();
+    ambientLight3D(0, 0, 0);
+    int16_t mesh = createMesh3DCube();
+    int16_t cube = createEntity3D(mesh);
+    Display3D d;
+    int r, g, b;
+
+    d.render();
+    CHECK(d.pixel(160, 120) == 0);  // no ambient, no light, no emission
+
+    setMeshEmissive3D(mesh, 255, 0, 0);
+    d.render();
+    Display3D::rgb(d.pixel(160, 120), r, g, b);
+    CHECK(r > 240); CHECK(g < 10); CHECK(b < 10);
+
+    // Half emission halves the surface brightness; the entity override wins
+    // over the mesh default and -1 hands control back to the mesh.
+    entityEmissive3D(cube, 100, 0, 0);
+    d.render();
+    Display3D::rgb(d.pixel(160, 120), r, g, b);
+    CHECK(r > 90); CHECK(r < 115);
+    entityEmissive3D(cube, -1, -1, -1);
+    d.render();
+    Display3D::rgb(d.pixel(160, 120), r, g, b);
+    CHECK(r > 240);
+
+    // Emission is a floor, not a ceiling: light landing on it still adds
+    int16_t light = createLight3D(255, 255, 255, 0, 0, -100, 200, LIGHT3D_TYPE_POINT);
+    REQUIRE(light >= 0);
+    d.render();
+    Display3D::rgb(d.pixel(160, 120), r, g, b);
+    CHECK(r > 160);
+    freeLight3D(light);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: emissive textures are read at their own brightness", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_emissive_tex");
+    writeSdFile(root, "models/cube.obj", CUBE_OBJ);
+    writeSdFile(root, "models/cube.mtl", "newmtl bricks\nmap_Kd flame.bmp\n");
+    writeSdFile(root, "models/flame.bmp", makeBmp24(64, 64, flameFill));
+
+    resetWorld3D();
+    ambientLight3D(0, 0, 0);
+    int16_t mesh = loadMesh3D(String("/models/cube.obj"));
+    REQUIRE(mesh >= 0);
+    int16_t flame = createEntity3D(mesh);
+    Display3D d;
+    int r, g, b;
+
+    d.render();
+    CHECK(d.litPixels() == 0);
+
+    setMeshEmissive3D(mesh, 255, 255, 255);
+    d.render();
+    Display3D::rgb(d.pixel(160, 120), r, g, b);
+    CHECK(r > 200); CHECK(g > 100); CHECK(b > 25);
+
+    setMeshEmissive3D(mesh, 128, 128, 128);
+    d.render();
+    Display3D::rgb(d.pixel(160, 120), r, g, b);
+    CHECK(r > 95); CHECK(r < 125);
     resetWorld3D();
 }
 

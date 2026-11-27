@@ -96,6 +96,7 @@ function CreateSphere(radius, segments) end
 function CreatePlane(width, height) end
 function FreeMesh(meshHandle) end
 function SetMeshColor(meshHandle, r, g, b) end
+function SetMeshEmissive(meshHandle, r, g, b) end
 function LoadTexture(path) end
 function FreeTexture(textureHandle) end
 function SetMeshTexture(meshHandle, textureHandle) end
@@ -109,6 +110,7 @@ function RotateEntity(entityHandle, pitch, yaw, roll) end
 function TurnEntity(entityHandle, pitch, yaw, roll) end
 function ScaleEntity(entityHandle, sx, sy, sz) end
 function EntityColor(entityHandle, r, g, b) end
+function EntityEmissive(entityHandle, r, g, b) end
 function SetEntityTexture(entityHandle, textureHandle) end
 function HideEntity(entityHandle, hidden) end
 function LinkEntity(childHandle, parentHandle) end

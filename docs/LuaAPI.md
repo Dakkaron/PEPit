@@ -38,6 +38,8 @@ CreateSphere(radius, segments)     -- mesh handle, segments defaults to 12
 CreatePlane(width, height)         -- mesh handle, flat XZ plane, normal +y
 FreeMesh(meshHandle)
 SetMeshColor(meshHandle, r, g, b)  -- 0..255 per channel, default 255,255,255
+SetMeshEmissive(meshHandle, r, g, b)  -- additive self-light, default 0,0,0; an emissive
+                                       -- mesh never renders dark, capped at its base color
 SetMeshTexture(meshHandle, textureHandle)  -- textureHandle -1 disables texture
 SetMeshFlipped(meshHandle, flipped)        -- flip winding for mirrored models
 
@@ -56,6 +58,8 @@ RotateEntity(entityHandle, pitch, yaw, roll)   -- absolute angles
 TurnEntity(entityHandle, pitch, yaw, roll)     -- relative angles
 ScaleEntity(entityHandle, sx, sy, sz)
 EntityColor(entityHandle, r, g, b)             -- multiplied with the mesh color
+EntityEmissive(entityHandle, r, g, b)          -- per-instance self-light, overrides the
+                                               -- mesh's; -1 per channel inherits the mesh
 SetEntityTexture(entityHandle, textureHandle)  -- per-entity texture override;
                                                -- -1 falls back to the mesh's
                                                -- texture; lets entities sharing

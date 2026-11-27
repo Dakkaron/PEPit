@@ -44,6 +44,8 @@ int16_t createMesh3DPlane(float width, float height);
 bool freeMesh3D(int16_t handle);
 bool getMeshStats3D(int16_t handle, uint16_t* vertexCount, uint16_t* faceCount);
 void setMeshColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b);
+// Self-illumination added to the light term, so a surface never goes dark.
+void setMeshEmissive3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b);
 void setMeshTexture3D(int16_t meshHandle, int16_t textureHandle);
 void setMeshFlipped3D(int16_t handle, bool flipped);
 
@@ -61,6 +63,8 @@ void rotateEntity3D(int16_t handle, float pitch, float yaw, float roll);
 void turnEntity3D(int16_t handle, float pitch, float yaw, float roll);
 void scaleEntity3D(int16_t handle, float sx, float sy, float sz);
 void entityColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b);
+// Per-entity emissive; -1 per channel inherits the mesh's emissive.
+void entityEmissive3D(int16_t handle, int16_t r, int16_t g, int16_t b);
 // Texture override for one entity; -1 falls back to the mesh's texture.
 // Lets entities that share a mesh render with different textures.
 void setEntityTexture3D(int16_t handle, int16_t textureHandle);
