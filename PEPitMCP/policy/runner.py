@@ -122,7 +122,9 @@ def parse_profiles(path: str) -> list:
                 "time_s": float(p.get(f"task_{i}_time", 5000)) / 1000.0,
                 "target": float(p.get(f"task_{i}_targetStrength", 0) or 0),
                 "min": float(p.get(f"task_{i}_minStrength", 0) or 0),
-                "reps": int(p.get(f"task_{i}_repetitions", 0) or 0),
+                # inhalation-style tasks spell their count minRepetitions
+                "reps": int(p.get(f"task_{i}_repetitions")
+                            or p.get(f"task_{i}_minRepetitions") or 0),
             })
             i += 1
         out.append({
@@ -328,6 +330,11 @@ class PolicyRunner:
         self._task_success_base = 0  # cumulative " successfully" count at task start
         self.state = {}
         self.actions = []
+        # the control protocol writes the whole joystick state per command, so
+        # the runner owns one logical (axes, button) state and rewrites it
+        # whole - otherwise a button press silently centers the axes
+        self._joy_xy = (0.0, 0.0)
+        self._joy_btn = False
         self.last_state = {}
         self.decisions = 0
         self.phase = "init"
@@ -667,10 +674,14 @@ class PolicyRunner:
         return self._gameplay_live()
 
     def _gameplay_live(self) -> bool:
-        img, meta = self.control.shot(timeout=5)
-        if img is None:
-            return False
-        return E.Extractor(img, meta).bars()["pressure"]["present"]
+        # the field only draws the chrome bars once the first blow window is
+        # open, which can lag a screen transition by a second or two
+        for _ in range(10):
+            img, meta = self.control.shot(timeout=5)
+            if img is not None and E.Extractor(img, meta).bars()["pressure"]["present"]:
+                return True
+            time.sleep(0.3)
+        return False
 
     # ------------------------------------------------------------------
     def _update_ctx_from_log(self):
@@ -870,13 +881,17 @@ class PolicyRunner:
                 elif a.cmd == "touch_up":
                     self.control.touch_up()
                 elif a.cmd == "joystick_x":
-                    self.control.joystick_x(a.args[0])
+                    self._joy_xy = (a.args[0], self._joy_xy[1])
+                    self.control.joystick_xy(*self._joy_xy, self._joy_btn)
                 elif a.cmd == "joystick_y":
-                    self.control.joystick_y(a.args[0])
+                    self._joy_xy = (self._joy_xy[0], a.args[0])
+                    self.control.joystick_xy(*self._joy_xy, self._joy_btn)
                 elif a.cmd == "joystick_xy":
-                    self.control.joystick_xy(a.args[0], a.args[1])
+                    self._joy_xy = (a.args[0], a.args[1])
+                    self.control.joystick_xy(*self._joy_xy, self._joy_btn)
                 elif a.cmd == "joystick_btn":
-                    self.control.joystick(32768, 32768, a.args[0])
+                    self._joy_btn = bool(a.args[0])
+                    self.control.joystick_xy(*self._joy_xy, self._joy_btn)
                 applied.append(a)
             except Exception as e:
                 self.error = f"apply {a!r}: {e}"
