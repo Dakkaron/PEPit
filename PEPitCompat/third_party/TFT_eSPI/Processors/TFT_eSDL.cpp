@@ -10,6 +10,8 @@
 #include <SDL2/SDL_ttf.h>
 #include <cstring>
 #include <cstdint>
+#include <mutex>
+#include <thread>
 
 // ============================================================
 // Global pixel buffer and position state
@@ -41,6 +43,14 @@ static SDL_Window*    g_sdl_window   = nullptr;
 static SDL_Renderer*  g_sdl_renderer = nullptr;
 static SDL_Texture*   g_sdl_texture  = nullptr;
 
+// Bus lock (declared in TFT_eSDL.h, shared with TFT_eSPI.cpp's push paths).
+std::recursive_mutex tftBusMutex;
+
+// Thread that created the window and renderer. SDL's renderer is not
+// thread-safe, so only this thread may call it: a blit task that writes pixels
+// leaves them for the owner to present on its next flush.
+static std::thread::id s_sdlOwner;
+
 // ============================================================
 // Buffer initialization (called from INIT_TFT_DATA_BUS macro in init())
 // ============================================================
@@ -71,11 +81,24 @@ extern "C" {
 void setSDLWindow(SDL_Window* window, SDL_Renderer* renderer) {
     g_sdl_window = window;
     g_sdl_renderer = renderer;
+    s_sdlOwner = std::this_thread::get_id();
 }
+
+void sdlBusLock(void) { tftBusMutex.lock(); }
+void sdlBusUnlock(void) { tftBusMutex.unlock(); }
 
 // Flush buffer to SDL window (called by CS_H macro on endWrite)
 void flushSDL(void) {
-    if (!g_sdl_texture || !sdl_tft_buffer) return;
+    if (!sdl_tft_buffer) return;
+
+    std::lock_guard<std::recursive_mutex> busLock(tftBusMutex);
+
+    // A push from another thread (engine3d's blit task) fills the buffer here
+    // but must not present: SDL's renderer belongs to the thread that created
+    // it. The owner presents on its next flush.
+    if (s_sdlOwner != std::thread::id() && std::this_thread::get_id() != s_sdlOwner) return;
+
+    if (!g_sdl_texture) return;
 
     const uint16_t* pixels = sdl_tft_buffer;
     if (sdl_invert && sdl_invert_staging) {
@@ -112,7 +135,10 @@ void updateSDL(void) {
 void TFT_eSPI::pushBlock(uint16_t color, uint32_t len)
 {
     if (!sdl_tft_buffer) return;
-    
+
+    // The buffer and window-tracking state are shared with the presenting thread.
+    std::lock_guard<std::recursive_mutex> busLock(tftBusMutex);
+
     sdl_tft_x = sdl_win_x;
     sdl_tft_y = sdl_win_y;
     
@@ -156,7 +182,10 @@ void TFT_eSPI::pushBlock(uint16_t color, uint32_t len)
 void TFT_eSPI::pushPixels(const void* data_in, uint32_t len)
 {
     if (!sdl_tft_buffer || !data_in) return;
-    
+
+    // Shared with the presenting thread (same reason as pushBlock).
+    std::lock_guard<std::recursive_mutex> busLock(tftBusMutex);
+
     sdl_tft_x = sdl_win_x;
     sdl_tft_y = sdl_win_y;
     

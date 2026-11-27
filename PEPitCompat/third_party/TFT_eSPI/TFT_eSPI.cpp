@@ -1448,11 +1448,9 @@ void TFT_eSPI::pushRect(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *da
 }
 
 
-#include <mutex>
-
 // Serialises full-screen pushes between the engine3d core 0 push task and
-// sprite pushes issued by the core that rendered the frame.
-static std::mutex tftBusMutex;
+// sprite pushes issued by the core that rendered the frame; the SDL processor
+// takes the same lock when it presents, which is why it is recursive.
 
 /***************************************************************************************
 ** Function name:           pushImage
@@ -1460,7 +1458,7 @@ static std::mutex tftBusMutex;
 ***************************************************************************************/
 void TFT_eSPI::pushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data)
 {
-  std::lock_guard<std::mutex> busLock(tftBusMutex);
+  std::lock_guard<std::recursive_mutex> busLock(tftBusMutex);
   PI_CLIP;
 
   begin_tft_write();
@@ -1550,7 +1548,7 @@ void TFT_eSPI::pushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *d
 ***************************************************************************************/
 void TFT_eSPI::pushImageFast(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *dataNew, uint16_t *dataOld)
 {
-  std::lock_guard<std::mutex> busLock(tftBusMutex);
+  std::lock_guard<std::recursive_mutex> busLock(tftBusMutex);
   PI_CLIP;
 
   begin_tft_write();
@@ -1963,7 +1961,7 @@ void TFT_eSPI::pushImage(int32_t x, int32_t y, int32_t w, int32_t h, uint8_t *da
 ***************************************************************************************/
 void TFT_eSPI::pushImageFast(int32_t x, int32_t y, int32_t w, int32_t h, uint8_t *dataNew, uint8_t *dataOld, bool bpp8, uint16_t *cmap)
 {
-  std::lock_guard<std::mutex> busLock(tftBusMutex);
+  std::lock_guard<std::recursive_mutex> busLock(tftBusMutex);
   PI_CLIP;
 
   begin_tft_write();
@@ -3671,6 +3669,7 @@ void TFT_eSPI::setAddrWindow(int32_t x0, int32_t y0, int32_t w, int32_t h)
 void TFT_eSPI::setWindow(int32_t x0, int32_t y0, int32_t x1, int32_t y1)
 {
   //begin_tft_write(); // Must be called before setWindow
+  std::lock_guard<std::recursive_mutex> busLock(tftBusMutex); // window state is shared with the presenting thread
   addr_row = 0xFFFF;
   addr_col = 0xFFFF;
 
@@ -6576,7 +6575,7 @@ static bool i80InitBus() {
 bool TFT_eSPI::pushRectI80(int32_t x, int32_t y, int32_t w, int32_t h, uint16_t *data) {
   if (!data || w <= 0 || h <= 0 || x < 0 || y < 0) return false;
   if (x + w > _width || y + h > _height) return false;
-  std::lock_guard<std::mutex> busLock(tftBusMutex);
+  std::lock_guard<std::recursive_mutex> busLock(tftBusMutex);
   if (i80Broken || !i80InitBus()) return false;
 
   size_t rowBytes = (size_t)w * 2;

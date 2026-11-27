@@ -21,6 +21,8 @@
 extern "C" {
     void setSDLWindow(SDL_Window* window, SDL_Renderer* renderer);
     void updateSDL(void);
+    void sdlBusLock(void);
+    void sdlBusUnlock(void);
 }
 
 // ============================================================
@@ -115,6 +117,8 @@ void writeShotMeta() {
 // ============================================================
 
 static void fillRGB24FromFramebuffer(uint8_t* out) {
+    // Snapshot must not race with a blit-task push writing the same pixels.
+    sdlBusLock();
     for (int y = 0; y < 240; y++) {
         for (int x = 0; x < 320; x++) {
             uint16_t px = sdl_tft_buffer[y * 320 + x];
@@ -127,6 +131,7 @@ static void fillRGB24FromFramebuffer(uint8_t* out) {
             out += 3;
         }
     }
+    sdlBusUnlock();
 }
 
 // ============================================================

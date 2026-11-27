@@ -12,6 +12,8 @@
 #include <functional>
 #include <cstdlib>
 #include <cstring>
+#include <set>
+#include <string>
 #include <vector>
 #include <pthread.h>
 
@@ -27,10 +29,23 @@ struct TaskInfo {
 // Global registry of all created tasks, for xTaskGetCurrentTaskHandle lookup.
 static std::vector<TaskInfo*> g_tasks;
 
+// Names already refused, so the per-frame creation retries report once.
+static std::set<std::string> g_refusedReported;
+
+// The engine3d helper tasks exist to overlap work with the device's second core.
+// A host gains nothing from that hand-off, and the SDL renderer belongs to the
+// thread that created it, so creation is refused here and engine3d takes its
+// single-core paths. PEPIT_COMPAT_ALLOW_3D_TASKS restores the threads for runs
+// that must exercise the pipelined protocol.
+static bool compatRefusesTask(const char* name) {
+    if (getenv("PEPIT_COMPAT_ALLOW_3D_TASKS")) return false;
+    return name && (strcmp(name, "w3dblit") == 0 || strcmp(name, "w3dxf") == 0);
+}
+
 /**
  * Create a new task pinned to a core (core pinning ignored on Linux).
  * @param taskFunction Task entry point function
- * @param name Task name (logged for debugging, not used)
+ * @param name Task name (checked by compatRefusesTask, used for logging)
  * @param stackSize Stack size in bytes (ignored on Linux)
  * @param parameter Parameter passed to task function
  * @param priority Task priority (ignored on Linux)
@@ -50,9 +65,15 @@ BaseType_t xTaskCreatePinnedToCore(
     (void)stackSize;  // Unused on Linux
     (void)priority;   // Unused on Linux
     (void)coreID;     // Core pinning not supported
-    (void)name;       // Not used on Linux
 
     if (!taskFunction) return -1; // errCOULD_NOT_CREATE
+
+    if (compatRefusesTask(name)) {
+        if (g_refusedReported.insert(name).second)
+            printf("[PEPitCompat] single-threaded 3D: '%s' not created, engine uses its single-core path\n", name);
+        if (taskHandle) *taskHandle = nullptr;
+        return -1; // errCOULD_NOT_CREATE
+    }
 
     try {
         auto* taskInfo = new TaskInfo();

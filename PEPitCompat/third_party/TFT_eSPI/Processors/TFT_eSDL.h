@@ -35,6 +35,12 @@ extern uint16_t  sdl_track_acc;        // Accumulator for byte-level tracking
 extern bool      sdl_invert;
 
 #include <SDL2/SDL.h>
+#include <mutex>
+
+// Bus lock shared with TFT_eSPI.cpp's push paths so a blit-task push and a
+// presentation never touch the pixel buffer or the renderer at the same time.
+// Recursive because push paths flush while holding it.
+extern std::recursive_mutex tftBusMutex;
 
 void initSDLBuffer(void);
 
@@ -43,6 +49,8 @@ extern "C" {
     void setSDLWindow(SDL_Window* window, SDL_Renderer* renderer);
     void flushSDL(void);
     void updateSDL(void);
+    void sdlBusLock(void);
+    void sdlBusUnlock(void);
 } // extern "C"
 
 // Tracking: when writecommand(0x2A/0x2B) is called via tft_Write_16Raw,

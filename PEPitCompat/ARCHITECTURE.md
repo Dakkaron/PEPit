@@ -165,6 +165,9 @@ SDL2 renders to window (320x240 or 640x480 with --scale 2)
 - SDL2 window with 320x240 internal resolution, scaled by `--scale` factor
 - Pixel buffer: `uint16_t[320*240]` for RGB565 format
 - `TFT_eSPI` owns the SDL window, renderer, and main texture
+- Bus lock (`tftBusMutex`, recursive) is shared between the push paths and the presentation so a
+  task push and a flush never touch the pixel buffer and renderer at the same time; only the thread
+  that created the window presents
 - `TFT_eSprite` owns its own pixel buffer, allocated on demand
 - Text rendering uses SDL_ttf (DejaVuSans font)
 
@@ -302,6 +305,9 @@ SDL2 renders to window (320x240 or 640x480 with --scale 2)
 - `vTaskDelay(ms)` → `usleep(ticks * 1000)` (in arduino.cpp)
 - `vTaskDelete(NULL)` → `std::exit(0)` or thread return
 - Task handles are `pthread_t` cast to `void*`
+- engine3d's `w3dblit`/`w3dxf` helper tasks are refused, so drawing stays on the main thread and
+  engine3d takes its single-core paths; the SDL renderer belongs to the thread that created the
+  window. `PEPIT_COMPAT_ALLOW_3D_TASKS=1` restores the threads to exercise the pipelined protocol.
 
 ### 8. ESP-IDF Stubs ✅ DONE
 

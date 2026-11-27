@@ -15,6 +15,7 @@
 #include "catch_amalgamated.hpp"
 
 #include <cstdint>
+#include <cstdlib>  // setenv
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -754,6 +755,9 @@ TEST_CASE("engine3d: draws into the active buffer of a double-buffered display",
 }
 
 TEST_CASE("engine3d: progress bar overdraw beyond 100% survives the gap fill", "[engine3d]") {
+    // The compat shim refuses the engine3d helper tasks so drawing stays
+    // single-threaded; this case asserts the pipelined gap fill, so it opts in.
+    setenv("PEPIT_COMPAT_ALLOW_3D_TASKS", "1", 1);
     resetWorld3D();
     int16_t mesh = createMesh3DCube();
     createEntity3D(mesh);
