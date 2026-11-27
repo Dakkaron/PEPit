@@ -6,19 +6,21 @@
 
 /*
  * Handles are globally unique per kind: pivots, cameras and lights are
- * entities sharing the entity handle space; mesh and texture handles occupy
- * their own ranges, so a handle only works with the function family it came
- * from. A mesh is object data; CreateEntity instantiates a visible entity.
+ * entities sharing the entity handle space; mesh, texture and billboard handles
+ * occupy their own ranges, so a handle only works with the function family it
+ * came from. A mesh is object data; CreateEntity instantiates a visible entity.
  */
 #define MESH3D_LIMIT 32
 #define TEXTURE3D_LIMIT 64
 #define ENTITY3D_LIMIT 128
 #define LIGHT3D_LIMIT 8
 #define CAMERA3D_LIMIT 4
+#define BILLBOARD3D_LIMIT 64
 
 #define ENTITY3D_HANDLE_BASE 0
 #define MESH3D_HANDLE_BASE ENTITY3D_LIMIT
 #define TEXTURE3D_HANDLE_BASE (ENTITY3D_LIMIT + MESH3D_LIMIT)
+#define BILLBOARD3D_HANDLE_BASE (ENTITY3D_LIMIT + MESH3D_LIMIT + TEXTURE3D_LIMIT)
 
 #define MESH3D_MAX_VERTICES 24576
 #define MESH3D_MAX_FACES 8192
@@ -90,6 +92,21 @@ void setLightDirection3D(int16_t handle, float dx, float dy, float dz);
 void setLightCone3D(int16_t handle, float innerAngleDeg, float outerAngleDeg);
 void setLightColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b);
 void setLightRange3D(int16_t handle, float range);
+
+/*
+ * Billboards: camera-facing quads (two triangles), so Rotate/Turn spin the quad
+ * in the screen plane only. keyColor is an RGB565 texel value that renders fully
+ * transparent, -1 for no keying; lit=false shades from ambient + emission only,
+ * and lights that do apply use the camera-facing normal.
+ */
+int16_t createBillboard3D(int16_t textureHandle, int32_t keyColor, bool lit);
+bool freeBillboard3D(int16_t handle);
+void positionBillboard3D(int16_t handle, float x, float y, float z);
+void scaleBillboard3D(int16_t handle, float sx, float sy);
+void rotateBillboard3D(int16_t handle, float angleDeg);  // absolute, positive turns counter-clockwise on screen
+void turnBillboard3D(int16_t handle, float deltaDeg);
+void setBillboardEmissive3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b);
+void hideBillboard3D(int16_t handle, bool hidden);
 
 void updateWorld3D(DISPLAY_T* display);
 void drawWorld3D(DISPLAY_T* display);

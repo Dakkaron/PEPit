@@ -129,6 +129,14 @@ function SetLightDirection(lightHandle, dx, dy, dz) end
 function SetLightCone(lightHandle, innerAngle, outerAngle) end
 function SetLightColor(lightHandle, r, g, b) end
 function SetLightRange(lightHandle, range) end
+function CreateBillboard(textureHandle, keyColor, lit) return 0; end
+function FreeBillboard(billboardHandle) return false; end
+function PositionBillboard(billboardHandle, x, y, z) end
+function ScaleBillboard(billboardHandle, sx, sy) end
+function RotateBillboard(billboardHandle, angle) end
+function TurnBillboard(billboardHandle, deltaAngle) end
+function SetBillboardEmissive(billboardHandle, r, g, b) end
+function HideBillboard(billboardHandle, hidden) end
 function UpdateWorld() end
 function DrawWorld() end
 function SetViewport(x, y, w, h) end

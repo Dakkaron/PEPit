@@ -257,10 +257,10 @@ sx, sy, s = Mode7WorldToScreen(wx, wy, camX, camY, camH, yaw, zoom, horizon, sta
 ## 3D Engine (Blitz3D-inspired)
 
 The 3D engine ([`engine3d.cpp`](../../T-HMI-PEPmonitor/src/hardware/engine3d.cpp)) is driven by
-**meshes**, **textures**, **entities**, **cameras** and **lights** — all referenced by integer
-handles like the 2D sprite handles. Handles are globally unique per kind: pivots, cameras and
-lights are entities and share the entity handle space; mesh and texture handles occupy their own
-ranges, so a handle only works with the functions of the family that returned it. A mesh is
+**meshes**, **textures**, **entities**, **cameras**, **lights** and **billboards** — all referenced
+by integer handles like the 2D sprite handles. Handles are globally unique per kind: pivots, cameras
+and lights are entities and share the entity handle space; mesh, texture and billboard handles
+occupy their own ranges, so a handle only works with the functions of the family that returned it. A mesh is
 object data, not a scene object: `CreateEntity` instantiates a visible entity from it, and
 several entities may share one mesh. Creation functions return `-1` on failure; the `Free*`
 functions return a boolean. A frame is rendered by calling `UpdateWorld()` and then `DrawWorld()`.
@@ -269,7 +269,7 @@ changes the rendered result.
 
 Fixed capacities ([`engine3d.hpp`](../../T-HMI-PEPmonitor/src/hardware/engine3d.hpp)): **32
 meshes**, **64 textures**, **128 entities** (pivots, cameras and lights included), **8 lights**,
-**4 cameras**.
+**4 cameras**, **64 billboards**.
 
 Coordinate system: `+x` right, `+y` up, `+z` forward (into the scene). All rotations are in
 degrees: `pitch` turns about the x-axis (positive looks up), `yaw` about the y-axis (positive
@@ -677,9 +677,96 @@ Change a light's distance attenuation radius. `range` 0 means infinite range.
 
 **Returns:** nothing.
 
+### `CreateBillboard(textureHandle, keyColor = -1, lit = 1)`
+Creates one of the 64 camera-facing quads, the particle/effect layer of the engine: a billboard is
+always normal-to the camera, so `RotateBillboard`/`TurnBillboard` spin the image in the screen
+plane only. `keyColor` is the texel color that becomes fully transparent — passed as a 24-bit color
+and reduced to the RGB565 value the texture can hold; `-1` (the default) keys nothing. `lit` decides
+whether dynamic lights shade the texture: an unlit billboard is shaded by ambient plus its own
+emission only. Billboards draw after the opaque geometry at their depth, so their keyed pixels let
+whatever is behind them show through.
+
+| Param           | Type  | Default | Description                                  |
+|-----------------|-------|---------|----------------------------------------------|
+| `textureHandle` | int   | —       | Texture to draw, from `LoadTexture`          |
+| `keyColor`      | int   | `-1`    | Texel color made transparent; `-1` = no key   |
+| `lit`           | int   | `1`     | `0` = ambient + emissive only                |
+
+**Returns:** billboard handle (int), or `-1` on failure. Billboards have their own handle range.
+
+### `FreeBillboard(billboardHandle)`
+Removes a billboard.
+
+| Param             | Type | Description        |
+|-------------------|------|--------------------|
+| `billboardHandle` | int  | Handle to free     |
+
+**Returns:** `true` if the handle was in use.
+
+### `PositionBillboard(billboardHandle, x, y, z)`
+World position of the quad's centre.
+
+| Param             | Type  | Description        |
+|-------------------|-------|--------------------|
+| `billboardHandle` | int   | Billboard handle   |
+| `x`, `y`, `z`     | float | World coordinates  |
+
+**Returns:** nothing.
+
+### `ScaleBillboard(billboardHandle, sx, sy)`
+Size in world units. A billboard is a flat quad, so there is no depth scale.
+
+| Param             | Type  | Description                       |
+|-------------------|-------|-----------------------------------|
+| `billboardHandle` | int   | Billboard handle                  |
+| `sx`, `sy`        | float | Full width and height, default 1x1 |
+
+**Returns:** nothing.
+
+### `RotateBillboard(billboardHandle, angle)`
+Absolute spin in degrees, measured in the screen plane (positive is counter-clockwise on screen).
+
+| Param             | Type  | Description              |
+|-------------------|-------|--------------------------|
+| `billboardHandle` | int   | Billboard handle         |
+| `angle`           | float | Screen-plane angle       |
+
+**Returns:** nothing.
+
+### `TurnBillboard(billboardHandle, deltaAngle)`
+Relative spin in degrees, in the screen plane.
+
+| Param             | Type  | Description              |
+|-------------------|-------|--------------------------|
+| `billboardHandle` | int   | Billboard handle         |
+| `deltaAngle`      | float | Screen-plane angle       |
+
+**Returns:** nothing.
+
+### `SetBillboardEmissive(billboardHandle, r, g, b)`
+Additive self-light, 0-255 per channel, default `0,0,0`. The quad is shaded by `ambient + emissive +
+lights` (clamped to full brightness); with `lit = 0` the lights term never appears.
+
+| Param             | Type | Description                     |
+|-------------------|------|---------------------------------|
+| `billboardHandle` | int  | Billboard handle                |
+| `r`, `g`, `b`     | int  | 0..255 per channel, default 0   |
+
+**Returns:** nothing.
+
+### `HideBillboard(billboardHandle, hidden)`
+Keeps the billboard out of the draw list without freeing it.
+
+| Param             | Type | Description                     |
+|-------------------|------|---------------------------------|
+| `billboardHandle` | int  | Billboard handle                |
+| `hidden`          | int  | Non-zero to hide                |
+
+**Returns:** nothing.
+
 ### `UpdateWorld()`
-Transforms, culls, lights and depth-sorts every entity's faces into the draw list. Must run
-before `DrawWorld()` each frame.
+Transforms, culls, lights and depth-sorts every entity's faces and billboards into the draw list.
+Must run before `DrawWorld()` each frame.
 
 **Returns:** nothing.
 
@@ -703,8 +790,8 @@ Sets the screen region the 3D engine renders into. At game start the viewport de
 **Returns:** nothing.
 
 ### `FreeAll3D()`
-Frees every mesh, texture, entity, camera and light. Safe to call at any point; used by the host
-when a game ends.
+Frees every mesh, texture, entity, camera, light and billboard. Safe to call at any point; used by
+the host when a game ends.
 
 **Returns:** nothing.
 

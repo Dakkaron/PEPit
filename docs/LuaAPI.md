@@ -95,6 +95,21 @@ SetLightCone(lightHandle, innerAngle, outerAngle) -- spot cone in degrees
 SetLightColor(lightHandle, r, g, b)     -- change a light's colour after creation
 SetLightRange(lightHandle, range)       -- change reach; range 0 = infinite
 
+-- Billboards: camera-facing quads for particles and effects, 64 slots. Their
+-- normal always faces the camera, so Rotate/Turn spin the image in the screen
+-- plane; keyColor is the texel that becomes fully transparent, and lit = 0
+-- shades with ambient + emissive only. They draw after opaque geometry at the
+-- same depth, so keyed pixels show what is behind them.
+CreateBillboard(textureHandle, keyColor, lit)  -- billboard handle; keyColor -1 =
+                                               -- no keying, lit defaults to 1
+FreeBillboard(billboardHandle)
+PositionBillboard(billboardHandle, x, y, z)
+ScaleBillboard(billboardHandle, sx, sy)        -- no depth scale: the quad is flat
+RotateBillboard(billboardHandle, angle)        -- absolute screen-plane spin, + = CCW on screen
+TurnBillboard(billboardHandle, deltaAngle)
+SetBillboardEmissive(billboardHandle, r, g, b)
+HideBillboard(billboardHandle, hidden)
+
 -- Rendering
 UpdateWorld()                      -- transforms, culls, lights and sorts all faces
 DrawWorld()                        -- rasterizes the sorted faces onto the display
@@ -102,7 +117,7 @@ SetViewport(x, y, w, h)            -- 3D render region; defaults to (0, 21, 320,
                                    -- the screen area not covered by the system UI bars
 
 -- Housekeeping
-FreeAll3D()                        -- frees every mesh, texture, entity, camera and light
+FreeAll3D()                        -- frees every mesh, texture, entity, camera, light, billboard
 ```
 
 Example:

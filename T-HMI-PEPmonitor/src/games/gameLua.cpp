@@ -1290,6 +1290,48 @@ static int lua_wrapper_setLightRange(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_createBillboard(lua_State* luaState) {
+  int32_t keyColor = luaL_optinteger(luaState, 2, -1);
+  int32_t lit = luaL_optinteger(luaState, 3, 1);
+  lua_pushinteger(luaState, createBillboard3D(luaL_checkinteger(luaState, 1), keyColor, lit != 0));
+  return 1;
+}
+
+static int lua_wrapper_freeBillboard(lua_State* luaState) {
+  lua_pushboolean(luaState, freeBillboard3D(luaL_checkinteger(luaState, 1)));
+  return 1;
+}
+
+static int lua_wrapper_positionBillboard(lua_State* luaState) {
+  positionBillboard3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3), luaL_checknumber(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_scaleBillboard(lua_State* luaState) {
+  scaleBillboard3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2), luaL_checknumber(luaState, 3));
+  return 0;
+}
+
+static int lua_wrapper_rotateBillboard(lua_State* luaState) {
+  rotateBillboard3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2));
+  return 0;
+}
+
+static int lua_wrapper_turnBillboard(lua_State* luaState) {
+  turnBillboard3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2));
+  return 0;
+}
+
+static int lua_wrapper_setBillboardEmissive(lua_State* luaState) {
+  setBillboardEmissive3D(luaL_checkinteger(luaState, 1), luaColorArg(luaState, 2), luaColorArg(luaState, 3), luaColorArg(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_hideBillboard(lua_State* luaState) {
+  hideBillboard3D(luaL_checkinteger(luaState, 1), luaL_checkinteger(luaState, 2) != 0);
+  return 0;
+}
+
 static int lua_wrapper_updateWorld(lua_State* luaState) {
   updateWorld3D(luaDisplay);
   return 0;
@@ -1455,6 +1497,14 @@ void initLua() {
   lua_register(luaState, "SetLightCone", (lua_CFunction) &lua_wrapper_setLightCone);
   lua_register(luaState, "SetLightColor", (lua_CFunction) &lua_wrapper_setLightColor);
   lua_register(luaState, "SetLightRange", (lua_CFunction) &lua_wrapper_setLightRange);
+  lua_register(luaState, "CreateBillboard", (lua_CFunction) &lua_wrapper_createBillboard);
+  lua_register(luaState, "FreeBillboard", (lua_CFunction) &lua_wrapper_freeBillboard);
+  lua_register(luaState, "PositionBillboard", (lua_CFunction) &lua_wrapper_positionBillboard);
+  lua_register(luaState, "ScaleBillboard", (lua_CFunction) &lua_wrapper_scaleBillboard);
+  lua_register(luaState, "RotateBillboard", (lua_CFunction) &lua_wrapper_rotateBillboard);
+  lua_register(luaState, "TurnBillboard", (lua_CFunction) &lua_wrapper_turnBillboard);
+  lua_register(luaState, "SetBillboardEmissive", (lua_CFunction) &lua_wrapper_setBillboardEmissive);
+  lua_register(luaState, "HideBillboard", (lua_CFunction) &lua_wrapper_hideBillboard);
   lua_register(luaState, "UpdateWorld", (lua_CFunction) &lua_wrapper_updateWorld);
   lua_register(luaState, "DrawWorld", (lua_CFunction) &lua_wrapper_drawWorld);
   lua_register(luaState, "SetViewport", (lua_CFunction) &lua_wrapper_setViewport);

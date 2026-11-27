@@ -80,6 +80,19 @@ typedef struct {
 
 typedef struct {
   bool inUse;
+  int16_t textureIndex;
+  int32_t keyColor;    // RGB565 texel that becomes transparent, -1 = no keying
+  float x, y, z;
+  float spin;          // degrees, kept for TurnBillboard
+  float sc, ss;        // cos/sin of the spin, ready for the draw pass
+  float sx, sy;        // world size; billboards never scale in depth
+  uint8_t emissive[3];
+  uint8_t lit;         // scene lights shade it; off = ambient + emission only
+  uint8_t hidden;
+} Billboard3D;
+
+typedef struct {
+  bool inUse;
   int16_t meshIndex;   // raw meshes3D index, -1 for pivot/camera/light entities
   int16_t parentIndex;
   float x, y, z;
@@ -124,6 +137,7 @@ typedef struct {
   float zKey;
   int8_t orderOff;
   uint32_t flatColor;
+  int32_t keyColor;       // RGB565 texel skipped as transparent, -1 = no keying
   uint8_t vertexCount;    // 4 only after near plane clipping
   uint8_t mode;           // 0 flat, 1 gouraud, 2 gouraud+texture, 3 texture uniform light
 } TriDraw3D;
@@ -170,6 +184,9 @@ static W3dSplitShared3D w3dSplitShared3D;
 #define lights3D (w3dSplitShared3D.lights)
 static Texture3D textures3D[TEXTURE3D_LIMIT];
 static Camera3D cameras3D[CAMERA3D_LIMIT];
+// Core 0 only: the split helper runs entity xf passes, never billboards, so
+// this pool needs no cache-safe placement.
+static Billboard3D billboards3D[BILLBOARD3D_LIMIT];
 
 // Scratch/vtx allocations round up to whole 64-byte cache lines so every
 // split msync leg on them is line-exact.
@@ -204,6 +221,13 @@ static Mesh3D* meshFromHandle3D(int16_t handle) {
     return nullptr;
   Mesh3D* m = &meshes3D[handle - MESH3D_HANDLE_BASE];
   return m->inUse ? m : nullptr;
+}
+
+static Billboard3D* billboardFromHandle3D(int16_t handle) {
+  if (handle < BILLBOARD3D_HANDLE_BASE || handle >= BILLBOARD3D_HANDLE_BASE + BILLBOARD3D_LIMIT)
+    return nullptr;
+  Billboard3D* b = &billboards3D[handle - BILLBOARD3D_HANDLE_BASE];
+  return b->inUse ? b : nullptr;
 }
 
 static uint16_t* fb3D = nullptr;
@@ -362,10 +386,12 @@ static inline int32_t clamp3DI(int32_t v, int32_t lo, int32_t hi) {
   return v;
 }
 
+static inline float emissiveLevel3D(uint8_t v) { return (float)v * (1.0f / 255.0f); }
+
 // Emissive term as a 0..1 light level added to whatever the surface receives;
 // the entity value overrides the mesh's, -1 inherits the mesh.
 static inline float emissiveLight3D(int16_t entityValue, uint8_t meshValue) {
-  return (entityValue >= 0 ? (float)entityValue : (float)meshValue) * (1.0f / 255.0f);
+  return emissiveLevel3D(entityValue >= 0 ? (uint8_t)entityValue : meshValue);
 }
 
 /*
@@ -1471,6 +1497,95 @@ void setLightRange3D(int16_t handle, float range) {
   }
 }
 
+static int16_t allocBillboardSlot3D() {
+  for (int16_t i = 0; i < BILLBOARD3D_LIMIT; i++) {
+    if (billboards3D[i].inUse) continue;
+    Billboard3D* b = &billboards3D[i];
+    memset(b, 0, sizeof(Billboard3D));
+    b->inUse = true;
+    b->keyColor = -1;
+    b->sx = 1.0f; b->sy = 1.0f;
+    b->sc = 1.0f;
+    return i;
+  }
+  return -1;
+}
+
+int16_t createBillboard3D(int16_t textureHandle, int32_t keyColor, bool lit) {
+  if (!ensureWorld3D()) return -1;
+  if (textureHandle < TEXTURE3D_HANDLE_BASE || textureHandle >= TEXTURE3D_HANDLE_BASE + TEXTURE3D_LIMIT) {
+    Serial.println("engine3d: CreateBillboard got an invalid texture handle!");
+    return -1;
+  }
+  int16_t texIdx = textureHandle - TEXTURE3D_HANDLE_BASE;
+  if (!textures3D[texIdx].inUse) {
+    Serial.println("engine3d: CreateBillboard got a freed texture handle!");
+    return -1;
+  }
+  int16_t i = allocBillboardSlot3D();
+  if (i < 0) {
+    Serial.println("engine3d: no free billboard slot!");
+    return -1;
+  }
+  /* The key is compared against 16-bit texels, so a 24-bit color is accepted but
+   * reduced to the RGB565 value a texture can actually hold. */
+  billboards3D[i].keyColor = keyColor < 0 ? -1 :
+      (keyColor > 0xFFFF ? (int32_t)rgbTo5653D((uint32_t)keyColor) : keyColor);
+  billboards3D[i].textureIndex = texIdx;
+  billboards3D[i].lit = lit ? 1 : 0;
+  return (int16_t)(BILLBOARD3D_HANDLE_BASE + i);
+}
+
+bool freeBillboard3D(int16_t handle) {
+  Billboard3D* bb = billboardFromHandle3D(handle);
+  if (!bb) return false;
+  memset(bb, 0, sizeof(Billboard3D));
+  return true;
+}
+
+void positionBillboard3D(int16_t handle, float x, float y, float z) {
+  Billboard3D* bb = billboardFromHandle3D(handle);
+  if (!bb) return;
+  bb->x = x; bb->y = y; bb->z = z;
+}
+
+void scaleBillboard3D(int16_t handle, float sx, float sy) {
+  Billboard3D* bb = billboardFromHandle3D(handle);
+  if (!bb) return;
+  bb->sx = sx; bb->sy = sy;
+}
+
+/* Spin is rotation about the billboard's own normal, which always faces the
+ * camera, so it stays a screen-plane angle. The cosine/sine are kept ready for
+ * the draw pass: a particle pool that keeps its spin pays no trig per frame. */
+void rotateBillboard3D(int16_t handle, float angleDeg) {
+  Billboard3D* bb = billboardFromHandle3D(handle);
+  if (!bb) return;
+  bb->spin = angleDeg;
+  float rad = angleDeg * DEG3D_TO_RAD;
+  bb->sc = cosf(rad); bb->ss = sinf(rad);
+}
+
+void turnBillboard3D(int16_t handle, float deltaDeg) {
+  Billboard3D* bb = billboardFromHandle3D(handle);
+  if (!bb) return;
+  bb->spin += deltaDeg;
+  float rad = bb->spin * DEG3D_TO_RAD;
+  bb->sc = cosf(rad); bb->ss = sinf(rad);
+}
+
+void setBillboardEmissive3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b) {
+  Billboard3D* bb = billboardFromHandle3D(handle);
+  if (!bb) return;
+  bb->emissive[0] = r; bb->emissive[1] = g; bb->emissive[2] = b;
+}
+
+void hideBillboard3D(int16_t handle, bool hidden) {
+  Billboard3D* bb = billboardFromHandle3D(handle);
+  if (!bb) return;
+  bb->hidden = hidden ? 1 : 0;
+}
+
 void resetWorld3D() {
   for (int16_t i = 0; i < MESH3D_LIMIT; i++) {
     if (world3DReady) freeMeshArrays3D(&meshes3D[i]);
@@ -1484,6 +1599,7 @@ void resetWorld3D() {
   memset(textures3D, 0, sizeof(textures3D));
   memset(entities3D, 0, sizeof(entities3D));
   memset(lights3D, 0, sizeof(lights3D));
+  memset(billboards3D, 0, sizeof(billboards3D));
   ambient3D[0] = 0.5f; ambient3D[1] = 0.5f; ambient3D[2] = 0.5f;
   drawCount3D = 0;
   w3d3DFrameActive3D = false;
@@ -2270,6 +2386,7 @@ static void faceEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, ViewVertex3D* 
     d->texMask = tex ? tex->mask : -1;
     d->mode = mode;
     d->flatColor = uniformColor;
+    d->keyColor = -1;
     d->zKey = zAvg;
     d->orderOff = e->order;
     if (zAvg < *zLo) *zLo = zAvg;
@@ -2279,6 +2396,124 @@ static void faceEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, ViewVertex3D* 
       if (d->vertexCount >= 4) perf3D.trisClipped++;
     }
     drawCount3D++;
+  }
+}
+
+/*
+ * Billboards are camera-facing quads, so all four corners share one viewZ and
+ * the perspective-correct uv path reduces to plain uv. The light term is
+ * evaluated once per billboard with the normal pointing back at the camera, and
+ * the key color is the RGB565 texel value left transparent. Billboards get a
+ * negative order bias because a keyed quad must land after the opaque geometry
+ * at its depth, otherwise it would be painted over by whatever shares its bucket.
+ */
+static void billboardPass3D(const XfFrameCtx3D* ctx, float* zLo, float* zHi) {
+  static const int8_t cornerUV[4][2] = {{0,0},{1,0},{1,1},{0,1}};
+  static const int8_t cornerTri[2][3] = {{0,1,2},{0,2,3}};
+  const float nearPlane = ctx->nearPlane;
+  const float* basis = ctx->basis.m;
+
+  for (int32_t i = 0; i < BILLBOARD3D_LIMIT; i++) {
+    Billboard3D* b = &billboards3D[i];
+    if (!b->inUse || b->hidden) continue;
+    const Texture3D* tex = &textures3D[b->textureIndex];
+    if (!tex->inUse || !tex->pixels) continue;
+
+    float ex = b->x - ctx->camX, ey = b->y - ctx->camY, ez = b->z - ctx->camZ;
+    float vx = basis[0]*ex + basis[1]*ey + basis[2]*ez;
+    float vy = basis[3]*ex + basis[4]*ey + basis[5]*ez;
+    float vz = basis[6]*ex + basis[7]*ey + basis[8]*ez;
+    if (vz < nearPlane || vz > ctx->farPlane) continue;
+
+    float rr = (fabsf(b->sx) > fabsf(b->sy) ? fabsf(b->sx) : fabsf(b->sy)) * 0.5f;
+    if (vz - rr > nearPlane) {
+      if (fabsf(vx) > (vz - rr) * ctx->tanHalfX + rr) continue;
+      if (fabsf(vy) > (vz - rr) * ctx->tanHalfY + rr) continue;
+    }
+    float iz = fastRecip3D(vz);
+
+    float lr = ctx->ambient[0] + emissiveLevel3D(b->emissive[0]);
+    float lg = ctx->ambient[1] + emissiveLevel3D(b->emissive[1]);
+    float lb = ctx->ambient[2] + emissiveLevel3D(b->emissive[2]);
+    if (b->lit) {
+      for (int8_t la = 0; la < ctx->activeLightCount; la++) {
+        const Light3D* l = &lights3D[ctx->activeLights[la]];
+        if (l->type == LIGHT3D_TYPE_DIRECTIONAL) {
+          float ndl = -l->tz;
+          if (ndl > 0.0f) { lr += l->r * ndl; lg += l->g * ndl; lb += l->b * ndl; }
+          continue;
+        }
+        float ldx = l->vx - vx, ldy = l->vy - vy, ldz = l->vz - vz;
+        float d2 = ldx*ldx + ldy*ldy + ldz*ldz;
+        if (d2 >= l->rangeSq) continue;
+        float inv = (d2 < 1e-6f) ? 1000.0f : fastInvSqrt3D(d2);
+        float dist = d2 * inv;
+        float ndl = -ldz * inv;
+        if (ndl <= 0.0f) continue;
+        float att = 1.0f - dist * l->invRange;
+        if (att <= 0.0f) continue;
+        if (l->type == LIGHT3D_TYPE_SPOT) {
+          float ca = -(ldx*l->bx + ldy*l->by + ldz*l->bz) * inv;
+          if (ca <= l->cosOuter) continue;
+          if (ca < l->cosInner) {
+            float ct = (ca - l->cosOuter) * l->cosInvDelta;
+            att *= ct * ct * (3.0f - 2.0f * ct);
+            if (att <= 0.0f) continue;
+          }
+        }
+        lr += l->r * ndl * att;
+        lg += l->g * ndl * att;
+        lb += l->b * ndl * att;
+      }
+    }
+    if (lr > 1.0f) lr = 1.0f; else if (lr < 0.0f) lr = 0.0f;
+    if (lg > 1.0f) lg = 1.0f; else if (lg < 0.0f) lg = 0.0f;
+    if (lb > 1.0f) lb = 1.0f; else if (lb < 0.0f) lb = 0.0f;
+    uint32_t uniformColor = (clamp3DI((int32_t)(lr * 255.0f + 0.5f), 0, 255) << 16)
+                          | (clamp3DI((int32_t)(lg * 255.0f + 0.5f), 0, 255) << 8)
+                          | clamp3DI((int32_t)(lb * 255.0f + 0.5f), 0, 255);
+
+    float hwpx = ctx->projScale * b->sx * 0.5f * iz;
+    float hhpx = ctx->projScale * b->sy * 0.5f * iz;
+    float csx = ctx->vpCx + ctx->projScale * vx * iz;
+    float csy = ctx->vpCy - ctx->projScale * vy * iz;
+    float sc = b->sc, ss = b->ss;
+
+    int32_t cornerX[4], cornerY[4];
+    for (int32_t k = 0; k < 4; k++) {
+      float fu = ((float)cornerUV[k][0] - 0.5f) * 2.0f * hwpx;
+      float fv = ((float)cornerUV[k][1] - 0.5f) * 2.0f * hhpx;
+      // Screen axes point right and down, so a counter-clockwise spin negates the sine on y.
+      cornerX[k] = (int32_t)((csx + fu * sc + fv * ss) * 256.0f);
+      cornerY[k] = (int32_t)((csy - (fu * ss + fv * sc)) * 256.0f);
+    }
+
+    for (int32_t t = 0; t < 2; t++) {
+      if (drawCount3D >= WORLD3D_MAX_TRIANGLES) return;
+      TriDraw3D* d = &drawList3D[drawCount3D++];
+      d->vertexCount = 3;
+      for (int32_t k = 0; k < 3; k++) {
+        int32_t ci = cornerTri[t][k];
+        d->sx[k] = cornerX[ci];
+        d->sy[k] = cornerY[ci];
+        d->ru[k] = (float)(cornerUV[ci][0] * 65536) * iz;
+        d->rv[k] = (float)(cornerUV[ci][1] * 65536) * iz;
+        d->rz[k] = iz;
+        d->color[k] = uniformColor;
+      }
+      d->tex = tex->pixels;
+      d->texW = tex->w;
+      d->texH = tex->h;
+      d->texMask = tex->mask;
+      d->mode = 3;
+      d->flatColor = uniformColor;
+      d->keyColor = b->keyColor;
+      d->zKey = vz;
+      d->orderOff = -1;
+      if (vz < *zLo) *zLo = vz;
+      if (vz > *zHi) *zHi = vz;
+      if (perf3DEnabled) perf3D.trisSubmitted += 1;
+    }
   }
 }
 
@@ -2578,6 +2813,8 @@ void updateWorld3D(DISPLAY_T* display) {
     }
   }
 
+  billboardPass3D(ctx, &zLo, &zHi);
+
   float span = zHi - zLo;
   if (span < 1e-4f) span = 1e-4f;
   float bucketScale = 4095.0f * fastRecip3D(span);
@@ -2771,6 +3008,8 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
     lightB5 = (t->flatColor & 0xFF) >> 3;
   }
   int32_t texW = t->texW, texH = t->texH, texMask = t->texMask;
+  int32_t key = t->keyColor;
+  bool keyed = key >= 0;
 
   for (int32_t sy = syStart; sy <= syEnd; sy++) {
     bool lower = (sy >= syMid);
@@ -2796,7 +3035,10 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
       perf3D.spans++;
       perf3D.pixels += (uint32_t)(px1 - px0 + 1);
     }
-    if (w3dDrawMask3D) markSpanMask3D(sy, px0, px1);
+    /* A keyed span cannot claim the whole span: only the runs it actually writes
+     * are marked, so the gap fill still owns the keyed pixels instead of keeping
+     * whatever was there before. */
+    if (w3dDrawMask3D && !keyed) markSpanMask3D(sy, px0, px1);
 
     switch (mode) {
       case 0: {
@@ -2840,15 +3082,24 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
         float dW = lower ? stepDnW : stepUpW;
         float distF = (float)dist * 0.00390625f;
         curUw += dUw * distF; curVw += dVw * distF; curW += dW * distF;
+        int32_t runStart = -1;
         for (int32_t x = px0; x <= px1; x++) {
           float f = (curW > 1e-12f) ? fastRecip3D(curW) : 0.0f;
           uint32_t smp = sampleTexel3D(texPix, texW, texH, texMask, (int32_t)(curUw * f), (int32_t)(curVw * f));
+          if (keyed) {
+            if (smp == key) {
+              if (runStart >= 0) { markSpanMask3D(sy, runStart, x - 1); runStart = -1; }
+              curUw += dUw; curVw += dVw; curW += dW; continue;
+            }
+            if (w3dDrawMask3D && runStart < 0) runStart = x;
+          }
           uint32_t r5 = (((smp >> 11) & 31) * (uint32_t)lightR5) >> 5;
           uint32_t g6 = (((smp >> 5) & 63) * (uint32_t)lightG6) >> 6;
           uint32_t b5 = ((smp & 31) * (uint32_t)lightB5) >> 5;
           row[x] = __builtin_bswap16((uint16_t)((r5 << 11) | (g6 << 5) | b5));
           curUw += dUw; curVw += dVw; curW += dW;
         }
+        if (keyed && runStart >= 0) markSpanMask3D(sy, runStart, px1);
         break;
       }
       default: { // mode 2: texture modulated by interpolated Gouraud light

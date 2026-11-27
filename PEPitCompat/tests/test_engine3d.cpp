@@ -1337,3 +1337,200 @@ TEST_CASE("engine3d: entities sharing a mesh can carry different textures", "[en
     CHECK(r > 100); CHECK(r < 160); CHECK(g > 100); CHECK(b > 100);
     resetWorld3D();
 }
+
+static void billHalfKeyColor(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b) {
+    if (x < 8) { *r = 248; *g = 0; *b = 248; }   // RGB565 0xF81F, the key color
+    else { *r = 255; *g = 255; *b = 255; }
+}
+
+static void billWhiteColor(int x, int y, uint8_t* r, uint8_t* g, uint8_t* b) {
+    *r = 255; *g = 255; *b = 255;
+}
+
+TEST_CASE("engine3d: billboards key out their masking color and spin in the screen plane", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_billboard_key");
+    writeSdFile(root, "models/halfkey.bmp", makeBmp24(16, 16, billHalfKeyColor));
+    resetWorld3D();
+
+    int16_t tex = loadTexture3D(String("/models/halfkey.bmp"));
+    REQUIRE(tex >= 0);
+    int16_t bill = createBillboard3D(tex, 0xF81F, false);
+    REQUIRE(bill >= 0);
+    CHECK(bill >= BILLBOARD3D_HANDLE_BASE);
+    scaleBillboard3D(bill, 100, 100);
+
+    Display3D d;
+    int r, g, b;
+    // Billboard at the origin, default camera at (0,0,-100): the quad is centred on
+    // screen with a ~104 px half-size, so 110 and 210 sit in opposite halves.
+    d.render();
+    Display3D::rgb(d.pixel(210, 120), r, g, b);
+    CHECK(r > 100); CHECK(g > 100); CHECK(b > 100);
+    Display3D::rgb(d.pixel(110, 120), r, g, b);
+    CHECK(r == 0); CHECK(g == 0); CHECK(b == 0);            // keyed texels keep the background
+    CHECK(d.litPixels() > 8000);                  // the unkeyed half of the quad
+
+    // The quad always faces the camera, so a spin turns the image in the screen plane:
+    // the keyed half moves from the left to the bottom.
+    rotateBillboard3D(bill, 90);
+    d.render();
+    Display3D::rgb(d.pixel(160, 70), r, g, b);
+    CHECK(r > 100); CHECK(g > 100); CHECK(b > 100);
+    Display3D::rgb(d.pixel(160, 170), r, g, b);
+    CHECK(r == 0); CHECK(g == 0); CHECK(b == 0);
+
+    turnBillboard3D(bill, 90);                    // 180 total: keyed half on the right
+    d.render();
+    Display3D::rgb(d.pixel(210, 120), r, g, b);
+    CHECK(r == 0); CHECK(g == 0); CHECK(b == 0);
+    Display3D::rgb(d.pixel(110, 120), r, g, b);
+    CHECK(r > 100); CHECK(g > 100); CHECK(b > 100);
+
+    REQUIRE(freeBillboard3D(bill));
+    CHECK(!freeBillboard3D(bill));
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: an unkeyed billboard covers its whole quad and hides on request", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_billboard_hide");
+    writeSdFile(root, "models/plain.bmp", makeBmp24(16, 16, billWhiteColor));
+    resetWorld3D();
+
+    int16_t tex = loadTexture3D(String("/models/plain.bmp"));
+    REQUIRE(tex >= 0);
+    int16_t bill = createBillboard3D(tex, -1, false);
+    REQUIRE(bill >= 0);
+    scaleBillboard3D(bill, 100, 100);
+
+    Display3D d;
+    d.render();
+    CHECK(d.litPixels() > 40000);                 // ~208x208 quad at 50% ambient
+    hideBillboard3D(bill, true);
+    d.render();
+    CHECK(d.litPixels() == 0);
+    hideBillboard3D(bill, false);
+    d.render();
+    CHECK(d.litPixels() > 40000);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: billboards shade from ambient and emission, lights only when created lit", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_billboard_light");
+    writeSdFile(root, "models/plain.bmp", makeBmp24(16, 16, billWhiteColor));
+    resetWorld3D();
+    ambientLight3D(0, 0, 0);
+
+    int16_t tex = loadTexture3D(String("/models/plain.bmp"));
+    REQUIRE(tex >= 0);
+    int16_t unlit = createBillboard3D(tex, -1, false);
+    int16_t lit = createBillboard3D(tex, -1, true);
+    REQUIRE(unlit >= 0);
+    REQUIRE(lit >= 0);
+    positionBillboard3D(unlit, -60, 0, 0);
+    positionBillboard3D(lit, 60, 0, 0);
+    scaleBillboard3D(unlit, 100, 100);
+    scaleBillboard3D(lit, 100, 100);
+
+    Display3D d;
+    int r, g, b;
+    d.render();
+    CHECK(d.litPixels() == 0);                    // no ambient, no lights, no emission
+
+    int16_t light = createLight3D(255, 255, 255, 0, 0, 0, 0, LIGHT3D_TYPE_DIRECTIONAL);
+    REQUIRE(light >= 0);
+    setLightDirection3D(light, 0, 0, 1);          // beam from behind the camera towards the scene
+    d.render();
+    Display3D::rgb(d.pixel(220, 120), r, g, b);   // lit billboard, camera-facing normal
+    CHECK(r > 200); CHECK(g > 200); CHECK(b > 200);
+    Display3D::rgb(d.pixel(100, 120), r, g, b);   // the unlit one ignores it
+    CHECK(r == 0); CHECK(g == 0); CHECK(b == 0);
+    freeLight3D(light);
+
+    setBillboardEmissive3D(unlit, 255, 0, 0);
+    d.render();
+    Display3D::rgb(d.pixel(100, 120), r, g, b);
+    CHECK(r > 240); CHECK(g < 10); CHECK(b < 10);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: a keyed billboard draws after opaque geometry so its key lets them through", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_billboard_order");
+    writeSdFile(root, "models/keyhalf.bmp", makeBmp24(16, 16, billHalfKeyColor));
+    resetWorld3D();
+    ambientLight3D(255, 255, 255);
+
+    int16_t tex = loadTexture3D(String("/models/keyhalf.bmp"));
+    REQUIRE(tex >= 0);
+    int16_t cube = createEntity3D(createMesh3DCube());
+    REQUIRE(cube >= 0);
+    entityColor3D(cube, 200, 60, 60);
+
+    int16_t bill = createBillboard3D(tex, 0xF81F, false);
+    REQUIRE(bill >= 0);
+    scaleBillboard3D(bill, 100, 100);
+    positionBillboard3D(bill, 0, 0, -40);  // nearer than the cube's visible face: view z 60 vs 75
+
+    Display3D d;
+    int r, g, b;
+    d.render();
+    Display3D::rgb(d.pixel(120, 120), r, g, b);   // key half: the cube behind still shows
+    CHECK(r > 120); CHECK(g < 80); CHECK(b < 80);
+    Display3D::rgb(d.pixel(210, 120), r, g, b);   // unkeyed half covers the cube
+    CHECK(r > 200); CHECK(g > 200); CHECK(b > 200);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: keyed texels stay unclaimed so the gap fill owns them", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_billboard_mask");
+    writeSdFile(root, "models/keyhalf.bmp", makeBmp24(16, 16, billHalfKeyColor));
+    // The compat shim refuses the engine3d helper tasks so drawing stays
+    // single-threaded; this case asserts the pipelined gap fill, so it opts in.
+    setenv("PEPIT_COMPAT_ALLOW_3D_TASKS", "1", 1);
+    resetWorld3D();
+    ambientLight3D(255, 255, 255);
+
+    int16_t tex = loadTexture3D(String("/models/keyhalf.bmp"));
+    REQUIRE(tex >= 0);
+    int16_t bill = createBillboard3D(tex, 0xF81F, false);
+    REQUIRE(bill >= 0);
+    scaleBillboard3D(bill, 100, 100);
+
+    TFT_eSprite disp = TFT_eSprite(&tft);
+    disp.setColorDepth(16);
+    disp.createSprite(320, 240, 2);
+    disp.frameBuffer(1);
+
+    beginWorld3DFill3D(&disp);
+    updateWorld3D(&disp);
+    drawWorld3D(&disp);
+    blitWorld3DFrame3D(&disp);
+    quiesceWorld3DBlit3D();
+
+    beginWorld3DFill3D(&disp);
+    REQUIRE(world3DMaskMode3D(&disp));
+
+    // A color the billboard cannot produce, planted inside the quad's key half:
+    // if the keyed span claimed the whole row the gap fill would leave it there.
+    int8_t target = disp.frameBufferId();
+    uint16_t* buf = (uint16_t*)disp.frameBuffer(target);
+    for (int y = 110; y < 130; y++)
+        for (int x = 110; x < 130; x++) buf[y * 320 + x] = __builtin_bswap16(0x001F);
+
+    updateWorld3D(&disp);
+    drawWorld3D(&disp);
+    blitWorld3DFrame3D(&disp);
+    quiesceWorld3DBlit3D();
+
+    int8_t drawnId = disp.frameBufferId() == target ? target : (target == 1 ? 2 : 1);
+    const uint16_t* pushed = (const uint16_t*)disp.frameBuffer(drawnId);
+    auto pushedPixel = [pushed](int x, int y) {
+        return __builtin_bswap16(pushed[y * 320 + x]);
+    };
+    int r, g, b;
+    Display3D::rgb(pushedPixel(120, 120), r, g, b);
+    CHECK(r == 0); CHECK(g == 0); CHECK(b == 0);          // gap-filled, not the sentinel
+    Display3D::rgb(pushedPixel(210, 120), r, g, b);
+    CHECK(r > 200); CHECK(g > 200); CHECK(b > 200);       // the drawn half claims its pixels
+    disp.deleteSprite();
+    resetWorld3D();
+}
