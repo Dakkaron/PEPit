@@ -1520,6 +1520,7 @@ void updateJumpData(JumpData* jumpData) {
                           "CumulatedTaskNumber="+String(jumpData->taskNumber + jumpData->cycleNumber * jumpData->totalTaskNumber)+"\n"+\
                           "TaskNumber="+String(taskNumber)+"\n"+\
                           "TotalTaskNumber="+String(jumpData->totalTaskNumber)+"\n"+\
+                          "TaskType="+String(PROFILE_TASK_TYPE_TRAMPOLINE)+"\n"+\
                           "CurrentRepetition="+String(jumpData->jumpCount)+"\n"+\
                           "CurrentBonusRepetition="+String(jumpData->bonusJumpCount)+"\n"+\
                           "CurrentlyJumping="+String(jumpData->currentlyJumping ? "true" : "false")+"\n"+\
