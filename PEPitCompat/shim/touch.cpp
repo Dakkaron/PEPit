@@ -111,6 +111,14 @@ extern void notifyKeyDown(SDL_Event* evt);
 // Clients that want delivery confirmation can poll for the control file to
 // disappear (it is renamed away on consumption).
 
+// Path is per-instance (see --control-path) so concurrent runs cannot steal
+// each other's commands through one shared /tmp file.
+static char g_controlPath[512] = "/tmp/pepit_control";
+
+void setControlPath(const char* path) {
+    snprintf(g_controlPath, sizeof(g_controlPath), "%s", path);
+}
+
 // Dispatch a single control-file command line.
 static void dispatchControlLine(const char* buf) {
     char cmd[16] = {0};
@@ -182,8 +190,8 @@ static void consumeCommandFile(const char* path) {
 }
 
 void checkSimulatedInput() {
-    // ---- MCP control file (/tmp/pepit_control) ----
-    consumeCommandFile("/tmp/pepit_control");
+    // ---- MCP control file (default /tmp/pepit_control, see --control-path) ----
+    consumeCommandFile(g_controlPath);
 
     // ---- Legacy headless test file (/tmp/pepit_touch): "CLICK <x> <y>" ----
     consumeCommandFile("/tmp/pepit_touch");

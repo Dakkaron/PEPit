@@ -7,7 +7,7 @@
  * Usage:
  *   pepit [--data-dir <path>] [--scale <N>] [--fullscreen]
  *         [--low-pressure-key <key>] [--good-pressure-key <key>]
- *         [--shot-key <key>] [--rec-key <key>] [--media-dir <path>]
+ *         [--shot-key <key>] [--rec-key <key>] [--media-dir <path>] [--control-path <path>]
  *         [--wip | --wip-games] [--help]
  * 
  * Keyboard keys use SDL scancode names (e.g. A, S, LEFT, RIGHT, SPACE).
@@ -56,6 +56,7 @@ extern void setScreenshotKey(int scancode);
 extern void checkScreenshotKey();
 extern void setRecordingKey(int scancode);
 extern void setMediaDir(const char* dir);
+extern void setControlPath(const char* path);
 extern void updateRecording();
 extern void stopRecordingIfActive();
 extern void notifyKeyDown(SDL_Event* evt);
@@ -84,6 +85,7 @@ static const struct option cliOptions[] = {
     {"shot-key",          required_argument, 0, 'k'},
     {"rec-key",           required_argument, 0, 'r'},
     {"media-dir",         required_argument, 0, 'm'},
+    {"control-path",      required_argument, 0, 'c'},
     {"profile",           required_argument, 0, 'p'},
     {"game",              required_argument, 0, 'G'},
     {"wip",               no_argument,       0, 'W'},
@@ -111,6 +113,11 @@ static void printUsage(const char* progName) {
     fprintf(stderr, "                                \"(recording)\" (default: R)\n");
     fprintf(stderr, "  -m, --media-dir <path>        Output directory for screenshots and video\n");
     fprintf(stderr, "                                recordings (default: /tmp)\n");
+    fprintf(stderr, "  -c, --control-path <path>     Command file polled each frame for TOUCH_DOWN/\n");
+    fprintf(stderr, "                                TOUCH_MOVE/TOUCH_UP/JOYSTICK/PRESSURE/SHOT/REC/\n");
+    fprintf(stderr, "                                QUIT (default: /tmp/pepit_control). Use a distinct\n");
+    fprintf(stderr, "                                path per instance when running several at once, so\n");
+    fprintf(stderr, "                                they do not consume each other's commands\n");
     fprintf(stderr, "  -p, --profile <name|id>       Drop straight in: select this profile on the\n");
     fprintf(stderr, "                                profile page (by profiles.ini `name`, or 0-based\n");
     fprintf(stderr, "                                slot index; index must be < 8) instead of waiting\n");
@@ -239,6 +246,7 @@ int main(int argc, char* argv[]) {
     int shotKey = SDL_SCANCODE_P;      // --shot-key: screenshot hotkey
     int recKey  = SDL_SCANCODE_R;      // --rec-key: start/stop gameplay video recording
     std::string mediaDir = "/tmp";     // --media-dir: screenshots + video recordings output dir
+    std::string controlPath = "/tmp/pepit_control";  // --control-path: per-instance command file
     const char* autoProfile = nullptr;  // --profile <name|id>
     const char* autoGame = nullptr;     // --game <name|id>
     bool wip = false;                   // --wip: whole SD root from WIPSDCardContent
@@ -246,7 +254,7 @@ int main(int argc, char* argv[]) {
 
     // Parse CLI arguments
     int opt;
-    while ((opt = getopt_long(argc, argv, "d:s:fl:g:k:r:m:p:G:hwW", cliOptions, nullptr)) != -1) {
+    while ((opt = getopt_long(argc, argv, "d:s:fl:g:k:r:m:c:p:G:hwW", cliOptions, nullptr)) != -1) {
         switch (opt) {
             case 'd':
                 dataDir = optarg;
@@ -282,6 +290,9 @@ int main(int argc, char* argv[]) {
                 mediaDir = optarg;
                 break;
             }
+            case 'c':
+                controlPath = optarg;
+                break;
             case 'p':
                 autoProfile = optarg;
                 break;
@@ -359,6 +370,9 @@ int main(int argc, char* argv[]) {
 
     // Configure screenshot/video output directory
     setMediaDir(mediaDir.c_str());
+
+    // Configure the control-file path before the first frame poll
+    setControlPath(controlPath.c_str());
     
     // Configure filesystem root directory and create it if missing
     SD_MMC.setRootDir(dataDir);
@@ -369,6 +383,7 @@ int main(int argc, char* argv[]) {
 
     printf("[PEPitCompat] Data directory: %s\n", dataDir.c_str());
     printf("[PEPitCompat] Media directory (screenshots/videos): %s\n", mediaDir.c_str());
+    printf("[PEPitCompat] Control file: %s\n", controlPath.c_str());
     printf("[PEPitCompat] Window scale: %dx\n", windowScale);
     printf("[PEPitCompat] Pressure keys: low=%s, good=%s\n",
            SDL_GetScancodeName(static_cast<SDL_Scancode>(lowPressureKey)),
