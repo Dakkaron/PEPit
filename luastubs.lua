@@ -125,6 +125,8 @@ function CreateLight(r, g, b, x, y, z, range, lightType) end
 function FreeLight(lightHandle) end
 function SetLightDirection(lightHandle, dx, dy, dz) end
 function SetLightCone(lightHandle, innerAngle, outerAngle) end
+function SetLightColor(lightHandle, r, g, b) end
+function SetLightRange(lightHandle, range) end
 function UpdateWorld() end
 function DrawWorld() end
 function SetViewport(x, y, w, h) end

@@ -84,6 +84,8 @@ int16_t createLight3D(uint8_t r, uint8_t g, uint8_t b, float x, float y, float z
 bool freeLight3D(int16_t handle);
 void setLightDirection3D(int16_t handle, float dx, float dy, float dz);
 void setLightCone3D(int16_t handle, float innerAngleDeg, float outerAngleDeg);
+void setLightColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b);
+void setLightRange3D(int16_t handle, float range);
 
 void updateWorld3D(DISPLAY_T* display);
 void drawWorld3D(DISPLAY_T* display);

@@ -634,6 +634,27 @@ Spot light cone angles in degrees: full brightness inside `innerAngle`, falling 
 
 **Returns:** nothing.
 
+### `SetLightColor(lightHandle, r, g, b)`
+Change a light's colour after creation (0-255 per channel). Takes effect on the next
+`UpdateWorld()`.
+
+| Param         | Type | Description    |
+|---------------|------|----------------|
+| `lightHandle` | int  | Light handle   |
+| `r`, `g`, `b` | int  | Color channels |
+
+**Returns:** nothing.
+
+### `SetLightRange(lightHandle, range)`
+Change a light's distance attenuation radius. `range` 0 means infinite range.
+
+| Param         | Type  | Description        |
+|---------------|-------|--------------------|
+| `lightHandle` | int   | Light handle       |
+| `range`       | float | Attenuation radius |
+
+**Returns:** nothing.
+
 ### `UpdateWorld()`
 Transforms, culls, lights and depth-sorts every entity's faces into the draw list. Must run
 before `DrawWorld()` each frame.

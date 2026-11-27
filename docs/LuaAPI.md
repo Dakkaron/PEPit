@@ -88,6 +88,8 @@ CreateLight(r, g, b, x, y, z, range, lightType)  -- entity handle
 FreeLight(lightHandle)
 SetLightDirection(lightHandle, dx, dy, dz)   -- aim the entity at a direction vector
 SetLightCone(lightHandle, innerAngle, outerAngle) -- spot cone in degrees
+SetLightColor(lightHandle, r, g, b)     -- change a light's colour after creation
+SetLightRange(lightHandle, range)       -- change reach; range 0 = infinite
 
 -- Rendering
 UpdateWorld()                      -- transforms, culls, lights and sorts all faces

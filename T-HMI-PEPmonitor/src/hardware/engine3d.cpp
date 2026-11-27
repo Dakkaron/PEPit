@@ -1426,6 +1426,26 @@ void setLightCone3D(int16_t handle, float innerAngleDeg, float outerAngleDeg) {
   lightSetCone3D(&lights3D[e->compIndex], innerAngleDeg, outerAngleDeg);
 }
 
+void setLightColor3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b) {
+  Entity3D* e = lightEntityFromHandle3D(handle);
+  if (!e) return;
+  Light3D* l = &lights3D[e->compIndex];
+  l->r = (float)r / 255.0f;
+  l->g = (float)g / 255.0f;
+  l->b = (float)b / 255.0f;
+}
+
+void setLightRange3D(int16_t handle, float range) {
+  Entity3D* e = lightEntityFromHandle3D(handle);
+  if (!e) return;
+  Light3D* l = &lights3D[e->compIndex];
+  if (range > 0.0f) {
+    l->range = range; l->invRange = 1.0f / range; l->rangeSq = range * range;
+  } else {
+    l->range = 0; l->invRange = 0; l->rangeSq = LIGHT3D_MAX_RANGE;
+  }
+}
+
 void resetWorld3D() {
   for (int16_t i = 0; i < MESH3D_LIMIT; i++) {
     if (world3DReady) freeMeshArrays3D(&meshes3D[i]);

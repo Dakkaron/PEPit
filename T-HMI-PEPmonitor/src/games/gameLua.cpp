@@ -1262,6 +1262,16 @@ static int lua_wrapper_setLightCone(lua_State* luaState) {
   return 0;
 }
 
+static int lua_wrapper_setLightColor(lua_State* luaState) {
+  setLightColor3D(luaL_checkinteger(luaState, 1), luaColorArg(luaState, 2), luaColorArg(luaState, 3), luaColorArg(luaState, 4));
+  return 0;
+}
+
+static int lua_wrapper_setLightRange(lua_State* luaState) {
+  setLightRange3D(luaL_checkinteger(luaState, 1), luaL_checknumber(luaState, 2));
+  return 0;
+}
+
 static int lua_wrapper_updateWorld(lua_State* luaState) {
   updateWorld3D(luaDisplay);
   return 0;
@@ -1423,6 +1433,8 @@ void initLua() {
   lua_register(luaState, "FreeLight", (lua_CFunction) &lua_wrapper_freeLight);
   lua_register(luaState, "SetLightDirection", (lua_CFunction) &lua_wrapper_setLightDirection);
   lua_register(luaState, "SetLightCone", (lua_CFunction) &lua_wrapper_setLightCone);
+  lua_register(luaState, "SetLightColor", (lua_CFunction) &lua_wrapper_setLightColor);
+  lua_register(luaState, "SetLightRange", (lua_CFunction) &lua_wrapper_setLightRange);
   lua_register(luaState, "UpdateWorld", (lua_CFunction) &lua_wrapper_updateWorld);
   lua_register(luaState, "DrawWorld", (lua_CFunction) &lua_wrapper_drawWorld);
   lua_register(luaState, "SetViewport", (lua_CFunction) &lua_wrapper_setViewport);

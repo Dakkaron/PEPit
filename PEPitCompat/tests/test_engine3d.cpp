@@ -817,6 +817,38 @@ TEST_CASE("engine3d: point light at camera fully lights the front face, range cu
     resetWorld3D();
 }
 
+TEST_CASE("engine3d: setLightColor3D/setLightRange3D mutate a live light", "[engine3d]") {
+    resetWorld3D();
+    ambientLight3D(0, 0, 0);
+    int16_t mesh = createMesh3DCube();
+    int16_t cube = createEntity3D(mesh);
+
+    int16_t light = createLight3D(255, 255, 255, 0, 0, -100, 0, LIGHT3D_TYPE_POINT);
+    REQUIRE(light >= 0);
+    Display3D d;
+    int r, g, b;
+    d.render();
+    Display3D::rgb(d.pixel(160, 120), r, g, b);
+    CHECK(r > 180);  // baseline: full-brightness white
+
+    setLightColor3D(light, 60, 60, 60);
+    d.render();
+    Display3D::rgb(d.pixel(160, 120), r, g, b);
+    CHECK(r > 20); CHECK(r < 120);  // same surface, clearly dimmer
+
+    setLightRange3D(light, 30);  // nearest cube vertex is 75 units away
+    d.render();
+    CHECK(d.pixel(160, 120) == 0);  // outside the new range
+
+    setLightRange3D(light, 0);  // 0 restores infinite range
+    d.render();
+    Display3D::rgb(d.pixel(160, 120), r, g, b);
+    CHECK(r > 20); CHECK(r < 120);  // lit again at the dimmed color
+
+    freeLight3D(light);
+    resetWorld3D();
+}
+
 TEST_CASE("engine3d: spot light respects cone — dark outside, lit when aimed at face", "[engine3d]") {
     resetWorld3D();
     ambientLight3D(0, 0, 0);
