@@ -6,6 +6,8 @@ description: Create or modify a PEPit Lua game in SDCardContent/games or WIPSDCa
 ## Rules
 
 - Ship `.lua` comment-free (parsed on-device; see AGENTS.md).
+- File and folder names are ASCII-only (FatFs on-device resolves names, not UTF-8 bytes). Contents of `gameconfig.ini` and the `.lua` files may use unicode (see Screen).
+- A game is sandboxed to its own directory: `RunScript` and `LoadSprite` resolve only inside `<games-dir>/<name>/` (`luaGamePath`, `gameLua.cpp`), so a shared library outside the game folder is unreachable (`..` is not a valid FatFs name). Games that use the progression library ship their own copy in the game folder and load it from `init.lua` with `RunScript("progressionlib.lua")`. Master copy: `SDCardContent/lua/progressionlib.lua` (copy it into the game folder; a running game can only read its own directory).
 - Never set `isHidden` in `gameconfig.ini` (defaults false; only joysticktest sets it - a self-test, not a game).
 - `luac -p` every touched file; before declaring done, test in the PEPitCompat emulator.
 - Canonical patterns: soccer (blow timing), balloon (steering + shop), monster2 (multi-file, data scripts, dex menu); design history in `TASK_INFO/`. Do not edit this skill unless asked.
