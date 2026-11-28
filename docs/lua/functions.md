@@ -257,10 +257,11 @@ sx, sy, s = Mode7WorldToScreen(wx, wy, camX, camY, camH, yaw, zoom, horizon, sta
 ## 3D Engine (Blitz3D-inspired)
 
 The 3D engine ([`engine3d.cpp`](../../T-HMI-PEPmonitor/src/hardware/engine3d.cpp)) is driven by
-**meshes**, **textures**, **entities**, **cameras**, **lights** and **billboards** — all referenced
-by integer handles like the 2D sprite handles. Handles are globally unique per kind: pivots, cameras
-and lights are entities and share the entity handle space; mesh, texture and billboard handles
-occupy their own ranges, so a handle only works with the functions of the family that returned it. A mesh is
+**meshes**, **textures**, **entities**, **cameras**, **lights**, **planes** and **billboards** — all
+referenced by integer handles like the 2D sprite handles. Handles are globally unique per kind:
+pivots, cameras, lights and planes are entities and share the entity handle space; mesh, texture and
+billboard handles occupy their own ranges, so a handle only works with the functions of the family
+that returned it. A mesh is
 object data, not a scene object: `CreateEntity` instantiates a visible entity from it, and
 several entities may share one mesh. Creation functions return `-1` on failure; the `Free*`
 functions return a boolean. A frame is rendered by calling `UpdateWorld()` and then `DrawWorld()`.
@@ -268,8 +269,8 @@ The engine is internally pipelined and split over both cores; that is invisible 
 changes the rendered result.
 
 Fixed capacities ([`engine3d.hpp`](../../T-HMI-PEPmonitor/src/hardware/engine3d.hpp)): **32
-meshes**, **64 textures**, **128 entities** (pivots, cameras and lights included), **8 lights**,
-**4 cameras**, **64 billboards**.
+meshes**, **64 textures**, **128 entities** (pivots, cameras, lights and planes included),
+**8 lights**, **4 cameras**, **64 billboards**, **16 planes**.
 
 Coordinate system: `+x` right, `+y` up, `+z` forward (into the scene). All rotations are in
 degrees: `pitch` turns about the x-axis (positive looks up), `yaw` about the y-axis (positive
@@ -303,8 +304,9 @@ Creates a procedural sphere centered at the origin.
 
 **Returns:** mesh handle (int), or `-1` on failure.
 
-### `CreatePlane(width, height)`
-Creates a flat quad in the XZ plane with normal `+y`, centered at the origin.
+### `CreateQuad(width, height)`
+Creates a flat finite quad in the XZ plane with normal `+y`, centered at the origin. For an infinite
+ground or cloud layer use `CreatePlane` instead.
 
 | Param    | Type  | Description                    |
 |----------|-------|--------------------------------|
@@ -395,6 +397,36 @@ has its own transform and color.
 ### `CreatePivot()`
 Creates an invisible transform node to parent entities to. Pivots render nothing but carry the
 full entity transform set, so turning a pivot orbits everything linked to it.
+
+**Returns:** entity handle (int), or `-1` on failure.
+
+### `CreatePlane(textureHandle = -1, keyColor = -1, lit = 1, verts = 48)`
+Creates an infinite ground or cloud layer as an **entity**: `MoveEntity`, `PositionEntity`,
+`RotateEntity`, `TurnEntity`, `ScaleEntity`, `EntityColor`, `EntityEmissive`, `HideEntity`,
+`EntityOrder` and `FreeEntity` all work on it. The plane has no mesh and no size — it always covers
+the whole view, and the engine re-tessellates it every frame around the camera: a hub at the
+camera's position on the plane, then rings of quads out to the far plane, so the detail is dense
+under the camera and coarse at the horizon. `verts` is the vertex budget that bounds those rings
+(16 wedges each, 1..8 rings, so 33..145 vertices).
+
+`ScaleEntity`'s `sx` and `sz` are the **texture tile size in world units**: the texture repeats once
+every `sx` units along the plane's local x and every `sz` units along its local z, anchored to the
+entity, so moving or rotating the plane moves the texture with it. `sy` does nothing: the plane has
+no thickness.
+
+The plane is **one-sided**: its front is the local `+y` side, and the camera sees nothing when it is
+on the other side. A cloud layer seen from below is therefore a plane placed above the camera and
+rotated `180` degrees of pitch. `keyColor` is an RGB565 texel value rendered fully transparent
+(`-1` for no keying) and, like billboards, a keyed plane paints after the opaque geometry at its
+depth, so what is behind it shows through the keyed texels. `lit = 0` shades from ambient and
+emissive only; `lit = 1` also takes the scene lights, whose falloff is evaluated per vertex.
+
+| Param            | Type  | Default | Description                                  |
+|------------------|-------|---------|----------------------------------------------|
+| `textureHandle`  | int   | `-1`    | Texture to tile; `-1` = flat entity color     |
+| `keyColor`       | int   | `-1`    | RGB565 texel made transparent; `-1` = none    |
+| `lit`            | int   | `1`     | `0` = ambient + emissive only                 |
+| `verts`          | int   | `48`    | Vertex budget that bounds the LOD rings       |
 
 **Returns:** entity handle (int), or `-1` on failure.
 

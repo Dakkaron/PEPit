@@ -93,6 +93,14 @@ typedef struct {
 
 typedef struct {
   bool inUse;
+  int16_t textureIndex;  // raw textures3D index, -1 = untextured
+  int32_t keyColor;      // RGB565 texel that becomes transparent, -1 = no keying
+  int8_t lit;
+  int8_t rings;          // LOD bands the creation vertex budget bought
+} Plane3D;
+
+typedef struct {
+  bool inUse;
   int16_t meshIndex;   // raw meshes3D index, -1 for pivot/camera/light entities
   int16_t parentIndex;
   float x, y, z;
@@ -184,9 +192,14 @@ static W3dSplitShared3D w3dSplitShared3D;
 #define lights3D (w3dSplitShared3D.lights)
 static Texture3D textures3D[TEXTURE3D_LIMIT];
 static Camera3D cameras3D[CAMERA3D_LIMIT];
-// Core 0 only: the split helper runs entity xf passes, never billboards, so
-// this pool needs no cache-safe placement.
+// Core 0 only: the split helper runs entity xf passes, never billboards or
+// planes, so these pools need no cache-safe placement.
 static Billboard3D billboards3D[BILLBOARD3D_LIMIT];
+static Plane3D planes3D[PLANE3D_LIMIT];
+
+// Wedges per LOD ring; a power of two so the wedge index wraps with a mask.
+#define PLANE3D_WEDGES 16
+#define PLANE3D_MAX_RINGS 8
 
 // Scratch/vtx allocations round up to whole 64-byte cache lines so every
 // split msync leg on them is line-exact.
@@ -1207,6 +1220,8 @@ static void freeEntityComponent3D(Entity3D* e) {
   } else if (e->kind == ENTITY3D_KIND_CAMERA) {
     if (implicitCamera3D && e->compIndex == 0) implicitCamera3D = false;
     memset(&cameras3D[e->compIndex], 0, sizeof(Camera3D));
+  } else if (e->kind == ENTITY3D_KIND_PLANE) {
+    memset(&planes3D[e->compIndex], 0, sizeof(Plane3D));
   }
 }
 
@@ -1586,6 +1601,51 @@ void hideBillboard3D(int16_t handle, bool hidden) {
   bb->hidden = hidden ? 1 : 0;
 }
 
+int16_t createPlane3D(int16_t textureHandle, int32_t keyColor, bool lit, int32_t vertexBudget) {
+  if (!ensureWorld3D()) return -1;
+  int16_t texIdx = -1;
+  if (textureHandle >= 0) {
+    if (textureHandle < TEXTURE3D_HANDLE_BASE || textureHandle >= TEXTURE3D_HANDLE_BASE + TEXTURE3D_LIMIT) {
+      Serial.println("engine3d: CreatePlane got an invalid texture handle!");
+      return -1;
+    }
+    texIdx = (int16_t)(textureHandle - TEXTURE3D_HANDLE_BASE);
+    if (!textures3D[texIdx].inUse) {
+      Serial.println("engine3d: CreatePlane got a freed texture handle!");
+      return -1;
+    }
+  }
+  int16_t pi = -1;
+  for (int16_t i = 0; i < PLANE3D_LIMIT; i++) {
+    if (!planes3D[i].inUse) { pi = i; break; }
+  }
+  if (pi < 0) {
+    Serial.println("engine3d: no free plane slot!");
+    return -1;
+  }
+  int16_t ei = allocEntitySlot3D();
+  if (ei < 0) {
+    Serial.println("engine3d: no free entity slot!");
+    return -1;
+  }
+  /* The key is compared against 16-bit texels, so a 24-bit color is accepted but
+   * reduced to the RGB565 value a texture can actually hold. */
+  Plane3D* pl = &planes3D[pi];
+  memset(pl, 0, sizeof(Plane3D));
+  pl->inUse = true;
+  pl->textureIndex = texIdx;
+  pl->keyColor = keyColor < 0 ? -1 :
+      (keyColor > 0xFFFF ? (int32_t)rgbTo5653D((uint32_t)keyColor) : keyColor);
+  pl->lit = lit ? 1 : 0;
+  int32_t rings = vertexBudget / PLANE3D_WEDGES - 1;
+  if (rings < 1) rings = 1;
+  else if (rings > PLANE3D_MAX_RINGS) rings = PLANE3D_MAX_RINGS;
+  pl->rings = (int8_t)rings;
+  entities3D[ei].kind = ENTITY3D_KIND_PLANE;
+  entities3D[ei].compIndex = pi;
+  return ei;
+}
+
 void resetWorld3D() {
   for (int16_t i = 0; i < MESH3D_LIMIT; i++) {
     if (world3DReady) freeMeshArrays3D(&meshes3D[i]);
@@ -1600,6 +1660,7 @@ void resetWorld3D() {
   memset(entities3D, 0, sizeof(entities3D));
   memset(lights3D, 0, sizeof(lights3D));
   memset(billboards3D, 0, sizeof(billboards3D));
+  memset(planes3D, 0, sizeof(planes3D));
   ambient3D[0] = 0.5f; ambient3D[1] = 0.5f; ambient3D[2] = 0.5f;
   drawCount3D = 0;
   w3d3DFrameActive3D = false;
@@ -2400,6 +2461,47 @@ static void faceEntityPass3D(int16_t ei, const XfFrameCtx3D* ctx, ViewVertex3D* 
 }
 
 /*
+ * Light collected at one view-space point for a view-space surface normal,
+ * clamped to 1.0 per channel. The billboard and plane passes shade whole quads
+ * and so have no per-mesh vertex loop to fuse the lighting into.
+ */
+static inline void lightAtPoint3D(const XfFrameCtx3D* ctx, float nx, float ny, float nz,
+    float px, float py, float pz, float* lr, float* lg, float* lb) {
+  for (int8_t la = 0; la < ctx->activeLightCount; la++) {
+    const Light3D* l = &lights3D[ctx->activeLights[la]];
+    if (l->type == LIGHT3D_TYPE_DIRECTIONAL) {
+      float ndl = nx*l->tx + ny*l->ty + nz*l->tz;
+      if (ndl > 0.0f) { *lr += l->r * ndl; *lg += l->g * ndl; *lb += l->b * ndl; }
+      continue;
+    }
+    float ldx = l->vx - px, ldy = l->vy - py, ldz = l->vz - pz;
+    float d2 = ldx*ldx + ldy*ldy + ldz*ldz;
+    if (d2 >= l->rangeSq) continue;
+    float inv = (d2 < 1e-6f) ? 1000.0f : fastInvSqrt3D(d2);
+    float dist = d2 * inv;
+    float ndl = (nx*ldx + ny*ldy + nz*ldz) * inv;
+    if (ndl <= 0.0f) continue;
+    float att = 1.0f - dist * l->invRange;
+    if (att <= 0.0f) continue;
+    if (l->type == LIGHT3D_TYPE_SPOT) {
+      float ca = -(ldx*l->bx + ldy*l->by + ldz*l->bz) * inv;
+      if (ca <= l->cosOuter) continue;
+      if (ca < l->cosInner) {
+        float ct = (ca - l->cosOuter) * l->cosInvDelta;
+        att *= ct * ct * (3.0f - 2.0f * ct);
+        if (att <= 0.0f) continue;
+      }
+    }
+    *lr += l->r * ndl * att;
+    *lg += l->g * ndl * att;
+    *lb += l->b * ndl * att;
+  }
+  if (*lr > 1.0f) *lr = 1.0f; else if (*lr < 0.0f) *lr = 0.0f;
+  if (*lg > 1.0f) *lg = 1.0f; else if (*lg < 0.0f) *lg = 0.0f;
+  if (*lb > 1.0f) *lb = 1.0f; else if (*lb < 0.0f) *lb = 0.0f;
+}
+
+/*
  * Billboards are camera-facing quads, so all four corners share one viewZ and
  * the perspective-correct uv path reduces to plain uv. The light term is
  * evaluated once per billboard with the normal pointing back at the camera, and
@@ -2435,40 +2537,8 @@ static void billboardPass3D(const XfFrameCtx3D* ctx, float* zLo, float* zHi) {
     float lr = ctx->ambient[0] + emissiveLevel3D(b->emissive[0]);
     float lg = ctx->ambient[1] + emissiveLevel3D(b->emissive[1]);
     float lb = ctx->ambient[2] + emissiveLevel3D(b->emissive[2]);
-    if (b->lit) {
-      for (int8_t la = 0; la < ctx->activeLightCount; la++) {
-        const Light3D* l = &lights3D[ctx->activeLights[la]];
-        if (l->type == LIGHT3D_TYPE_DIRECTIONAL) {
-          float ndl = -l->tz;
-          if (ndl > 0.0f) { lr += l->r * ndl; lg += l->g * ndl; lb += l->b * ndl; }
-          continue;
-        }
-        float ldx = l->vx - vx, ldy = l->vy - vy, ldz = l->vz - vz;
-        float d2 = ldx*ldx + ldy*ldy + ldz*ldz;
-        if (d2 >= l->rangeSq) continue;
-        float inv = (d2 < 1e-6f) ? 1000.0f : fastInvSqrt3D(d2);
-        float dist = d2 * inv;
-        float ndl = -ldz * inv;
-        if (ndl <= 0.0f) continue;
-        float att = 1.0f - dist * l->invRange;
-        if (att <= 0.0f) continue;
-        if (l->type == LIGHT3D_TYPE_SPOT) {
-          float ca = -(ldx*l->bx + ldy*l->by + ldz*l->bz) * inv;
-          if (ca <= l->cosOuter) continue;
-          if (ca < l->cosInner) {
-            float ct = (ca - l->cosOuter) * l->cosInvDelta;
-            att *= ct * ct * (3.0f - 2.0f * ct);
-            if (att <= 0.0f) continue;
-          }
-        }
-        lr += l->r * ndl * att;
-        lg += l->g * ndl * att;
-        lb += l->b * ndl * att;
-      }
-    }
-    if (lr > 1.0f) lr = 1.0f; else if (lr < 0.0f) lr = 0.0f;
-    if (lg > 1.0f) lg = 1.0f; else if (lg < 0.0f) lg = 0.0f;
-    if (lb > 1.0f) lb = 1.0f; else if (lb < 0.0f) lb = 0.0f;
+    // View-space normal of a camera-facing quad is -z.
+    if (b->lit) lightAtPoint3D(ctx, 0.0f, 0.0f, -1.0f, vx, vy, vz, &lr, &lg, &lb);
     uint32_t uniformColor = (clamp3DI((int32_t)(lr * 255.0f + 0.5f), 0, 255) << 16)
                           | (clamp3DI((int32_t)(lg * 255.0f + 0.5f), 0, 255) << 8)
                           | clamp3DI((int32_t)(lb * 255.0f + 0.5f), 0, 255);
@@ -2513,6 +2583,269 @@ static void billboardPass3D(const XfFrameCtx3D* ctx, float* zLo, float* zHi) {
       if (vz < *zLo) *zLo = vz;
       if (vz > *zHi) *zHi = vz;
       if (perf3DEnabled) perf3D.trisSubmitted += 1;
+    }
+  }
+}
+
+typedef struct {
+  float x, y, z, iz;
+  float u, v;          // plane-local position in texture tiles
+  uint32_t color;
+  int32_t sx, sy;      // Q8 screen projection, meaningful only when z >= near plane
+} PlaneVert3D;
+
+typedef struct {
+  const Texture3D* tex;
+  uint32_t flatColor;
+  int32_t keyColor;
+  int8_t mode;
+  int8_t orderOff;
+} PlaneStyle3D;
+
+/* uv stays absolute in tile units so the texture never swims with the LOD grid,
+ * but a far ring spans many tiles: reducing to the quad's own tile keeps the
+ * magnitude inside the int32 range sampleTexel3D multiplies it into, and matches
+ * the +-16 tile convention of loaded mesh uv. */
+static inline int32_t planeUVQ3D(float u, float mean) {
+  float m = (float)(int32_t)(mean + (mean >= 0.0f ? 0.5f : -0.5f));
+  float r = u - m;
+  if (r > 16.0f) r = 16.0f;
+  else if (r < -16.0f) r = -16.0f;
+  return (int32_t)(r * 65536.0f);
+}
+
+typedef struct {
+  const XfFrameCtx3D* ctx;
+  const float* c;      // plane-local -> view rotation
+  float ox, oy, oz;    // plane origin in view space
+  float nx, ny, nz;    // unit plane normal in view space
+  float invTileU, invTileV;
+  float projScale, vpCx, vpCy;
+  float lightBase[3];
+  uint32_t base[3];
+  bool lit;
+} PlaneFrame3D;
+
+static inline void planeBuildVert3D(const PlaneFrame3D* fr, float lu, float lv, PlaneVert3D* v) {
+  v->x = fr->c[0]*lu + fr->c[2]*lv + fr->ox;
+  v->y = fr->c[3]*lu + fr->c[5]*lv + fr->oy;
+  v->z = fr->c[6]*lu + fr->c[8]*lv + fr->oz;
+  v->iz = fastRecip3D(v->z);
+  v->u = lu * fr->invTileU;
+  v->v = lv * fr->invTileV;
+  projectClipPoint3D(&v->x, fr->projScale * v->iz, fr->vpCx, fr->vpCy, &v->sx, &v->sy);
+  if (!fr->lit) { v->color = 0; return; }
+  float lr = fr->lightBase[0], lg = fr->lightBase[1], lb = fr->lightBase[2];
+  lightAtPoint3D(fr->ctx, fr->nx, fr->ny, fr->nz, v->x, v->y, v->z, &lr, &lg, &lb);
+  uint32_t cr = clamp3DI((int32_t)(lr * fr->base[0]), 0, 255);
+  uint32_t cg = clamp3DI((int32_t)(lg * fr->base[1]), 0, 255);
+  uint32_t cb = clamp3DI((int32_t)(lb * fr->base[2]), 0, 255);
+  v->color = (cr << 16) | (cg << 8) | cb;
+}
+
+static inline void planeFinishTri3D(const PlaneStyle3D* st, TriDraw3D* d, float zAvg,
+    float* zLo, float* zHi) {
+  d->tex = st->tex ? st->tex->pixels : nullptr;
+  d->texW = st->tex ? st->tex->w : 0;
+  d->texH = st->tex ? st->tex->h : 0;
+  d->texMask = st->tex ? st->tex->mask : -1;
+  d->mode = st->mode;
+  d->flatColor = st->flatColor;
+  d->keyColor = st->keyColor;
+  d->zKey = zAvg;
+  d->orderOff = st->orderOff;
+  if (zAvg < *zLo) *zLo = zAvg;
+  if (zAvg > *zHi) *zHi = zAvg;
+  if (perf3DEnabled) perf3D.trisSubmitted++;
+}
+
+/* Vertices arrive in fan order: rasterTri3D splits them as {0,1,2} and {0,2,3},
+ * and the clipped path splits on that same diagonal so both paths wind alike. */
+static void planeFace3D(const XfFrameCtx3D* ctx, const PlaneStyle3D* st, const PlaneVert3D* p0,
+    const PlaneVert3D* p1, const PlaneVert3D* p2, const PlaneVert3D* p3, float* zLo, float* zHi) {
+  const PlaneVert3D* pts[4] = {p0, p1, p2, p3};
+  const uint8_t nv = p3 ? 4 : 3;
+  const float nearPlane = ctx->nearPlane;
+  float zmin = p0->z, zmax = p0->z;
+  for (uint8_t k = 1; k < nv; k++) {
+    if (pts[k]->z < zmin) zmin = pts[k]->z;
+    if (pts[k]->z > zmax) zmax = pts[k]->z;
+  }
+  if (zmax < nearPlane || zmin > ctx->farPlane) return;
+  if (drawCount3D >= WORLD3D_MAX_TRIANGLES) return;
+  float sumU = p0->u + p1->u + p2->u + (p3 ? p3->u : 0.0f);
+  float sumV = p0->v + p1->v + p2->v + (p3 ? p3->v : 0.0f);
+  float invN = (nv == 3) ? 0.3333333f : 0.25f;
+  float meanU = sumU * invN, meanV = sumV * invN;
+
+  if (zmin >= nearPlane) {
+    int32_t minx = p0->sx, maxx = p0->sx, miny = p0->sy, maxy = p0->sy;
+    for (uint8_t k = 1; k < nv; k++) {
+      if (pts[k]->sx < minx) minx = pts[k]->sx; else if (pts[k]->sx > maxx) maxx = pts[k]->sx;
+      if (pts[k]->sy < miny) miny = pts[k]->sy; else if (pts[k]->sy > maxy) maxy = pts[k]->sy;
+    }
+    if (maxx <= (vpL3D << 8) || minx >= (vpR3D << 8)
+        || maxy <= (vpT3D << 8) || miny >= (vpB3D << 8)) return;
+    TriDraw3D* d = &drawList3D[drawCount3D++];
+    d->vertexCount = nv;
+    float zAvg = 0.0f;
+    for (uint8_t k = 0; k < nv; k++) {
+      const PlaneVert3D* p = pts[k];
+      d->sx[k] = p->sx; d->sy[k] = p->sy;
+      d->ru[k] = (float)planeUVQ3D(p->u, meanU) * p->iz;
+      d->rv[k] = (float)planeUVQ3D(p->v, meanV) * p->iz;
+      d->rz[k] = p->iz;
+      d->color[k] = p->color;
+      zAvg += p->z;
+    }
+    planeFinishTri3D(st, d, zAvg * invN, zLo, zHi);
+    return;
+  }
+
+  uint8_t parts = (nv == 4) ? 2 : 1;
+  for (uint8_t part = 0; part < parts; part++) {
+    const PlaneVert3D* a = pts[0];
+    const PlaneVert3D* b = pts[part == 0 ? 1 : 2];
+    const PlaneVert3D* c = pts[part == 0 ? 2 : 3];
+    float clipPos[4][3];
+    uint32_t clipCol[4];
+    int32_t clipU[4], clipV[4];
+    uint8_t cc = clipTriangleNear3D(nearPlane, &a->x, &b->x, &c->x, a->color, b->color, c->color,
+        planeUVQ3D(a->u, meanU), planeUVQ3D(a->v, meanV),
+        planeUVQ3D(b->u, meanU), planeUVQ3D(b->v, meanV),
+        planeUVQ3D(c->u, meanU), planeUVQ3D(c->v, meanV),
+        clipPos, clipCol, clipU, clipV);
+    if (cc < 3) continue;
+    TriDraw3D* d = &drawList3D[drawCount3D++];
+    d->vertexCount = cc;
+    float zAvg = 0.0f;
+    for (uint8_t k = 0; k < cc; k++) {
+      float izc = fastRecip3D(clipPos[k][2]);
+      projectClipPoint3D(clipPos[k], ctx->projScale * izc, ctx->vpCx, ctx->vpCy, &d->sx[k], &d->sy[k]);
+      d->ru[k] = clipU[k] * izc;
+      d->rv[k] = clipV[k] * izc;
+      d->rz[k] = izc;
+      d->color[k] = clipCol[k];
+      zAvg += clipPos[k][2];
+    }
+    planeFinishTri3D(st, d, zAvg * ((cc == 3) ? 0.3333333f : 0.25f), zLo, zHi);
+    if (drawCount3D >= WORLD3D_MAX_TRIANGLES) return;
+  }
+}
+
+/*
+ * Ground and cloud layers. The grid is centred on the camera's orthogonal
+ * projection onto the plane, ring radii grow geometrically from the camera's own
+ * height above the plane out to the far plane, and every ring uses the same
+ * wedge count so neighbouring rings share their edges: no T-junction cracks
+ * between detail levels. A ring is as wide as it is far out, which holds each
+ * quad to a fixed fraction of its distance from the camera and keeps the vertex
+ * count inside the budget the plane was created with.
+ */
+static void planePass3D(const XfFrameCtx3D* ctx, float* zLo, float* zHi) {
+  static PlaneVert3D ringA[PLANE3D_WEDGES], ringB[PLANE3D_WEDGES];
+  static PlaneVert3D hub;
+  const float nearPlane = ctx->nearPlane;
+  const float* basis = ctx->basis.m;
+  const float step = 6.28318530718f / (float)PLANE3D_WEDGES;
+  const float stepCos = cosf(step), stepSin = sinf(step);
+
+  for (int16_t ei = 0; ei < ENTITY3D_LIMIT; ei++) {
+    Entity3D* e = &entities3D[ei];
+    if (!e->inUse || e->hidden || e->kind != ENTITY3D_KIND_PLANE || e->compIndex < 0) continue;
+    const Plane3D* pl = &planes3D[e->compIndex];
+    if (!pl->inUse) continue;
+    const Texture3D* tex = nullptr;
+    if (pl->textureIndex >= 0 && pl->textureIndex < TEXTURE3D_LIMIT &&
+        textures3D[pl->textureIndex].inUse && textures3D[pl->textureIndex].pixels) {
+      tex = &textures3D[pl->textureIndex];
+    }
+
+    float rot[9], epos[3];
+    entityWorldTransform3D(ei, rot, epos, 0);
+    Mat3 rotMat, basisMat, combined;
+    memcpy(rotMat.m, rot, sizeof(rotMat.m));
+    memcpy(basisMat.m, basis, sizeof(basisMat.m));
+    mat3Mul3D(&basisMat, &rotMat, &combined);
+    const float* c = combined.m;
+    float ex = epos[0] - ctx->camX, ey = epos[1] - ctx->camY, ez = epos[2] - ctx->camZ;
+    float ox = basis[0]*ex + basis[1]*ey + basis[2]*ez;
+    float oy = basis[3]*ex + basis[4]*ey + basis[5]*ez;
+    float oz = basis[6]*ex + basis[7]*ey + basis[8]*ez;
+    const float nx = c[1], ny = c[4], nz = c[7]; // plane normal (local +y) in view space
+    /* Plane-local camera position: (lu, lv) is the LOD centre and lh the height
+     * above the plane, which is also the one-sided visibility test. */
+    const float lh = -(c[1]*ox + c[4]*oy + c[7]*oz);
+    if (lh <= 0.0f || lh > ctx->farPlane) continue;
+    /* A view ray reaches the plane only where the normal leans away from it, and
+     * the pyramid's extreme rays decide whether any ray does at all. */
+    if (nz - fabsf(nx) * ctx->tanHalfX - fabsf(ny) * ctx->tanHalfY >= 0.0f) continue;
+    const float lu = -(c[0]*ox + c[3]*oy + c[6]*oz);
+    const float lv = -(c[2]*ox + c[5]*oy + c[8]*oz);
+
+    const bool lit = pl->lit != 0;
+    PlaneFrame3D fr;
+    fr.ctx = ctx;
+    fr.c = c; fr.ox = ox; fr.oy = oy; fr.oz = oz;
+    fr.nx = nx; fr.ny = ny; fr.nz = nz;
+    float tileU = fabsf(e->sx), tileV = fabsf(e->sz);
+    if (tileU < 1e-3f) tileU = 1e-3f;
+    if (tileV < 1e-3f) tileV = 1e-3f;
+    fr.invTileU = fastRecip3D(tileU);
+    fr.invTileV = fastRecip3D(tileV);
+    fr.projScale = ctx->projScale; fr.vpCx = ctx->vpCx; fr.vpCy = ctx->vpCy;
+    fr.lit = lit;
+    fr.base[0] = e->color[0]; fr.base[1] = e->color[1]; fr.base[2] = e->color[2];
+    fr.lightBase[0] = ctx->ambient[0] + emissiveLight3D(e->emissive[0], 0);
+    fr.lightBase[1] = ctx->ambient[1] + emissiveLight3D(e->emissive[1], 0);
+    fr.lightBase[2] = ctx->ambient[2] + emissiveLight3D(e->emissive[2], 0);
+
+    PlaneStyle3D st;
+    st.tex = tex;
+    st.keyColor = pl->keyColor;
+    /* A keyed quad has to land after the opaque geometry that shares its depth,
+     * otherwise the gap fill paints over its transparent texels. */
+    st.orderOff = pl->keyColor >= 0 ? -1 : e->order;
+    st.mode = tex ? (lit ? 2 : 3) : (lit ? 1 : 0);
+    st.flatColor = 0;
+    if (!lit) {
+      float lr = fr.lightBase[0], lg = fr.lightBase[1], lb = fr.lightBase[2];
+      if (lr > 1.0f) lr = 1.0f; if (lg > 1.0f) lg = 1.0f; if (lb > 1.0f) lb = 1.0f;
+      st.flatColor = ((uint32_t)clamp3DI((int32_t)(lr * fr.base[0] + 0.5f), 0, 255) << 16)
+                   | ((uint32_t)clamp3DI((int32_t)(lg * fr.base[1] + 0.5f), 0, 255) << 8)
+                   | (uint32_t)clamp3DI((int32_t)(lb * fr.base[2] + 0.5f), 0, 255);
+    }
+
+    const float r0 = (lh > nearPlane ? lh : nearPlane) * 0.5f;
+    const float ratio = powf(ctx->farPlane * fastRecip3D(r0), 1.0f / (float)pl->rings);
+    /* Wedge 0 points along the camera's forward direction projected onto the
+     * plane, so the finest quads sit in front of the camera; stepping the
+     * direction by a fixed rotation costs no trig per vertex and needs no table. */
+    float startU = c[6], startV = c[8];
+    float dl = sqrtf(startU*startU + startV*startV);
+    if (dl < 1e-4f) { startU = 1.0f; startV = 0.0f; }
+    else { startU *= fastRecip3D(dl); startV *= fastRecip3D(dl); }
+
+    planeBuildVert3D(&fr, lu, lv, &hub);
+    PlaneVert3D* prev = ringA;
+    PlaneVert3D* cur = ringB;
+    float r = r0;
+    for (int32_t k = 0; k <= pl->rings; k++) {
+      if (drawCount3D >= WORLD3D_MAX_TRIANGLES) return;
+      float du = startU, dv = startV;   // reset so every ring uses identical wedges
+      for (int32_t j = 0; j < PLANE3D_WEDGES; j++) {
+        planeBuildVert3D(&fr, lu + r*du, lv + r*dv, &cur[j]);
+        float nu = du * stepCos - dv * stepSin;
+        dv = du * stepSin + dv * stepCos;
+        du = nu;
+      }
+      for (int32_t j = 0; j < PLANE3D_WEDGES; j++) {
+        int32_t jn = (j + 1) & (PLANE3D_WEDGES - 1);
+        if (k == 0) planeFace3D(ctx, &st, &hub, &cur[jn], &cur[j], nullptr, zLo, zHi);
+        else planeFace3D(ctx, &st, &prev[j], &prev[jn], &cur[jn], &cur[j], zLo, zHi);
+      }
+      PlaneVert3D* swap = prev; prev = cur; cur = swap;
+      r *= ratio;
     }
   }
 }
@@ -2814,6 +3147,7 @@ void updateWorld3D(DISPLAY_T* display) {
   }
 
   billboardPass3D(ctx, &zLo, &zHi);
+  planePass3D(ctx, &zLo, &zHi);
 
   float span = zHi - zLo;
   if (span < 1e-4f) span = 1e-4f;
@@ -3124,6 +3458,7 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
         int32_t curG = (bIsLeft ? agB : agA) + ((dG * dist) >> 8);
         int32_t curB = (bIsLeft ? abB : abA) + ((dB * dist) >> 8);
         curUw += dUw * distF; curVw += dVw * distF; curW += dW * distF;
+        int32_t runStart = -1;
         for (int32_t x = px0; x <= px1; x++) {
           int32_t r8 = curR >> 8;
           int32_t g8 = curG >> 8;
@@ -3133,6 +3468,15 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
           if (b8 < 0) b8 = 0; else if (b8 > 255) b8 = 255;
           float f = (curW > 1e-12f) ? fastRecip3D(curW) : 0.0f;
           uint32_t smp = sampleTexel3D(texPix, texW, texH, texMask, (int32_t)(curUw * f), (int32_t)(curVw * f));
+          if (keyed) {
+            if (smp == key) {
+              if (runStart >= 0) { markSpanMask3D(sy, runStart, x - 1); runStart = -1; }
+              curR += dR; curG += dG; curB += dB;
+              curUw += dUw; curVw += dVw; curW += dW;
+              continue;
+            }
+            if (w3dDrawMask3D && runStart < 0) runStart = x;
+          }
           uint32_t r5 = (((smp >> 11) & 31) * (uint32_t)(r8 >> 3)) >> 5;
           uint32_t g6 = (((smp >> 5) & 63) * (uint32_t)(g8 >> 2)) >> 6;
           uint32_t b5 = ((smp & 31) * (uint32_t)(b8 >> 3)) >> 5;
@@ -3142,6 +3486,7 @@ static void rasterTriPart3D(TriDraw3D* t, uint8_t i0, uint8_t i1, uint8_t i2) {
           curB += dB;
           curUw += dUw; curVw += dVw; curW += dW;
         }
+        if (keyed && runStart >= 0) markSpanMask3D(sy, runStart, px1);
         break;
       }
     }

@@ -16,6 +16,7 @@
 #define LIGHT3D_LIMIT 8
 #define CAMERA3D_LIMIT 4
 #define BILLBOARD3D_LIMIT 64
+#define PLANE3D_LIMIT 16
 
 #define ENTITY3D_HANDLE_BASE 0
 #define MESH3D_HANDLE_BASE ENTITY3D_LIMIT
@@ -26,11 +27,12 @@
 #define MESH3D_MAX_FACES 8192
 #define WORLD3D_MAX_TRIANGLES 8192
 
-// Entity kinds; returned handles are entity handles for pivot/camera/light.
+// Entity kinds; returned handles are entity handles for pivot/camera/light/plane.
 #define ENTITY3D_KIND_MESH 0
 #define ENTITY3D_KIND_PIVOT 1
 #define ENTITY3D_KIND_LIGHT 2
 #define ENTITY3D_KIND_CAMERA 3
+#define ENTITY3D_KIND_PLANE 4
 
 #define LIGHT3D_TYPE_POINT 1
 #define LIGHT3D_TYPE_SPOT 2
@@ -107,6 +109,20 @@ void rotateBillboard3D(int16_t handle, float angleDeg);  // absolute, positive t
 void turnBillboard3D(int16_t handle, float deltaDeg);
 void setBillboardEmissive3D(int16_t handle, uint8_t r, uint8_t g, uint8_t b);
 void hideBillboard3D(int16_t handle, bool hidden);
+
+/*
+ * Infinite ground/cloud planes are entities, so every transform above applies.
+ * The mesh is generated per frame as a ring grid around the camera's projection
+ * onto the plane: vertex density is highest under the camera and drops off to
+ * the far plane, within the vertex budget given here (the engine builds a hub
+ * plus rings + 1 rings of 16 vertices, with rings = budget / 16 - 1 clamped to
+ * 1..8, so the cost tracks the budget).
+ * keyColor is an RGB565 texel rendered fully transparent, -1 for no keying;
+ * lit=false shades from ambient + emission only. ScaleEntity sets the texture
+ * tile size in world units along the plane's local x/z axes. The plane is
+ * one-sided, so rotate it 180 degrees to view it from the other side.
+ */
+int16_t createPlane3D(int16_t textureHandle, int32_t keyColor, bool lit, int32_t vertexBudget);
 
 void updateWorld3D(DISPLAY_T* display);
 void drawWorld3D(DISPLAY_T* display);

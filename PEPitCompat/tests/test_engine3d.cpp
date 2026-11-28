@@ -1534,3 +1534,209 @@ TEST_CASE("engine3d: keyed texels stay unclaimed so the gap fill owns them", "[e
     disp.deleteSprite();
     resetWorld3D();
 }
+
+TEST_CASE("engine3d: CreatePlane builds an infinite LOD ground and culls it from the back", "[engine3d]") {
+    resetWorld3D();
+    int16_t plane = createPlane3D(-1, -1, false, 48);   // untextured, unlit: ambient only
+    REQUIRE(plane >= 0);
+    CHECK(plane < ENTITY3D_LIMIT);              // a plane is an entity, so the Entity commands drive it
+    positionEntity3D(plane, 0, -30, 0);
+
+    Display3D d;
+    d.render();
+    CHECK(d.litPixels() > 25000);               // an infinite plane fills the whole lower half
+
+    rotateEntity3D(plane, 180, 0, 0);           // one-sided: the camera sits on the culled side
+    d.render();
+    CHECK(d.litPixels() == 0);
+    rotateEntity3D(plane, 0, 0, 0);
+    d.render();
+    CHECK(d.litPixels() > 25000);
+
+    hideEntity3D(plane, true);
+    d.render();
+    CHECK(d.litPixels() == 0);
+    hideEntity3D(plane, false);
+
+    // A ground the camera looks away from submits nothing: no view ray reaches it.
+    int16_t cam = createCamera3D();
+    REQUIRE(cam >= 0);
+    positionCamera3D(cam, 0, 0, -100);
+    rotateCamera3D(cam, 90, 0, 0);
+    d.render();
+    CHECK(d.litPixels() == 0);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: a plane's vertex budget bounds its tessellation", "[engine3d]") {
+    setWorld3DDebug3D(true);
+    Display3D d;
+    World3DPerf3D perf;
+
+    resetWorld3D();
+    int16_t coarse = createPlane3D(-1, -1, false, 32);   // 1 band: 2 rings, at most 48 tris
+    REQUIRE(coarse >= 0);
+    positionEntity3D(coarse, 0, -30, 0);
+    resetWorld3DPerf3D();
+    d.render();
+    getWorld3DPerf3D(&perf);
+    uint32_t coarseTris = perf.trisSubmitted;
+    CHECK(coarseTris > 0);
+    CHECK(coarseTris <= 48);
+
+    resetWorld3D();
+    int16_t fine = createPlane3D(-1, -1, false, 128);    // 6 bands: 7 rings, at most 208 tris
+    REQUIRE(fine >= 0);
+    positionEntity3D(fine, 0, -30, 0);
+    resetWorld3DPerf3D();
+    d.render();
+    getWorld3DPerf3D(&perf);
+    uint32_t fineTris = perf.trisSubmitted;
+    CHECK(fineTris > coarseTris);
+    CHECK(fineTris <= 208);
+
+    resetWorld3D();
+    int16_t greedy = createPlane3D(-1, -1, false, 100000);   // clamped to the ring cap
+    REQUIRE(greedy >= 0);
+    positionEntity3D(greedy, 0, -30, 0);
+    resetWorld3DPerf3D();
+    d.render();
+    getWorld3DPerf3D(&perf);
+    CHECK(perf.trisSubmitted > fineTris);
+    CHECK(perf.trisSubmitted <= 240);
+
+    setWorld3DDebug3D(false);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: a lit plane takes scene lights, an unlit one keeps ambient plus emission", "[engine3d]") {
+    resetWorld3D();
+    ambientLight3D(0, 0, 0);
+
+    int16_t ground = createPlane3D(-1, -1, true, 48);
+    int16_t cloud = createPlane3D(-1, -1, false, 48);
+    REQUIRE(ground >= 0);
+    REQUIRE(cloud >= 0);
+    positionEntity3D(ground, 0, -30, 0);
+    positionEntity3D(cloud, 0, 30, 0);
+    rotateEntity3D(cloud, 180, 0, 0);           // seen from below: the cloud layer case
+    entityEmissive3D(cloud, 255, 0, 0);
+
+    Display3D d;
+    int r, g, b;
+    d.render();
+    Display3D::rgb(d.pixel(160, 40), r, g, b);
+    CHECK(r > 200); CHECK(g < 40); CHECK(b < 40);        // emission alone, above the camera
+    Display3D::rgb(d.pixel(160, 200), r, g, b);
+    CHECK(r == 0); CHECK(g == 0); CHECK(b == 0);         // nothing lights the ground yet
+
+    int16_t light = createLight3D(255, 255, 255, 0, 0, 0, 0, LIGHT3D_TYPE_DIRECTIONAL);
+    REQUIRE(light >= 0);
+    setLightDirection3D(light, 0, -1, 0);                // beam straight down onto the ground
+    d.render();
+    Display3D::rgb(d.pixel(160, 200), r, g, b);
+    CHECK(r > 200); CHECK(g > 200); CHECK(b > 200);      // the lit ground catches it
+    Display3D::rgb(d.pixel(160, 40), r, g, b);
+    CHECK(r > 200); CHECK(g < 40); CHECK(b < 40);        // the unlit cloud ignores it
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: a keyed plane masks its key color and paints after opaque geometry", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_plane_key");
+    writeSdFile(root, "models/keyhalf.bmp", makeBmp24(16, 16, billHalfKeyColor));
+    resetWorld3D();
+    ambientLight3D(255, 255, 255);
+
+    int16_t tex = loadTexture3D(String("/models/keyhalf.bmp"));
+    REQUIRE(tex >= 0);
+    int16_t cube = createEntity3D(createMesh3DCube());
+    REQUIRE(cube >= 0);
+    entityColor3D(cube, 200, 60, 60);
+
+    // lit = true routes the key through the textured Gouraud path; one 400 unit
+    // tile spans the view, so the key half lands on the right of the screen.
+    int16_t plane = createPlane3D(tex, 0xF81F, true, 64);
+    REQUIRE(plane >= 0);
+    positionEntity3D(plane, 0, 0, -40);
+    rotateEntity3D(plane, 90, 0, 0);            // stand it up: front normal towards the camera
+    scaleEntity3D(plane, 400, 1, 400);
+
+    Display3D d;
+    int r, g, b;
+    d.render();
+    Display3D::rgb(d.pixel(170, 120), r, g, b);   // key half: the cube behind shows through
+    CHECK(r > 120); CHECK(g < 80); CHECK(b < 80);
+    Display3D::rgb(d.pixel(110, 120), r, g, b);   // the plane paints over the cube where it is keyed in
+    CHECK(r > 200); CHECK(g > 200); CHECK(b > 200);
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: plane key texels stay unclaimed so the gap fill owns them", "[engine3d]") {
+    std::filesystem::path root = makeSdRoot("engine3d_plane_mask");
+    writeSdFile(root, "models/keyhalf.bmp", makeBmp24(16, 16, billHalfKeyColor));
+    // The compat shim refuses the engine3d helper tasks so drawing stays
+    // single-threaded; this case asserts the pipelined gap fill, so it opts in.
+    setenv("PEPIT_COMPAT_ALLOW_3D_TASKS", "1", 1);
+    resetWorld3D();
+    ambientLight3D(255, 255, 255);
+
+    int16_t tex = loadTexture3D(String("/models/keyhalf.bmp"));
+    REQUIRE(tex >= 0);
+    int16_t plane = createPlane3D(tex, 0xF81F, true, 64);
+    REQUIRE(plane >= 0);
+    positionEntity3D(plane, 0, 0, -40);
+    rotateEntity3D(plane, 90, 0, 0);
+    scaleEntity3D(plane, 400, 1, 400);
+
+    TFT_eSprite disp = TFT_eSprite(&tft);
+    disp.setColorDepth(16);
+    disp.createSprite(320, 240, 2);
+    disp.frameBuffer(1);
+
+    beginWorld3DFill3D(&disp);
+    updateWorld3D(&disp);
+    drawWorld3D(&disp);
+    blitWorld3DFrame3D(&disp);
+    quiesceWorld3DBlit3D();
+
+    beginWorld3DFill3D(&disp);
+    REQUIRE(world3DMaskMode3D(&disp));
+
+    // A color the plane cannot produce, planted inside its key half: if the keyed
+    // span claimed the whole row the gap fill would leave it there.
+    int8_t target = disp.frameBufferId();
+    uint16_t* buf = (uint16_t*)disp.frameBuffer(target);
+    for (int y = 110; y < 130; y++)
+        for (int x = 200; x < 220; x++) buf[y * 320 + x] = __builtin_bswap16(0x001F);
+
+    updateWorld3D(&disp);
+    drawWorld3D(&disp);
+    blitWorld3DFrame3D(&disp);
+    quiesceWorld3DBlit3D();
+
+    int8_t drawnId = disp.frameBufferId() == target ? target : (target == 1 ? 2 : 1);
+    const uint16_t* pushed = (const uint16_t*)disp.frameBuffer(drawnId);
+    auto pushedPixel = [pushed](int x, int y) {
+        return __builtin_bswap16(pushed[y * 320 + x]);
+    };
+    int r, g, b;
+    Display3D::rgb(pushedPixel(210, 120), r, g, b);
+    CHECK(r == 0); CHECK(g == 0); CHECK(b == 0);          // gap-filled, not the sentinel
+    Display3D::rgb(pushedPixel(110, 120), r, g, b);
+    CHECK(r > 200); CHECK(g > 200); CHECK(b > 200);       // the drawn half claims its pixels
+    disp.deleteSprite();
+    resetWorld3D();
+}
+
+TEST_CASE("engine3d: FreeEntity releases a plane slot", "[engine3d]") {
+    resetWorld3D();
+    int16_t planes[PLANE3D_LIMIT];
+    for (int i = 0; i < PLANE3D_LIMIT; i++) {
+        planes[i] = createPlane3D(-1, -1, false, 32);
+        REQUIRE(planes[i] >= 0);
+    }
+    CHECK(createPlane3D(-1, -1, false, 32) == -1);        // plane pool full
+    REQUIRE(freeEntity3D(planes[3]));
+    CHECK(createPlane3D(-1, -1, false, 32) >= 0);         // the slot came back
+    resetWorld3D();
+}

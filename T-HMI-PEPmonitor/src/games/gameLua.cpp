@@ -1099,10 +1099,18 @@ static int lua_wrapper_createSphere(lua_State* luaState) {
   return 1;
 }
 
-static int lua_wrapper_createPlane(lua_State* luaState) {
+static int lua_wrapper_createQuad(lua_State* luaState) {
   float width = luaL_checknumber(luaState, 1);
   float height = luaL_checknumber(luaState, 2);
   lua_pushinteger(luaState, createMesh3DPlane(width, height));
+  return 1;
+}
+
+static int lua_wrapper_createPlane(lua_State* luaState) {
+  int32_t keyColor = luaL_optinteger(luaState, 2, -1);
+  int32_t lit = luaL_optinteger(luaState, 3, 1);
+  int32_t verts = luaL_optinteger(luaState, 4, 48);
+  lua_pushinteger(luaState, createPlane3D(luaL_checkinteger(luaState, 1), keyColor, lit != 0, verts));
   return 1;
 }
 
@@ -1461,6 +1469,7 @@ void initLua() {
   lua_register(luaState, "LoadMesh", (lua_CFunction) &lua_wrapper_loadMesh);
   lua_register(luaState, "CreateCube", (lua_CFunction) &lua_wrapper_createCube);
   lua_register(luaState, "CreateSphere", (lua_CFunction) &lua_wrapper_createSphere);
+  lua_register(luaState, "CreateQuad", (lua_CFunction) &lua_wrapper_createQuad);
   lua_register(luaState, "CreatePlane", (lua_CFunction) &lua_wrapper_createPlane);
   lua_register(luaState, "FreeMesh", (lua_CFunction) &lua_wrapper_freeMesh);
   lua_register(luaState, "SetMeshColor", (lua_CFunction) &lua_wrapper_setMeshColor);

@@ -15,8 +15,8 @@ DrawString(str, x, y)
 The 3D engine is inspired by the Blitz3D function reference. All 3D objects
 (models, textures, entities, cameras, lights) are referenced by integer
 handles, just like the 2D sprite handles. Handles are globally unique across
-the kinds: pivots, cameras and lights are entities and share the entity
-handle space, while mesh and texture handles live in their own ranges, so a
+the kinds: pivots, cameras, lights and planes are entities and share the entity
+handle space, while mesh, texture and billboard handles live in their own ranges, so a
 handle can only be used with the family of functions it came from. A handle
 of -1 means the creation failed. A new frame is rendered by calling
 `UpdateWorld()` followed by `DrawWorld()`, which draws into the game display
@@ -35,7 +35,7 @@ LoadMesh(path)                     -- mesh handle; a mtllib material file is
                                    -- BMP texture is applied when available
 CreateCube()                       -- mesh handle, 50-unit Blitz3D-style cube, -25..25 on all axes
 CreateSphere(radius, segments)     -- mesh handle, segments defaults to 12
-CreatePlane(width, height)         -- mesh handle, flat XZ plane, normal +y
+CreateQuad(width, height)          -- mesh handle, flat finite XZ quad, normal +y
 FreeMesh(meshHandle)
 SetMeshColor(meshHandle, r, g, b)  -- 0..255 per channel, default 255,255,255
 SetMeshEmissive(meshHandle, r, g, b)  -- additive self-light, default 0,0,0; an emissive
@@ -47,10 +47,20 @@ SetMeshFlipped(meshHandle, flipped)        -- flip winding for mirrored models
 LoadTexture(path)                  -- texture handle
 FreeTexture(textureHandle)
 
--- Entities: instances of a mesh in the world, plus pivots, cameras and
--- lights, which are entities too and accept every transform below.
+-- Entities: instances of a mesh in the world, plus pivots, cameras, lights and
+-- planes, which are entities too and accept every transform below.
 CreateEntity(meshHandle)           -- entity handle; several entities may share one mesh
 CreatePivot()                      -- entity handle, an invisible transform node to parent others to
+-- Infinite ground/cloud layers: an entity whose mesh the engine generates every
+-- frame as a ring grid around the camera, dense under the camera and coarse at
+-- the horizon. It is one-sided (front = local +y), so a cloud layer seen from
+-- below sits above the camera rotated 180 degrees of pitch. ScaleEntity's sx and
+-- sz are the texture tile size in world units; sy is unused. keyColor is the
+-- RGB565 texel rendered fully transparent; lit = 0 shades from ambient and
+-- emissive only. verts bounds the tessellation (16 wedges per LOD ring).
+CreatePlane(textureHandle, keyColor, lit, verts)  -- entity handle; textureHandle -1
+                                    -- = flat entity color, keyColor -1 = no keying,
+                                    -- lit defaults to 1, verts defaults to 48
 FreeEntity(entityHandle)
 MoveEntity(entityHandle, x, y, z)  -- translate along the entity's own rotated axes
 PositionEntity(entityHandle, x, y, z)

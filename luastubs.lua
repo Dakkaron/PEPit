@@ -93,7 +93,7 @@ DIRECTIONALLIGHT = 4
 function LoadMesh(path) end
 function CreateCube() end
 function CreateSphere(radius, segments) end
-function CreatePlane(width, height) end
+function CreateQuad(width, height) end
 function FreeMesh(meshHandle) end
 function SetMeshColor(meshHandle, r, g, b) end
 function SetMeshEmissive(meshHandle, r, g, b) end
@@ -103,6 +103,10 @@ function SetMeshTexture(meshHandle, textureHandle) end
 function SetMeshFlipped(meshHandle, flipped) end
 function CreateEntity(meshHandle) end
 function CreatePivot() end
+-- Infinite LOD plane (ground or cloud layer): returns an entity handle, so the
+-- Entity* transform functions drive it. textureHandle -1 = flat entity color,
+-- keyColor -1 = no keying, lit defaults to 1, verts bounds the tessellation.
+function CreatePlane(textureHandle, keyColor, lit, verts) return 0; end
 function MoveEntity(entityHandle, x, y, z) end
 function FreeEntity(entityHandle) end
 function PositionEntity(entityHandle, x, y, z) end
